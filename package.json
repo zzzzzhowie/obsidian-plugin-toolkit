@@ -1,0 +1,30 @@
+{
+    "name": "obsidian-plugin-toolkit",
+    "version": "1.0.0",
+    "description": "Monorepo for Obsidian plugins",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "pnpm --filter \"./packages/*\" dev",
+        "build": "pnpm --filter \"./packages/*\" build",
+        "lint": "pnpm --filter \"./packages/*\" lint",
+        "dev:file-explorer": "pnpm --filter @obsidian-plugin-toolkit/file-explorer-enhancements dev",
+        "dev:copy-path": "pnpm --filter @obsidian-plugin-toolkit/copy-path dev",
+        "dev:paste-enhanced": "pnpm --filter @obsidian-plugin-toolkit/paste-enhanced dev",
+        "build:file-explorer": "pnpm --filter @obsidian-plugin-toolkit/file-explorer-enhancements build",
+        "build:copy-path": "pnpm --filter @obsidian-plugin-toolkit/copy-path build",
+        "build:paste-enhanced": "pnpm --filter @obsidian-plugin-toolkit/paste-enhanced build"
+    },
+    "keywords": [
+        "obsidian",
+        "plugins",
+        "monorepo"
+    ],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {},
+    "engines": {
+        "node": ">=16",
+        "pnpm": ">=8"
+    }
+}

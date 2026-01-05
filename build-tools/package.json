@@ -1,0 +1,15 @@
+{
+	"name": "@obsidian-plugin-toolkit/build-tools",
+	"version": "1.0.0",
+	"description": "Shared build tools for Obsidian plugins",
+	"type": "module",
+	"main": "esbuild.config.mjs",
+	"exports": {
+		"./esbuild": "./esbuild.config.mjs",
+		"./version-bump": "./version-bump.mjs"
+	},
+	"dependencies": {
+		"esbuild": "0.25.5"
+	}
+}
+
