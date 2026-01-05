@@ -1,0 +1,292 @@
+/*
+
+This CSS file will be included with your plugin, and
+available in the app when your plugin is enabled.
+
+*/
+
+/* Pinned Items Container */
+.pinned-items-container {
+	padding: 2px 4px;
+	margin-bottom: 2px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	/* Ensure it doesn't interfere with the file explorer */
+	position: relative;
+	z-index: 1;
+	flex-shrink: 0;
+	/* Force visibility */
+	display: block !important;
+	visibility: visible !important;
+	opacity: 1 !important;
+	/* Ensure it has a background so it's visible */
+	background-color: var(--background-primary);
+	/* iOS specific fixes */
+	-webkit-transform: translateZ(0);
+	transform: translateZ(0);
+}
+
+/* Fallback container styling */
+.pinned-items-container.pinned-items-fallback {
+	order: -1; /* Ensure it appears first in flex containers */
+}
+
+/* Ensure nav-files-container stays visible */
+.nav-files-container {
+	display: block !important;
+	visibility: visible !important;
+}
+
+.pinned-item {
+	display: flex;
+	align-items: center;
+	padding: 2px 4px;
+	margin: 0;
+	border-radius: 3px;
+	cursor: pointer;
+	transition: background-color 0.15s ease;
+	position: relative;
+	/* Better touch target size for mobile */
+	min-height: 28px;
+	/* iOS single-tap fixes */
+	-webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+	touch-action: manipulation;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.pinned-item:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+/* Active state for mobile touch feedback */
+.pinned-item:active {
+	background-color: var(--background-modifier-hover);
+}
+
+.pinned-item-icon {
+	margin-right: 4px;
+	font-size: 12px;
+	flex-shrink: 0;
+}
+
+.pinned-item-name {
+	flex: 1;
+	font-size: 11px;
+	color: var(--text-normal);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pinned-item-unpin {
+	margin-left: 2px;
+	font-size: 14px;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 2px 4px;
+	border-radius: 3px;
+	transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+	flex-shrink: 0;
+	/* Better touch target for mobile */
+	min-width: 24px;
+	min-height: 24px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	/* iOS single-tap fixes */
+	-webkit-tap-highlight-color: rgba(0, 0, 0, 0.1);
+	touch-action: manipulation;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+/* Show unpin button on mobile (touchscreen devices) */
+@media (hover: none) and (pointer: coarse) {
+	.pinned-item-unpin {
+		opacity: 0.6;
+	}
+}
+
+/* Hide unpin button on desktop until hover */
+@media (hover: hover) and (pointer: fine) {
+	.pinned-item-unpin {
+		opacity: 0;
+	}
+	
+	.pinned-item:hover .pinned-item-unpin {
+		opacity: 1;
+	}
+}
+
+.pinned-item-unpin:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+	transform: scale(1.1);
+}
+
+/* Active state for mobile */
+.pinned-item-unpin:active {
+	background-color: var(--background-modifier-active-hover);
+	color: var(--text-normal);
+	opacity: 1;
+	transform: scale(0.95);
+}
+
+/* Settings Styles */
+.pinned-items-list {
+	list-style: none;
+	padding: 0;
+	margin: 12px 0;
+}
+
+.pinned-items-list li {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 12px;
+	margin: 4px 0;
+	background-color: var(--background-secondary);
+	border-radius: 4px;
+	transition: background-color 0.15s ease, transform 0.1s ease;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.pinned-items-list li:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.pinned-items-list li.dragging {
+	opacity: 0.5;
+}
+
+.pinned-items-list li.drag-over {
+	background-color: var(--background-modifier-active-hover);
+	border-top: 2px solid var(--interactive-accent);
+}
+
+.pinned-item-drag-handle {
+	margin-right: 8px;
+	color: var(--text-muted);
+	cursor: grab;
+	font-size: 14px;
+	line-height: 1;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.pinned-item-drag-handle:active {
+	cursor: grabbing;
+}
+
+.pinned-item-path {
+	flex: 1;
+	font-family: var(--font-monospace);
+	font-size: 12px;
+}
+
+.pinned-item-remove-btn {
+	margin-left: 12px;
+	padding: 4px 12px;
+	font-size: 12px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: none;
+	border-radius: 3px;
+	cursor: pointer;
+	transition: background-color 0.15s ease;
+}
+
+.pinned-item-remove-btn:hover {
+	background-color: var(--interactive-accent-hover);
+}
+
+/* Underline style for folders with folder notes */
+.nav-folder-title.has-folder-note .nav-folder-title-content {
+	text-decoration: underline;
+	cursor: pointer !important;
+}
+
+/* Add hover effect for folders with folder notes */
+.nav-folder-title.has-folder-note .nav-folder-title-content:hover {
+	text-decoration: underline;
+	opacity: 0.7;
+	background-color: var(--background-modifier-hover);
+	border-radius: 3px;
+}
+
+/* Hide folder note files - use visibility to avoid layout shift */
+.tree-item.nav-file.is-folder-note-hidden {
+	display: none !important;
+	visibility: hidden !important;
+	height: 0 !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	overflow: hidden !important;
+}
+
+/* File Count Badge */
+.file-count-badge {
+	position: absolute;
+	right: 4px;
+	top: 50%;
+	transform: translateY(-50%);
+	padding: 1px 4px;
+	font-size: 10px;
+	font-weight: 600;
+	color: var(--text-normal);
+	background-color: var(--background-secondary);
+	border-radius: 6px;
+	user-select: none;
+	-webkit-user-select: none;
+	font-family: var(--font-monospace);
+	pointer-events: none;
+	line-height: 1.3;
+	z-index: 100;
+	white-space: nowrap;
+	min-width: 16px;
+	text-align: center;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+	flex-shrink: 0;
+}
+
+/* Darker background for better visibility */
+.theme-dark .file-count-badge {
+	background-color: rgba(255, 255, 255, 0.12);
+	color: var(--text-muted);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Lighter color for light theme */
+.theme-light .file-count-badge {
+	background-color: rgba(0, 0, 0, 0.06);
+	color: var(--text-muted);
+	border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Ensure nav-folder-title has position relative for absolute positioning */
+.nav-folder-title {
+	position: relative;
+	padding-right: 0 !important;
+	display: flex !important;
+	align-items: center;
+}
+
+/* Adjust folder title content - no ellipsis, just hide overflow */
+.nav-folder-title-content {
+	display: inline-block;
+	overflow: hidden;
+	white-space: nowrap;
+	flex: 1;
+	min-width: 0;
+}
+
+/* Only add padding when file count is enabled */
+.file-count-enabled .nav-folder-title-content {
+	padding-right: 30px;
+}
+
+/* Ensure folder note indicator doesn't cause text overflow */
+.nav-folder-title-content .folder-note-indicator {
+	flex-shrink: 0;
+}

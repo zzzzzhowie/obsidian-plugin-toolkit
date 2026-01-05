@@ -1,0 +1,9 @@
+{
+	"id": "copy-path",
+	"name": "Copy Path",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Copy absolute path of current file with optional header anchor (cmd+option+C).",
+	"author": "",
+	"isDesktopOnly": false
+}
