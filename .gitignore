@@ -36,11 +36,12 @@ pnpm-debug.log*
 *.temp
 
 # Obsidian plugin specific build outputs
-obsidian-plugin-file-explorer/
-obsidian-plugin-copy-path/
-obsidian-plugin-paste-enhanced/
+**/obsidian-plugin-*/
 dist/
-copy-path/
-paste-enhanced/
-file-explorer-enhancements/
+
+# Source maps
+*.map
+
+# Obsidian plugin data
+data.json
 
