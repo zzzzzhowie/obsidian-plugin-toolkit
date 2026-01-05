@@ -309,7 +309,10 @@ export class FolderNoteManager {
 							if (clickX >= textRect.left && clickX <= textRect.right) {
 								e.preventDefault();
 								e.stopPropagation();
-								const leaf = this.app.workspace.getLeaf(false);
+								// Check for Cmd (Mac) or Ctrl (Windows/Linux) key
+								// If modifier key pressed, open in new tab; otherwise open in current tab
+								const openInNewTab = e.metaKey || e.ctrlKey;
+								const leaf = this.app.workspace.getLeaf(openInNewTab);
 								leaf.openFile(folderNote);
 							}
 							// Otherwise, let the default toggle behavior happen

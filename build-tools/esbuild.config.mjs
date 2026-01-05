@@ -120,6 +120,14 @@ if you want to view the source, please visit the github repository of this plugi
 				copyFileSync(file, join(distDir, file));
 			}
 		}
+		
+		// Copy data.json if it exists in package root (for plugins that need initial data)
+		// Only copy if it doesn't already exist in distDir (preserve existing data.json)
+		const dataJsonPath = "data.json";
+		const distDataJsonPath = join(distDir, "data.json");
+		if (existsSync(dataJsonPath) && !existsSync(distDataJsonPath)) {
+			copyFileSync(dataJsonPath, distDataJsonPath);
+		}
 
 		// Copy main.js to root directory (required by Obsidian)
 		if (existsSync(join(distDir, "main.js"))) {
