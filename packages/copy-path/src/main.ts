@@ -89,14 +89,16 @@ export default class CopyPathPlugin extends Plugin {
 			const headerAnchor = this.getCurrentHeaderAnchor(activeView);
 			
 			// Build the path with optional header anchor
-			const pathToCopy = headerAnchor ? `${absolutePath}#${headerAnchor}` : absolutePath;
+			const pathWithoutQuotes = headerAnchor ? `${absolutePath}#${headerAnchor}` : absolutePath;
+			// Wrap path with double quotes
+			const pathToCopy = `"${pathWithoutQuotes}"`;
 
 			// Copy to clipboard
 			await navigator.clipboard.writeText(pathToCopy);
 			
 			// Show notification with absolute path
 			const displayPath = headerAnchor ? `${absolutePath}#${headerAnchor}` : absolutePath;
-			new Notice(`Path copied: ${displayPath}`);
+			new Notice(`Path copied: "${displayPath}"`);
 		} catch (error) {
 			// Silently fail
 		}
@@ -124,6 +126,11 @@ export default class CopyPathPlugin extends Plugin {
 				.replace(/-+/g, '-')
 				.replace(/^-|-$/g, '');
 
+			// If anchor is empty, return null
+			if (!anchor || anchor.length === 0) {
+				return null;
+			}
+
 			// Check if cursor is actually in the header DOM element using CodeMirror API
 			// @ts-ignore - cm property exists but not in types
 			const cmEditor = editor.cm;
@@ -132,11 +139,18 @@ export default class CopyPathPlugin extends Plugin {
 			// Use CodeMirror state to calculate offset
 			const state = cmEditor.state;
 			const lineStart = state.doc.line(cursor.line + 1).from; // line is 0-based, state.doc.line is 1-based
+			const lineEnd = state.doc.line(cursor.line + 1).to;
 			const offset = lineStart + cursor.ch;
 			
-			// Get the DOM node at cursor position
-			const domAtPos = cmEditor.domAtPos(offset);
+			// If cursor is at the very beginning of the line (before #), check a position slightly ahead
+			// This handles the case where the DOM node at position 0 might not be inside cm-header yet
+			const checkOffset = cursor.ch === 0 ? Math.min(lineStart + 1, lineEnd) : offset;
+			
+			// Get the DOM node at cursor position (or slightly ahead if at start)
+			const domAtPos = cmEditor.domAtPos(checkOffset);
 			if (!domAtPos || !domAtPos.node) {
+				// If we can't get DOM node but line is a header, still return anchor
+				// This handles edge cases where DOM might not be ready
 				return anchor;
 			}
 
@@ -147,18 +161,17 @@ export default class CopyPathPlugin extends Plugin {
 				if (currentElement.nodeType === Node.ELEMENT_NODE) {
 					const el = currentElement as Element;
 					if (el.classList && el.classList.contains('cm-header')) {
-						// Only return anchor if it's not empty
-						if (anchor && anchor.length > 0) {
-							return anchor;
-						}
-						return null;
+						return anchor;
 					}
 				}
 				currentElement = currentElement.parentNode;
 				depth++;
 			}
 
-			return null;
+			// If we didn't find cm-header class but the line is a header and cursor is on that line,
+			// still return the anchor (handles edge cases like cursor at very beginning)
+			// This ensures we catch headers even when DOM structure isn't perfect
+			return anchor;
 		} catch (error) {
 			return null;
 		}
