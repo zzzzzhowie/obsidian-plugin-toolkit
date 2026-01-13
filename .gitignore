@@ -45,3 +45,7 @@ dist/
 # Obsidian plugin data
 data.json
 
+# Large example/test files
+**/compression-examples/**
+**/*compression-examples/**
+
