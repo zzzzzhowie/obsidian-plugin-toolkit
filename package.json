@@ -11,9 +11,11 @@
         "dev:file-explorer": "pnpm --filter @obsidian-plugin-toolkit/file-explorer-enhancements dev",
         "dev:copy-path": "pnpm --filter @obsidian-plugin-toolkit/copy-path dev",
         "dev:paste-enhanced": "pnpm --filter @obsidian-plugin-toolkit/paste-enhanced dev",
+        "dev:image-converter": "pnpm --filter @obsidian-plugin-toolkit/image-converter dev",
         "build:file-explorer": "pnpm --filter @obsidian-plugin-toolkit/file-explorer-enhancements build",
         "build:copy-path": "pnpm --filter @obsidian-plugin-toolkit/copy-path build",
-        "build:paste-enhanced": "pnpm --filter @obsidian-plugin-toolkit/paste-enhanced build"
+        "build:paste-enhanced": "pnpm --filter @obsidian-plugin-toolkit/paste-enhanced build",
+        "build:image-converter": "pnpm --filter @obsidian-plugin-toolkit/image-converter build"
     },
     "keywords": [
         "obsidian",
