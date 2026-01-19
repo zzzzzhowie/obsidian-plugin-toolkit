@@ -258,12 +258,6 @@ export class ImageResizer extends Component {
             return;
         }
 
-        // Skip Excalidraw images (check for data-excalidraw attribute)
-        if (target.instanceOf(HTMLImageElement) && target.hasAttribute('data-excalidraw')) {
-            this.cleanupHandles();
-            return;
-        }
-
         // **Check for active MarkdownView**
         const activeView = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
         // Early exit: No active MarkdownView or target is not within the active view
@@ -281,8 +275,13 @@ export class ImageResizer extends Component {
         // Exit if resizing is already in progress
         if (this.resizeState.isResizing) return;
 
-        // Handle external images: add a border and perform edge detection for cursor change
-        if (target.instanceOf(HTMLImageElement) && this.isExternalLink(target.src)) {
+        // Check if this is an Excalidraw image
+        const isExcalidrawImage = target.instanceOf(HTMLImageElement) && 
+            target.hasAttribute('filesource') && 
+            target.getAttribute('filesource')?.endsWith('.excalidraw.md');
+
+        // Handle external images and Excalidraw images: add a border and perform edge detection for cursor change
+        if (target.instanceOf(HTMLImageElement) && (this.isExternalLink(target.src) || isExcalidrawImage)) {
             if (this.activeImage === target && target.hasClass("image-resize-border")) {
                 // Already active; just update edge detection
                 this.handleEdgeDetection(event, target);
@@ -295,12 +294,18 @@ export class ImageResizer extends Component {
         }
 
         // Handle internal images: create resize handles
-        if (target.instanceOf(HTMLImageElement) && !this.isExternalLink(target.src)) {
+        if (target.instanceOf(HTMLImageElement) && !this.isExternalLink(target.src) && !isExcalidrawImage) {
             // If this image already has a container/handles, do nothing
             const container = target.matchParent(".image-resize-container");
             if (this.activeImage === target && this.handles.length > 0 && container) {
                 return;
             }
+            
+            // Avoid recreating handles if this is already the active image
+            if (this.activeImage === target && this.handles.length > 0) {
+                return;
+            }
+            
             this.activeImage = target;
             this.createHandles(target);
             return;
@@ -404,6 +409,11 @@ export class ImageResizer extends Component {
      * @param image - The HTMLImageElement for which to create handles.
      */
     private createHandles(image: HTMLImageElement) {
+        // If this image already has resize handles, don't recreate them
+        if (this.activeImage === image && this.handles.length > 0) {
+            return;
+        }
+        
         this.cleanupHandles();
         this.activeImage = image;
 
@@ -800,9 +810,6 @@ export class ImageResizer extends Component {
 
         // If no image found, or it's not in the active MarkdownView, return
         if (!image || !this.markdownView?.containerEl.contains(image)) return;
-
-        // Skip Excalidraw images
-        if (image.hasAttribute('data-excalidraw')) return;
 
         // Prevent default scroll behavior
         event.preventDefault();
@@ -1366,6 +1373,21 @@ export class ImageResizer extends Component {
      */
     private getImageName(img: HTMLImageElement | null): string | null {
         if (!img) return null;
+        
+        // Check if this is an Excalidraw image (has filesource attribute)
+        const filesource = img.getAttribute("filesource");
+        if (filesource && filesource.endsWith('.excalidraw.md')) {
+            // For Excalidraw images, use the filesource as the image name
+            try {
+                const parts = filesource.split(/[/\\]/);
+                const [lastPart] = parts.slice(-1);
+                return lastPart ?? filesource;
+            } catch (error) {
+                console.error("Error processing Excalidraw filesource:", error);
+                return filesource;
+            }
+        }
+        
         let imageName = img.getAttribute("src");
 
         if (!imageName) return null;

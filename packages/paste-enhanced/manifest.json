@@ -1,7 +1,7 @@
 {
 	"id": "paste-enhanced",
 	"name": "Paste Enhanced",
-	"version": "1.0.53",
+	"version": "1.0.84",
 	"minAppVersion": "0.15.0",
 	"description": "Enhanced paste functionality that automatically detects code blocks and pastes content accordingly.",
 	"author": "",

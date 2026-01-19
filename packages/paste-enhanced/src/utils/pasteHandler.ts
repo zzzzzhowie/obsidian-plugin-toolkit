@@ -100,11 +100,16 @@ function htmlToMarkdown(html: string): string {
 	gfm(turndownService);
 	let markdown = turndownService.turndown(html);
 	
-	// Remove empty lines between bullet points
+	// Normalize bullet point spacing: replace multiple spaces after "-" with single space
+	// Pattern: "- " followed by 2+ spaces should become "- " with single space
+	markdown = markdown.replace(/^(\s*)-\s{2,}/gm, '$1- ');
+	
+	// Remove empty lines between bullet points and within bullet points
 	// Process line by line to remove empty lines between consecutive bullet points
 	const lines = markdown.split('\n');
 	const processedLines: string[] = [];
 	const bulletPointRegex = /^\s*-\s/; // Matches lines starting with "- " (with optional indentation)
+	const bulletPointOnlyRegex = /^\s*-\s*$/; // Matches lines with only bullet marker (no content after)
 	
 	for (let i = 0; i < lines.length; i++) {
 		const currentLine = lines[i];
@@ -114,7 +119,7 @@ function htmlToMarkdown(html: string): string {
 			continue;
 		}
 		
-		// If current line is empty, check if it's between bullet points
+		// If current line is empty, check if it's between bullet points or after a bullet marker
 		if (currentLine.trim() === '') {
 			// Find the last non-empty line before current line
 			let prevNonEmptyIndex = i - 1;
@@ -148,6 +153,48 @@ function htmlToMarkdown(html: string): string {
 					if (isPrevBulletPoint && isNextBulletPoint) {
 						continue;
 					}
+					
+					// Skip empty line if next line is a bullet point (whether prev is bullet or not)
+					// This removes empty lines between paragraph and list
+					if (isNextBulletPoint) {
+						continue;
+					}
+					
+					// Also skip empty line if previous line is a bullet marker only and next line has content
+					// This handles the case: "- " on one line, empty line(s), then content
+					const isPrevBulletOnly = bulletPointOnlyRegex.test(prevLine);
+					if (isPrevBulletOnly && nextLine.trim() !== '') {
+						continue;
+					}
+				}
+			}
+		}
+		
+		// Merge bullet marker-only lines with the next non-empty line
+		if (bulletPointOnlyRegex.test(currentLine)) {
+			// Find the next non-empty line
+			let nextNonEmptyIndex = i + 1;
+			while (nextNonEmptyIndex < lines.length) {
+				const nextLine = lines[nextNonEmptyIndex];
+				if (nextLine === undefined || nextLine.trim() !== '') {
+					break;
+				}
+				nextNonEmptyIndex++;
+			}
+			
+			// If there's a next non-empty line that's not a bullet point, merge them
+			if (nextNonEmptyIndex < lines.length) {
+				const nextLine = lines[nextNonEmptyIndex];
+				if (nextLine !== undefined && !bulletPointRegex.test(nextLine)) {
+					// Extract the indentation from the bullet line
+					const indentMatch = currentLine.match(/^(\s*)-\s*$/);
+					const indent = indentMatch ? indentMatch[1] : '';
+					// Merge the bullet marker with the next line content
+					const mergedLine = `${indent}- ${nextLine.trim()}`;
+					processedLines.push(mergedLine);
+					// Skip all lines until the merged line (including empty lines and the content line)
+					i = nextNonEmptyIndex;
+					continue;
 				}
 			}
 		}
@@ -156,6 +203,9 @@ function htmlToMarkdown(html: string): string {
 	}
 	
 	markdown = processedLines.join('\n');
+	
+	// Remove consecutive blank lines (compress multiple empty lines into one)
+	markdown = markdown.replace(/\n\n+/g, '\n\n');
 	
 	// Remove trailing empty lines
 	markdown = markdown.replace(/\n+$/, '');
@@ -328,6 +378,15 @@ export function processPasteContent(
 			}
 		}
 		// If no HTML, directly use plain text
-		return clipboardText;
+		// Remove consecutive blank lines from plain text too
+		let processedText = clipboardText;
+		
+		// Compress multiple consecutive empty lines into one
+		processedText = processedText.replace(/\n\n\n+/g, '\n\n');
+		
+		// Remove trailing newlines to prevent cursor from going to next line
+		processedText = processedText.replace(/\n+$/, '');
+		
+		return processedText;
 	}
 }
