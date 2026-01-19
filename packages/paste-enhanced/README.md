@@ -1,90 +1,119 @@
-# Obsidian Sample Plugin
+# Paste Enhanced
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+An intelligent paste plugin for Obsidian that automatically detects your cursor context and formats pasted content accordingly.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+## Features
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+- **Context-Aware Pasting**: Automatically detects whether you're in a code block or normal text
+- **HTML to Markdown Conversion**: Converts rich HTML content (from browsers, documents) to clean Markdown
+- **Code Block Preservation**: Preserves exact formatting when pasting into code blocks (indentation, line breaks)
+- **GFM Support**: Supports GitHub Flavored Markdown including tables, task lists, and strikethrough
+- **Auto-Link Plugin Compatible**: Works seamlessly with obsidian-auto-link-title plugin
 
-## First time developing plugins?
+## How It Works
 
-Quick starting guide for new plugin devs:
+### Pasting in Normal Text
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+When you paste HTML content (e.g., from a webpage):
 
-## Releasing new releases
-
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
-
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
-
-## Adding your plugin to the community plugin list
-
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
-
-## How to use
-
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
-
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
+**Original HTML:**
+```html
+<h2>Project Overview</h2>
+<p>This is a <strong>demo</strong> project.</p>
+<ul>
+  <li>Feature A</li>
+  <li>Feature B</li>
+</ul>
 ```
 
-If you have multiple URLs, you can also do:
+**Converted to Markdown:**
+```markdown
+## Project Overview
 
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
+This is a **demo** project.
+
+- Feature A
+- Feature B
 ```
 
-## API Documentation
+### Pasting in Code Blocks
 
-See https://docs.obsidian.md
+When your cursor is inside a code block, the plugin preserves the exact format:
+
+- ✅ Indentation preserved
+- ✅ Line breaks maintained
+- ✅ No Markdown conversion
+
+Perfect for pasting Python, JavaScript, or any indentation-sensitive code.
+
+### Supported Conversions
+
+- **Headings**: `<h1>` to `#`, `<h2>` to `##`, etc.
+- **Lists**: Ordered and unordered lists
+- **Tables**: HTML tables to Markdown tables (GFM)
+- **Links**: `<a href="">` to `[text](url)`
+- **Emphasis**: `<strong>` to `**bold**`, `<em>` to `*italic*`
+- **Code**: `<code>` to `` `inline code` ``
+- **Strikethrough**: `<del>` to `~~text~~` (GFM)
+- **Task Lists**: `[ ]` and `[x]` checkboxes (GFM)
+
+## Settings
+
+Open **Settings → Paste Enhanced** to:
+
+- **Enable/Disable**: Toggle the enhanced paste functionality on or off
+
+## Installation
+
+### From Obsidian Community Plugins
+
+1. Open **Settings** in Obsidian
+2. Go to **Community Plugins** and disable Safe Mode
+3. Click **Browse** and search for "Paste Enhanced"
+4. Click **Install**, then **Enable**
+
+### Manual Installation
+
+1. Download `main.js`, `manifest.json`, and `styles.css` (if present) from the [latest release](https://github.com/YOUR-USERNAME/obsidian-paste-enhanced/releases)
+2. Create a folder in your vault: `.obsidian/plugins/paste-enhanced/`
+3. Copy the downloaded files into this folder
+4. Reload Obsidian
+5. Go to **Settings → Community Plugins** and enable "Paste Enhanced"
+
+## Compatibility
+
+- **Desktop**: Windows, macOS, Linux ✅
+- **Mobile**: iOS, Android ✅
+- **Minimum Obsidian version**: 0.15.0
+
+## Known Limitations
+
+- Plain URLs (without HTML) are left unchanged to allow other plugins like obsidian-auto-link-title to process them
+- Markdown links in clipboard are not processed
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start development build (watch mode)
+npm run dev
+
+# Create production build
+npm run build
+```
+
+## Use Cases
+
+- Copy content from websites and paste as clean Markdown
+- Paste formatted documents from Google Docs or Word
+- Preserve code formatting when sharing snippets
+- Convert HTML emails to Markdown notes
+- Copy tables from spreadsheets to Markdown format
+
+## License
+
+ISC License
+
+Copyright (C) 2020-2026 by Dynalist Inc.
