@@ -360,7 +360,7 @@ export class FolderNoteManager {
 			`.nav-file-title[data-path="${escapedPath}"]`
 		);
 
-		if (fileElements.length > 0) {
+		if (fileElements && fileElements.length > 0) {
 			// Return the parent tree-item element
 			const fileTitle = fileElements[0] as HTMLElement;
 			return fileTitle.closest('.tree-item.nav-file') as HTMLElement;
@@ -393,7 +393,7 @@ export class FolderNoteManager {
 			`.nav-folder-title[data-path="${escapedPath}"]`
 		);
 
-		return folderTitleElements.length > 0 ? (folderTitleElements[0] as HTMLElement) : null;
+		return folderTitleElements && folderTitleElements.length > 0 ? (folderTitleElements[0] as HTMLElement) : null;
 	}
 
 	/**

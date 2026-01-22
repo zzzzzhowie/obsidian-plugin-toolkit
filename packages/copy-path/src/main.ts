@@ -204,7 +204,7 @@ export default class CopyPathPlugin extends Plugin {
 			// Get the line element for the given line number
 			// @ts-ignore - querySelectorAll exists on DOM
 			const lines = dom.querySelectorAll('.cm-line') as NodeListOf<HTMLElement>;
-			if (!lines || lines.length <= lineNumber) {
+			if (!lines || !lines.length || lines.length <= lineNumber) {
 				return false;
 			}
 

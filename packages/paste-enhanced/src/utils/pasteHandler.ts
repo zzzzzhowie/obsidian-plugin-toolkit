@@ -45,13 +45,13 @@ export function getCursorRegion(editor: Editor): CursorRegion {
 					}
 				}
 
-				// If unable to get via selection, fallback to finding by line number
-				const cursor = editor.getCursor();
-				// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-				const lines = dom.querySelectorAll(
-					".cm-line"
-				) as NodeListOf<HTMLElement>;
-				if (lines && lines.length > cursor.line) {
+			// If unable to get via selection, fallback to finding by line number
+			const cursor = editor.getCursor();
+			// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+			const lines = dom.querySelectorAll(
+				".cm-line"
+			) as NodeListOf<HTMLElement>;
+			if (lines && lines.length && lines.length > cursor.line) {
 					const lineElement = lines[cursor.line];
 					if (lineElement) {
 						// Check if the line element itself or its parent has HyperMD-codeblock class

@@ -293,7 +293,7 @@ export class FileCountManager {
 			`.nav-folder-title[data-path="${escapedPath}"]`
 		);
 
-		return folderTitleElements.length > 0 ? (folderTitleElements[0] as HTMLElement) : null;
+		return folderTitleElements && folderTitleElements.length > 0 ? (folderTitleElements[0] as HTMLElement) : null;
 	}
 }
 
