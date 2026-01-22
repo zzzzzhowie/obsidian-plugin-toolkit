@@ -110,6 +110,12 @@ export default class CopyPathPlugin extends Plugin {
 			const cursor = editor.getCursor();
 			const line = editor.getLine(cursor.line);
 
+			// First check if the current line is in a code block
+			// If it is, don't treat # as a header
+			if (this.isInCodeBlock(editor, cursor.line)) {
+				return null;
+			}
+
 			// Check if the line is a header (starts with #)
 			const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
 			if (!headerMatch || !headerMatch[2]) {
@@ -174,6 +180,55 @@ export default class CopyPathPlugin extends Plugin {
 			return anchor;
 		} catch (error) {
 			return null;
+		}
+	}
+
+	/**
+	 * Check if a given line is inside a code block
+	 * Detects code blocks by checking if the line's DOM element is wrapped by HyperMD-codeblock class
+	 */
+	private isInCodeBlock(editor: Editor, lineNumber: number): boolean {
+		try {
+			// @ts-ignore - cm property exists but not in types
+			const cmEditor = editor.cm;
+			if (!cmEditor) {
+				return false;
+			}
+
+			// @ts-ignore - dom property exists but not in types
+			const dom = cmEditor.dom || cmEditor.contentDOM;
+			if (!dom) {
+				return false;
+			}
+
+			// Get the line element for the given line number
+			// @ts-ignore - querySelectorAll exists on DOM
+			const lines = dom.querySelectorAll('.cm-line') as NodeListOf<HTMLElement>;
+			if (!lines || lines.length <= lineNumber) {
+				return false;
+			}
+
+			const lineElement = lines[lineNumber];
+			if (!lineElement) {
+				return false;
+			}
+
+			// Check if the line element or its parent has HyperMD-codeblock class
+			let currentElement: HTMLElement | null = lineElement;
+			while (currentElement && currentElement !== dom) {
+				if (
+					currentElement.classList &&
+					currentElement.classList.contains('HyperMD-codeblock')
+				) {
+					return true;
+				}
+				currentElement = currentElement.parentElement;
+			}
+
+			return false;
+		} catch (error) {
+			// If detection fails, assume not in code block (fail-safe)
+			return false;
 		}
 	}
 }
