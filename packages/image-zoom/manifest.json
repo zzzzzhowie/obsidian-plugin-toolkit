@@ -1,0 +1,10 @@
+{
+	"id": "image-zoom",
+	"name": "Image Zoom",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Click to zoom images in Obsidian.",
+	"author": "",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}

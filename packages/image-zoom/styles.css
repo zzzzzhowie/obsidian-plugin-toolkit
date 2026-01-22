@@ -1,0 +1,101 @@
+/* Image Zoom Plugin Styles */
+
+.image-zoom-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto; /* Prevent click-through */
+}
+
+.image-zoom-container {
+  position: relative;
+  max-width: 90vw;
+  max-height: calc(90vh - 60px); /* Leave space for toolbar */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  flex: 1;
+  pointer-events: auto; /* Prevent click-through during drag */
+}
+
+.image-zoom-container img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.1s ease-out;
+  transform-origin: center center;
+}
+
+.image-zoom-container svg {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  transition: transform 0.1s ease-out;
+  transform-origin: center center;
+  cursor: inherit !important;
+}
+
+.image-zoom-container svg * {
+  cursor: inherit !important;
+}
+
+.image-zoom-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  background-color: rgba(0, 0, 0, 0.8);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  pointer-events: auto;
+  position: relative;
+  z-index: 10001; /* Above the overlay and image */
+}
+
+.image-zoom-toolbar button {
+  background-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.image-zoom-toolbar button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.image-zoom-toolbar button:active {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+.image-zoom-toolbar .zoom-info {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  min-width: 60px;
+  text-align: center;
+}
+
+.image-zoom-toolbar .divider {
+  width: 1px;
+  height: 24px;
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.image-zoom-toolbar .nav-info {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  margin: 0 8px;
+}
