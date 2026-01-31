@@ -21,8 +21,12 @@ export default class ImageZoomPlugin extends Plugin {
 
     // Register click handler for images and SVGs
     this.registerDomEvent(document, "click", (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
       console.log("[Image Zoom] Click event:", {
         target: event.target,
+        tagName: target.tagName,
+        className: target.className,
+        classList: Array.from(target.classList || []),
         metaKey: event.metaKey,
         ctrlKey: event.ctrlKey,
         timestamp: Date.now(),
@@ -34,11 +38,26 @@ export default class ImageZoomPlugin extends Plugin {
         return;
       }
 
-      const target = event.target as HTMLElement;
-
       // Check for IMG elements
       if (target.tagName === "IMG") {
         console.log("[Image Zoom] IMG element clicked");
+
+        // Check if it's an Excalidraw image
+        const isExcalidraw =
+          target.classList.contains("excalidraw-svg") ||
+          target.classList.contains("excalidraw-embedded-img");
+
+        if (isExcalidraw) {
+          console.log(
+            "[Image Zoom] Excalidraw image detected, opening zoomed image",
+          );
+          this.showZoomedImage(target as HTMLImageElement);
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+
+        // For regular images, check parent container
         const parent = target.closest(
           '.workspace-leaf-content[data-type="markdown"], .workspace-leaf-content[data-type="image"]',
         );
@@ -76,11 +95,23 @@ export default class ImageZoomPlugin extends Plugin {
 
       // Check if hovering over an image
       if (target.tagName === "IMG") {
-        const parent = target.closest(
-          '.workspace-leaf-content[data-type="markdown"], .workspace-leaf-content[data-type="image"]',
-        );
-        if (parent) {
+        // Check if it's an Excalidraw image
+        const isExcalidraw =
+          target.classList.contains("excalidraw-svg") ||
+          target.classList.contains("excalidraw-embedded-img");
+
+        if (isExcalidraw) {
           (target as HTMLElement).style.cursor = isCmdPressed ? "zoom-in" : "";
+        } else {
+          // For regular images, check parent container
+          const parent = target.closest(
+            '.workspace-leaf-content[data-type="markdown"], .workspace-leaf-content[data-type="image"]',
+          );
+          if (parent) {
+            (target as HTMLElement).style.cursor = isCmdPressed
+              ? "zoom-in"
+              : "";
+          }
         }
       }
 
@@ -143,8 +174,16 @@ export default class ImageZoomPlugin extends Plugin {
   private showZoomedImage(img: HTMLImageElement) {
     if (!this.zoomOverlay) return;
 
+    console.log("[Image Zoom] showZoomedImage called with:", {
+      src: img.src,
+      width: img.width,
+      height: img.height,
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+      classList: Array.from(img.classList),
+    });
+
     // Reset state
-    this.scale = 1;
     this.translateX = 0;
     this.translateY = 0;
 
@@ -153,11 +192,70 @@ export default class ImageZoomPlugin extends Plugin {
 
     // Create image container
     const container = this.zoomOverlay.createDiv("image-zoom-container");
-    this.currentImage = container.createEl("img", {
-      attr: {
-        src: img.src,
-        alt: img.alt || "",
-      },
+
+    // For Excalidraw images (blob URLs), clone the original element to preserve the blob reference
+    const isExcalidraw =
+      img.classList.contains("excalidraw-svg") ||
+      img.classList.contains("excalidraw-embedded-img");
+
+    if (isExcalidraw) {
+      console.log("[Image Zoom] Cloning Excalidraw image element");
+      this.currentImage = img.cloneNode(true) as HTMLImageElement;
+
+      // For Excalidraw blob images, we need to set explicit dimensions
+      // Use the natural dimensions of the original image
+      const naturalWidth = img.naturalWidth || img.width;
+      const naturalHeight = img.naturalHeight || img.height;
+
+      // Calculate initial scale to ensure image is visible
+      // Target: fill at least 50% of viewport width or height
+      const viewportWidth = window.innerWidth * 0.9; // 90vw
+      const viewportHeight = window.innerHeight * 0.9; // 90vh
+      const targetSize = 0.5; // Target 50% of viewport
+
+      const scaleByWidth = (viewportWidth * targetSize) / naturalWidth;
+      const scaleByHeight = (viewportHeight * targetSize) / naturalHeight;
+
+      // Use the smaller scale to ensure image fits, but at least 1x
+      const initialScale = Math.max(1, Math.min(scaleByWidth, scaleByHeight));
+      this.scale = initialScale;
+
+      console.log("[Image Zoom] Setting dimensions:", {
+        naturalWidth,
+        naturalHeight,
+        viewportWidth,
+        viewportHeight,
+        initialScale,
+      });
+
+      // Reset styles that might interfere with zoom display
+      this.currentImage.style.maxWidth = "90vw";
+      this.currentImage.style.maxHeight = "90vh";
+      this.currentImage.style.width = `${naturalWidth}px`;
+      this.currentImage.style.height = `${naturalHeight}px`;
+      this.currentImage.style.objectFit = "contain";
+
+      container.appendChild(this.currentImage);
+    } else {
+      // For regular images, use default 1x scale
+      this.scale = 1;
+      // For regular images, create a new element
+      this.currentImage = container.createEl("img", {
+        attr: {
+          src: img.src,
+          alt: img.alt || "",
+        },
+      });
+    }
+
+    // Add load event listener to log when image is loaded
+    this.currentImage.addEventListener("load", () => {
+      console.log("[Image Zoom] Image loaded:", {
+        width: this.currentImage?.width,
+        height: this.currentImage?.height,
+        naturalWidth: this.currentImage?.naturalWidth,
+        naturalHeight: this.currentImage?.naturalHeight,
+      });
     });
 
     this.setupZoomAndDrag(container);
@@ -183,7 +281,7 @@ export default class ImageZoomPlugin extends Plugin {
         // Pinch gesture: zoom in/out
         const delta = e.deltaY > 0 ? 0.98 : 1.02;
         this.scale *= delta;
-        this.scale = Math.max(0.5, Math.min(this.scale, 5));
+        this.scale = Math.max(0.5, Math.min(this.scale, 8));
         this.updateImageTransform(true); // Disable transition for smooth pinch
         this.updateToolbar();
       } else {
@@ -298,7 +396,7 @@ export default class ImageZoomPlugin extends Plugin {
 
   private zoomBy(factor: number) {
     this.scale *= factor;
-    this.scale = Math.max(0.5, Math.min(this.scale, 5));
+    this.scale = Math.max(0.5, Math.min(this.scale, 8));
     this.updateImageTransform();
     this.updateToolbar();
   }

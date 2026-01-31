@@ -48,6 +48,7 @@ Hold **Cmd** (Mac) or **Ctrl** (Windows/Linux) and click any image or Mermaid di
 - Regular images (PNG, JPG, GIF, etc.)
 - SVG images
 - Mermaid diagrams
+- Excalidraw diagrams
 
 ## License
 

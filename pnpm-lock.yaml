@@ -108,7 +108,7 @@ importers:
         specifier: 5.8.3
         version: 5.8.3
 
-  packages/obsidian-image-toolkit:
+  packages/image-zoom:
     dependencies:
       obsidian:
         specifier: latest

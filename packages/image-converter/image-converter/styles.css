@@ -2492,6 +2492,7 @@ html[data-theme='dark'] {
 /* ------------------------------------------------------------------- */
 
 
+
 /* --- Map View Compatibility --- */
 .map-view-main .image-resize-container {
     display: none !important;
@@ -2500,6 +2501,18 @@ html[data-theme='dark'] {
 .map-view-main .image-resize-border {
     outline: none !important;
 }
+
+/* --- Excalidraw Compatibility --- */
+/* Ensure Excalidraw images can be resized */
+.excalidraw-svg img.image-resize-border {
+    pointer-events: auto !important;
+    user-select: none;
+}
+
+.excalidraw-svg img.image-resize-border.resizing {
+    cursor: grabbing !important;
+}
+
 
 
 /* ------------------------------------------------------------------- */
