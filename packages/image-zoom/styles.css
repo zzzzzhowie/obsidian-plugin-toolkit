@@ -43,6 +43,11 @@
   transition: transform 0.1s ease-out;
   transform-origin: center center;
   cursor: inherit !important;
+  /* Add light background for dark mode visibility */
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .image-zoom-container svg * {

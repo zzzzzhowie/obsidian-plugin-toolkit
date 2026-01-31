@@ -172,22 +172,27 @@ export default class ImageZoomPlugin extends Plugin {
   private setupZoomAndDrag(container: HTMLElement) {
     this.updateImageTransform();
 
-    // Add mouse wheel zoom and trackpad pinch support
+    // Add trackpad gesture support
     container.addEventListener("wheel", (e: WheelEvent) => {
       e.preventDefault();
 
+      // ctrlKey indicates pinch-to-zoom gesture on trackpad
       const isPinch = e.ctrlKey;
-      let delta: number;
-      if (isPinch) {
-        delta = e.deltaY > 0 ? 0.98 : 1.02;
-      } else {
-        delta = e.deltaY > 0 ? 0.93 : 1.07;
-      }
 
-      this.scale *= delta;
-      this.scale = Math.max(0.5, Math.min(this.scale, 5));
-      this.updateImageTransform();
-      this.updateToolbar();
+      if (isPinch) {
+        // Pinch gesture: zoom in/out
+        const delta = e.deltaY > 0 ? 0.98 : 1.02;
+        this.scale *= delta;
+        this.scale = Math.max(0.5, Math.min(this.scale, 5));
+        this.updateImageTransform(true); // Disable transition for smooth pinch
+        this.updateToolbar();
+      } else {
+        // Two-finger scroll: pan the image
+        // Increase sensitivity for smoother panning (1.5x speed)
+        this.translateX -= e.deltaX * 1.5;
+        this.translateY -= e.deltaY * 1.5;
+        this.updateImageTransform(true); // Pass true to disable transition
+      }
     });
 
     // Add drag support with proper event cleanup
@@ -298,8 +303,14 @@ export default class ImageZoomPlugin extends Plugin {
     this.updateToolbar();
   }
 
-  private updateImageTransform() {
+  private updateImageTransform(disableTransition = false) {
     if (this.currentImage) {
+      // Disable transition during trackpad pan for smoother experience
+      if (disableTransition) {
+        this.currentImage.style.transition = "none";
+      } else {
+        this.currentImage.style.transition = "";
+      }
       this.currentImage.style.transform = `translate(${this.translateX}px, ${this.translateY}px) scale(${this.scale})`;
     }
   }
