@@ -14,8 +14,6 @@ export default class ImageZoomPlugin extends Plugin {
   private toolbar: HTMLElement | null = null;
 
   async onload() {
-    console.log("loading Image Zoom plugin...");
-
     // Create zoom overlay container
     this.createZoomOverlay();
 
@@ -113,7 +111,6 @@ export default class ImageZoomPlugin extends Plugin {
   }
 
   onunload() {
-    console.log("unloading Image Zoom plugin...");
     if (this.zoomOverlay) {
       this.zoomOverlay.remove();
       this.zoomOverlay = null;
@@ -126,28 +123,19 @@ export default class ImageZoomPlugin extends Plugin {
 
     // Close on overlay click (not on children)
     this.zoomOverlay.addEventListener("click", (e) => {
-      console.log("[Image Zoom] Overlay clicked:", {
-        target: e.target,
-        currentTarget: e.currentTarget,
-        isOverlay: e.target === this.zoomOverlay,
-        timestamp: Date.now(),
-      });
       if (e.target === this.zoomOverlay) {
-        console.log("[Image Zoom] Closing zoom (overlay background clicked)");
         this.closeZoom();
       }
     });
 
     // Prevent click-through by stopping propagation
     this.zoomOverlay.addEventListener("mousedown", (e) => {
-      console.log("[Image Zoom] Overlay mousedown, stopping propagation");
       e.stopPropagation();
     });
 
     // Add keyboard handler for ESC key only
     this.registerDomEvent(document, "keydown", (e: KeyboardEvent) => {
       if (e.key === "Escape" && this.zoomOverlay?.style.display === "flex") {
-        console.log("[Image Zoom] ESC pressed, closing zoom");
         this.closeZoom();
       }
     });
@@ -155,15 +143,6 @@ export default class ImageZoomPlugin extends Plugin {
 
   private showZoomedImage(img: HTMLImageElement) {
     if (!this.zoomOverlay) return;
-
-    console.log("[Image Zoom] showZoomedImage called with:", {
-      src: img.src,
-      width: img.width,
-      height: img.height,
-      naturalWidth: img.naturalWidth,
-      naturalHeight: img.naturalHeight,
-      classList: Array.from(img.classList),
-    });
 
     // Reset state
     this.translateX = 0;
@@ -181,7 +160,6 @@ export default class ImageZoomPlugin extends Plugin {
       img.classList.contains("excalidraw-embedded-img");
 
     if (isExcalidraw) {
-      console.log("[Image Zoom] Cloning Excalidraw image element");
       this.currentImage = img.cloneNode(true) as HTMLImageElement;
 
       // For Excalidraw blob images, we need to set explicit dimensions
@@ -190,25 +168,18 @@ export default class ImageZoomPlugin extends Plugin {
       const naturalHeight = img.naturalHeight || img.height;
 
       // Calculate initial scale to ensure image is visible
-      // Target: fill at least 50% of viewport width or height
+      // Target: fill at least 60% of viewport width or height
       const viewportWidth = window.innerWidth * 0.9; // 90vw
       const viewportHeight = window.innerHeight * 0.9; // 90vh
-      const targetSize = 0.5; // Target 50% of viewport
+      const targetSize = 0.6; // Target 60% of viewport
 
       const scaleByWidth = (viewportWidth * targetSize) / naturalWidth;
       const scaleByHeight = (viewportHeight * targetSize) / naturalHeight;
 
-      // Use the smaller scale to ensure image fits, but at least 1x
-      const initialScale = Math.max(1, Math.min(scaleByWidth, scaleByHeight));
+      // Use the smaller scale to ensure image fits
+      // Allow upscaling for small images, but cap at 10x (1000%) maximum zoom
+      const initialScale = Math.min(10, Math.max(scaleByWidth, scaleByHeight));
       this.scale = initialScale;
-
-      console.log("[Image Zoom] Setting dimensions:", {
-        naturalWidth,
-        naturalHeight,
-        viewportWidth,
-        viewportHeight,
-        initialScale,
-      });
 
       // Reset styles that might interfere with zoom display
       this.currentImage.style.maxWidth = "90vw";
@@ -229,16 +200,6 @@ export default class ImageZoomPlugin extends Plugin {
         },
       });
     }
-
-    // Add load event listener to log when image is loaded
-    this.currentImage.addEventListener("load", () => {
-      console.log("[Image Zoom] Image loaded:", {
-        width: this.currentImage?.width,
-        height: this.currentImage?.height,
-        naturalWidth: this.currentImage?.naturalWidth,
-        naturalHeight: this.currentImage?.naturalHeight,
-      });
-    });
 
     this.setupZoomAndDrag(container);
 
@@ -263,7 +224,7 @@ export default class ImageZoomPlugin extends Plugin {
         // Pinch gesture: zoom in/out
         const delta = e.deltaY > 0 ? 0.98 : 1.02;
         this.scale *= delta;
-        this.scale = Math.max(0.5, Math.min(this.scale, 8));
+        this.scale = Math.max(0.5, Math.min(this.scale, 10));
         this.updateImageTransform(true); // Disable transition for smooth pinch
         this.updateToolbar();
       } else {
@@ -281,32 +242,16 @@ export default class ImageZoomPlugin extends Plugin {
 
     const startDrag = (e: MouseEvent) => {
       e.preventDefault();
-      console.log("[Image Zoom] mousedown - Starting drag at:", {
-        x: e.clientX,
-        y: e.clientY,
-        isDragging: this.isDragging,
-      });
       this.isDragging = true;
       this.startX = e.clientX - this.translateX;
       this.startY = e.clientY - this.translateY;
       container.style.cursor = "grabbing";
-      console.log(
-        "[Image Zoom] isDragging SET TO TRUE, startX:",
-        this.startX,
-        "startY:",
-        this.startY,
-      );
 
       // Create and bind move handler
       mouseMoveHandler = (e: MouseEvent) => {
         if (!this.isDragging) {
-          console.log("[Image Zoom] mousemove fired but isDragging is FALSE!");
           return;
         }
-        console.log("[Image Zoom] mousemove - dragging, new pos:", {
-          x: e.clientX,
-          y: e.clientY,
-        });
         this.translateX = e.clientX - this.startX;
         this.translateY = e.clientY - this.startY;
         this.updateImageTransform();
@@ -314,22 +259,16 @@ export default class ImageZoomPlugin extends Plugin {
 
       // Create and bind up handler
       mouseUpHandler = () => {
-        console.log(
-          "[Image Zoom] mouseup - Ending drag, isDragging was:",
-          this.isDragging,
-        );
         this.isDragging = false;
         container.style.cursor = "grab";
 
         // Clean up event listeners
         if (mouseMoveHandler) {
           document.removeEventListener("mousemove", mouseMoveHandler);
-          console.log("[Image Zoom] Removed mousemove listener");
           mouseMoveHandler = null;
         }
         if (mouseUpHandler) {
           document.removeEventListener("mouseup", mouseUpHandler);
-          console.log("[Image Zoom] Removed mouseup listener");
           mouseUpHandler = null;
         }
       };
@@ -337,9 +276,6 @@ export default class ImageZoomPlugin extends Plugin {
       // Bind listeners immediately
       document.addEventListener("mousemove", mouseMoveHandler);
       document.addEventListener("mouseup", mouseUpHandler);
-      console.log(
-        "[Image Zoom] Added mousemove and mouseup listeners to document",
-      );
     };
 
     container.addEventListener("mousedown", startDrag);
@@ -378,7 +314,7 @@ export default class ImageZoomPlugin extends Plugin {
 
   private zoomBy(factor: number) {
     this.scale *= factor;
-    this.scale = Math.max(0.5, Math.min(this.scale, 8));
+    this.scale = Math.max(0.5, Math.min(this.scale, 10));
     this.updateImageTransform();
     this.updateToolbar();
   }
