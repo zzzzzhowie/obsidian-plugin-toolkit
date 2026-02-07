@@ -1,5 +1,5 @@
 {
-	"name": "@obsidian-plugin-toolkit/image-converter",
+	"name": "@obsidian-plugin-toolkit/image-resizer",
 	"version": "1.0.0",
 	"description": "Drag-resize images in Obsidian markdown files.",
 	"main": "main.js",

@@ -22,35 +22,20 @@ export default class ImageZoomPlugin extends Plugin {
     // Register click handler for images and SVGs
     this.registerDomEvent(document, "click", (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      console.log("[Image Zoom] Click event:", {
-        target: event.target,
-        tagName: target.tagName,
-        className: target.className,
-        classList: Array.from(target.classList || []),
-        metaKey: event.metaKey,
-        ctrlKey: event.ctrlKey,
-        timestamp: Date.now(),
-      });
 
       // Only trigger zoom if Cmd (Mac) or Ctrl (Windows/Linux) is pressed
       if (!event.metaKey && !event.ctrlKey) {
-        console.log("[Image Zoom] Click ignored - no modifier key");
         return;
       }
 
       // Check for IMG elements
       if (target.tagName === "IMG") {
-        console.log("[Image Zoom] IMG element clicked");
-
         // Check if it's an Excalidraw image
         const isExcalidraw =
           target.classList.contains("excalidraw-svg") ||
           target.classList.contains("excalidraw-embedded-img");
 
         if (isExcalidraw) {
-          console.log(
-            "[Image Zoom] Excalidraw image detected, opening zoomed image",
-          );
           this.showZoomedImage(target as HTMLImageElement);
           event.preventDefault();
           event.stopPropagation();
@@ -62,7 +47,6 @@ export default class ImageZoomPlugin extends Plugin {
           '.workspace-leaf-content[data-type="markdown"], .workspace-leaf-content[data-type="image"]',
         );
         if (parent) {
-          console.log("[Image Zoom] Opening zoomed image");
           this.showZoomedImage(target as HTMLImageElement);
           event.preventDefault();
           event.stopPropagation();
@@ -72,14 +56,12 @@ export default class ImageZoomPlugin extends Plugin {
       // Check for SVG elements (Mermaid diagrams)
       const svgElement = target.closest("svg");
       if (svgElement) {
-        console.log("[Image Zoom] SVG element clicked");
         const mermaidContainer = svgElement.closest(".mermaid");
         if (mermaidContainer) {
           const parent = mermaidContainer.closest(
             '.workspace-leaf-content[data-type="markdown"]',
           );
           if (parent) {
-            console.log("[Image Zoom] Opening zoomed SVG");
             this.showZoomedSVG(svgElement as SVGElement);
             event.preventDefault();
             event.stopPropagation();

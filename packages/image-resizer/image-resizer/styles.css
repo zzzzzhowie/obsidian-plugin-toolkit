@@ -17,7 +17,7 @@
 
 /* --- Image Converter Settings --- */
 /* Remove X icon and get use all available space*/
-.image-converter-settings-tab {
+.image-resizer-settings-tab {
     padding: 20px;
     position: relative;
     /* Relative positioning for child elements */
@@ -28,7 +28,7 @@
 }
 
 /* ------------------- Tabs ------------------------------ */
-.image-converter-setting-tabs {
+.image-resizer-setting-tabs {
     display: flex;
     margin-bottom: 15px;
     border-bottom: 1px solid var(--background-modifier-border);
@@ -37,12 +37,12 @@
     /* Horizontal scrolling for many tabs */
 }
 
-.image-converter-setting-tabs::-webkit-scrollbar {
+.image-resizer-setting-tabs::-webkit-scrollbar {
     display: none;
     /* Hide scrollbar */
 }
 
-.image-converter-tab {
+.image-resizer-tab {
     padding: 8px 12px;
     margin-right: 5px;
     margin-bottom: -1px;
@@ -61,16 +61,16 @@
 }
 
 /* Remove left margin for the first tab */
-.image-converter-tab:first-child {
+.image-resizer-tab:first-child {
     margin-left: 0;
 }
 
 /* Remove right margin for the last tab */
-.image-converter-tab:last-child {
+.image-resizer-tab:last-child {
     margin-right: 0;
 }
 
-.image-converter-tab:hover {
+.image-resizer-tab:hover {
     /* Remove background color on hover */
     /* background-color: var(--background-modifier-hover); */
 
@@ -80,7 +80,7 @@
 }
 
 /* Active tab styling */
-.image-converter-tab-active {
+.image-resizer-tab-active {
     /* Remove background color */
     /* border-color: var(--background-modifier-border); */
     /* border-bottom-color: var(--background-primary); */
@@ -93,7 +93,7 @@
     /* Match the hover underline color */
 }
 
-.image-converter-tab>svg {
+.image-resizer-tab>svg {
     width: 1.2em;
     height: 1.2em;
     margin-right: 6px;
@@ -101,12 +101,12 @@
 }
 
 /* Tab label text - inherit font weight (normal or slightly bolder) */
-.image-converter-tab-label {
+.image-resizer-tab-label {
     /* No specific styles needed here - inherits from parent */
 }
 
 /* ------------------- Preset Group --------------------- */
-.image-converter-preset-group {
+.image-resizer-preset-group {
     margin-bottom: 20px;
     position: relative;
     /* For absolute positioning of child elements */
@@ -122,7 +122,7 @@
     /* Fully opaque */
 }
 
-.image-converter-preset-group-title {
+.image-resizer-preset-group-title {
     margin-bottom: 15px;
     font-size: 1.2em;
     font-weight: 600;
@@ -132,14 +132,14 @@
     /* HIDDEN - Remove this to show titles */
 }
 
-.image-converter-preset-group-description {
+.image-resizer-preset-group-description {
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     margin-bottom: 1em;
 }
 
 /* ---------------------- Preset Card ------------------------------- */
-.image-converter-preset-card {
+.image-resizer-preset-card {
     border: 1px solid var(--background-modifier-border);
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
@@ -155,16 +155,16 @@
 }
 
 /* "Grabbing" cursor when dragging */
-.image-converter-preset-card:active {
+.image-resizer-preset-card:active {
     cursor: grabbing;
 }
 
 /* Pointer cursor for non-add-new cards */
-.image-converter-preset-card:not(.image-converter-add-new-preset) {
+.image-resizer-preset-card:not(.image-resizer-add-new-preset) {
     cursor: pointer;
 }
 
-.image-converter-preset-card-header {
+.image-resizer-preset-card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -174,7 +174,7 @@
     /* Indicate draggable */
 }
 
-.image-converter-preset-card-title {
+.image-resizer-preset-card-title {
     font-size: calc(var(--font-ui-small) + 1px);
     font-weight: 600;
     color: var(--text-normal);
@@ -185,33 +185,33 @@
 }
 
 /* --- Button Styling --- */
-.image-converter-preset-card-actions {
+.image-resizer-preset-card-actions {
     display: flex;
     gap: 2px;
     margin-right: -16px;
 }
 
-.image-converter-preset-card-actions .clickable-icon {
+.image-resizer-preset-card-actions .clickable-icon {
     color: var(--text-muted);
     transition: color 0.2s ease;
 }
 
-.image-converter-preset-card-actions .clickable-icon:hover {
+.image-resizer-preset-card-actions .clickable-icon:hover {
     color: var(--text-accent);
 }
 
 /* --- Danger Button (e.g., DELETE) --- */
-.image-converter-preset-card-actions .danger {
+.image-resizer-preset-card-actions .danger {
     color: var(--text-error);
 }
 
 /* --- SortableJS Ghost Styling --- */
-.image-converter-sortable-ghost {
+.image-resizer-sortable-ghost {
     opacity: 0.5;
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
 }
 
-.image-converter-preset-card-body {
+.image-resizer-preset-card-body {
     color: var(--text-mute);
     font-size: 0.75em;
     line-height: 1.4;
@@ -221,14 +221,14 @@
     margin-top: -22px;
 }
 
-.image-converter-preset-card-body p {
+.image-resizer-preset-card-body p {
     margin-block-start: 0;
     margin-block-end: 0;
     line-height: 1.4;
 }
 
 /* --- Preset Cards Grid --- */
-.image-converter-preset-cards {
+.image-resizer-preset-cards {
     display: grid;
     gap: 15px;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -239,40 +239,40 @@
 
 /* Media Query for 3-column layout on larger screens */
 @media (min-width: 1000px) {
-    .image-converter-preset-cards {
+    .image-resizer-preset-cards {
         grid-template-columns: repeat(3, 1fr);
     }
 }
 
 /* --- Active and Default Preset Styling --- */
-.image-converter-active-preset {
+.image-resizer-active-preset {
     border-color: var(--interactive-accent);
     box-shadow: 0 0 5px var(--interactive-accent);
 }
 
-.image-converter-default-preset {
+.image-resizer-default-preset {
     background-color: var(--background-modifier-hover);
 }
 
 /* --- Custom Variables for Default Preset Background --- */
 :root {
-    --image-converter-default-bg: #f5f5f5;
+    --image-resizer-default-bg: #f5f5f5;
     /* Light mode default */
 }
 
 html[data-theme='dark'] {
-    --image-converter-default-bg: #2b2b2b;
+    --image-resizer-default-bg: #2b2b2b;
     /* Dark mode default */
 }
 
 /* ----------------------------- Preset Form ------------ */
-.image-converter-preset-form {
+.image-resizer-preset-form {
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
 
-.image-converter-form-buttons {
+.image-resizer-form-buttons {
     display: flex;
     justify-content: flex-end;
     /* Align buttons to the right */
@@ -281,7 +281,7 @@ html[data-theme='dark'] {
 }
 
 /* ------------------- Add New Preset Card --------------- */
-.image-converter-add-new-preset {
+.image-resizer-add-new-preset {
     display: flex;
     justify-content: center;
     align-items: center;
@@ -293,29 +293,29 @@ html[data-theme='dark'] {
     text-align: center;
 }
 
-.image-converter-add-new-preset:hover {
+.image-resizer-add-new-preset:hover {
     background-color: var(--background-modifier-hover);
 }
 
-.image-converter-add-new-preset-text {
+.image-resizer-add-new-preset-text {
     font-weight: 500;
     color: var(--text-accent);
 }
 
 /* ----------- Modal Styling --------------------------*/
-.image-converter-confirm-modal-buttons {
+.image-resizer-confirm-modal-buttons {
     display: flex;
     justify-content: flex-end;
     gap: 0.5em;
     margin-top: 1em;
 }
 
-.image-converter-confirm-detail {
+.image-resizer-confirm-detail {
     margin-bottom: 0.25em;
 }
 
 /* --------- GLOBAL PRESET ------------------------------ */
-.image-converter-global-preset-container {
+.image-resizer-global-preset-container {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -323,12 +323,12 @@ html[data-theme='dark'] {
     cursor: pointer;
 }
 
-.image-converter-global-preset-container .image-converter-global-preset-title {
+.image-resizer-global-preset-container .image-resizer-global-preset-title {
     width: 135px;
 }
 
 /* --- Dropdown --- */
-.image-converter-global-preset-container .setting-item {
+.image-resizer-global-preset-container .setting-item {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -338,33 +338,33 @@ html[data-theme='dark'] {
     min-width: 112px;
 }
 
-.image-converter-global-preset-container .settings-section-title {
+.image-resizer-global-preset-container .settings-section-title {
     margin-left: 0.5em;
     margin-bottom: 1px;
     font-weight: 600;
     width: 130px;
 }
 
-.image-converter-global-preset-container .setting-item-name {
+.image-resizer-global-preset-container .setting-item-name {
     flex: 0 0 auto;
     /* Prevent label from shrinking */
 }
 
 /* --- Clickable Toggle Area --- */
-.image-converter-global-preset-toggle {
+.image-resizer-global-preset-toggle {
     display: flex;
     align-items: center;
     margin-right: 10px;
     font-weight: 600;
 }
 
-.image-converter-chevron-icon {
+.image-resizer-chevron-icon {
     margin-right: 5px;
     transition: transform 0.2s ease;
 }
 
 /* Rotate chevron when collapsed */
-.image-converter-settings-tab:not(.global-presets-visible) .image-converter-chevron-icon {
+.image-resizer-settings-tab:not(.global-presets-visible) .image-resizer-chevron-icon {
     transform: rotate(-90deg);
 }
 
@@ -376,7 +376,7 @@ html[data-theme='dark'] {
 /* ----------------------------------------------------------------------- */
 
 /* --- Section Container --- */
-.image-converter-settings-tab .image-alignment-settings-section {
+.image-resizer-settings-tab .image-alignment-settings-section {
     display: flex;
     /* align-items: center; */
     gap: 10px;
@@ -387,7 +387,7 @@ html[data-theme='dark'] {
 
 
 /* --- Section Header (Clickable Toggle Area) --- */
-.image-converter-settings-tab .image-alignment-settings-section .settings-section-header {
+.image-resizer-settings-tab .image-alignment-settings-section .settings-section-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -396,28 +396,28 @@ html[data-theme='dark'] {
 }
 
 
-.image-converter-settings-tab .image-alignment-settings-section .settings-section-title {
+.image-resizer-settings-tab .image-alignment-settings-section .settings-section-title {
     /* flex-grow: 1; */
     margin-left: 0.5em;
     font-weight: 600;
     margin-bottom: 5px;
 }
 
-.image-converter-settings-tab .image-alignment-settings-section .settings-section-toggle-button {
+.image-resizer-settings-tab .image-alignment-settings-section .settings-section-toggle-button {
     margin-left: auto;
     margin-right: 0;
 }
 
 
 /* --- Chevron Icon --- */
-.image-converter-settings-tab .image-alignment-settings-section .settings-section-chevron-icon {
+.image-resizer-settings-tab .image-alignment-settings-section .settings-section-chevron-icon {
     margin-right: 5px;
     transition: transform 0.2s ease;
 }
 
 
 /* --- HIDE CHEVRON WHEN IMAGE ALIGNMENT IS DISABLED --- */
-.image-converter-settings-tab .image-alignment-settings-section:not(.image-alignment-enabled) .settings-section-chevron-icon {
+.image-resizer-settings-tab .image-alignment-settings-section:not(.image-alignment-enabled) .settings-section-chevron-icon {
     /* Refined selector */
     display: none;
     /* Hide chevron when image alignment section is disabled */
@@ -425,7 +425,7 @@ html[data-theme='dark'] {
 
 
 /* --- Indentation for Settings within Section --- */
-.image-converter-settings-tab .image-alignment-settings-section .setting-item {
+.image-resizer-settings-tab .image-alignment-settings-section .setting-item {
     padding-left: 1.5em;
     border-top: none;
     margin-top: 0 !important;
@@ -433,7 +433,7 @@ html[data-theme='dark'] {
 }
 
 /* --- Hide Settings when Section is Collapsed --- */
-.image-converter-settings-tab .image-alignment-settings-section.settings-section-collapsed>*:not(.settings-section-header) {
+.image-resizer-settings-tab .image-alignment-settings-section.settings-section-collapsed>*:not(.settings-section-header) {
     display: none;
 }
 
@@ -493,14 +493,14 @@ html[data-theme='dark'] {
 }
 
 /* --- HIDE CHEVRON WHEN IMAGE ALIGNMENT IS DISABLED --- */
-.image-converter-settings-tab .image-drag-resize-settings-section:not(.image-drag-resize-enabled) .settings-section-chevron-icon {
+.image-resizer-settings-tab .image-drag-resize-settings-section:not(.image-drag-resize-enabled) .settings-section-chevron-icon {
     /* Refined selector */
     display: none;
     /* Hide chevron when image alignment section is disabled */
 }
 
 /* --- Indentation for Settings within Section --- */
-.image-converter-settings-tab .image-drag-resize-settings-section .setting-item {
+.image-resizer-settings-tab .image-drag-resize-settings-section .setting-item {
     padding-left: 1.5em;
     border-top: none;
     margin-top: 0 !important;
@@ -508,7 +508,7 @@ html[data-theme='dark'] {
 }
 
 /* --- Hide Settings when Section is Collapsed --- */
-.image-converter-settings-tab .image-drag-resize-settings-section.settings-section-collapsed>*:not(.settings-section-header) {
+.image-resizer-settings-tab .image-drag-resize-settings-section.settings-section-collapsed>*:not(.settings-section-header) {
     display: none;
 }
 
@@ -519,49 +519,49 @@ html[data-theme='dark'] {
 
 /* --- Hide Tabs and Content --- */
 /* Hide tabs and preset groups when global presets are not visible */
-.image-converter-settings-tab:not(.global-presets-visible) .image-converter-setting-tabs,
-.image-converter-settings-tab:not(.global-presets-visible) .image-converter-tab-content-wrapper {
+.image-resizer-settings-tab:not(.global-presets-visible) .image-resizer-setting-tabs,
+.image-resizer-settings-tab:not(.global-presets-visible) .image-resizer-tab-content-wrapper {
     display: none;
 }
 
 /* ------- Preset Summary in Modal ----------------------*/
-.image-converter-preset-summary {
+.image-resizer-preset-summary {
     margin-top: 10px;
 }
 
-.image-converter-preset-summary .summary-section {
+.image-resizer-preset-summary .summary-section {
     margin-bottom: 15px;
 }
 
-.image-converter-preset-summary .summary-section-title {
+.image-resizer-preset-summary .summary-section-title {
     font-weight: bold;
     font-size: 1.1em;
     margin-bottom: 5px;
 }
 
-.image-converter-preset-summary .summary-item {
+.image-resizer-preset-summary .summary-item {
     margin-left: 20px;
     margin-bottom: 3px;
 }
 
-.image-converter-preset-summary .summary-label {
+.image-resizer-preset-summary .summary-label {
     font-weight: 600;
 }
 
-.image-converter-preset-summary .summary-value {
+.image-resizer-preset-summary .summary-value {
     font-style: italic;
 }
 
-.image-converter-preset-summary .summary-value-bold {
+.image-resizer-preset-summary .summary-value-bold {
     font-weight: bold;
 }
 
-.image-converter-summary-example {
+.image-resizer-summary-example {
     font-style: italic;
 }
 
 /* --------------------------- Form Container ----------- */
-.image-converter-form-container {
+.image-resizer-form-container {
     margin-top: 20px;
     padding: 20px;
     border: 1px solid var(--background-modifier-border);
@@ -575,7 +575,7 @@ html[data-theme='dark'] {
 }
 
 /* Class to make the form container visible */
-.image-converter-form-container.visible {
+.image-resizer-form-container.visible {
     display: block;
     border: var(--interactive-accent);
     box-shadow: 0 0 5px var(--interactive-accent);
@@ -585,12 +585,12 @@ html[data-theme='dark'] {
 
 /* --- Responsive Design --- */
 @media (max-width: 600px) {
-    .image-converter-available-variables-modal {
+    .image-resizer-available-variables-modal {
         width: 95vw;
     }
 
-    .image-converter-available-variables-modal th,
-    .image-converter-available-variables-modal td {
+    .image-resizer-available-variables-modal th,
+    .image-resizer-available-variables-modal td {
         font-size: 0.9em;
         padding: 8px;
     }
@@ -610,23 +610,23 @@ html[data-theme='dark'] {
 }
 
 /* ------------- VARIABLES Modal -----------------------*/
-.image-converter-available-variables-modal {
+.image-resizer-available-variables-modal {
     width: 90vw;
     max-width: 800px;
 }
 
-.image-converter-available-variables-modal .modal-content {
+.image-resizer-available-variables-modal .modal-content {
     padding: 0px;
     /* Remove padding */
 }
 
-.image-converter-available-variables-modal .modal-title {
+.image-resizer-available-variables-modal .modal-title {
     margin-bottom: 20px;
     font-size: 1.4em;
     font-weight: 600;
 }
 
-.image-converter-available-variables-modal h4 {
+.image-resizer-available-variables-modal h4 {
     margin-top: 20px;
     margin-bottom: 10px;
     font-size: 1.2em;
@@ -634,13 +634,13 @@ html[data-theme='dark'] {
     color: var(--text-normal);
 }
 
-.image-converter-available-variables-modal table {
+.image-resizer-available-variables-modal table {
     width: 100%;
     border-collapse: collapse;
 }
 
-.image-converter-available-variables-modal th,
-.image-converter-available-variables-modal td {
+.image-resizer-available-variables-modal th,
+.image-resizer-available-variables-modal td {
     border: 1px solid var(--background-modifier-border);
     padding: 10px;
     text-align: left;
@@ -648,12 +648,12 @@ html[data-theme='dark'] {
     vertical-align: top;
 }
 
-.image-converter-available-variables-modal th {
+.image-resizer-available-variables-modal th {
     background-color: var(--background-secondary);
     font-weight: 600;
 }
 
-.image-converter-available-variables-modal td:first-child {
+.image-resizer-available-variables-modal td:first-child {
     font-family: monospace;
     font-weight: 600;
     color: var(--text-accent);
@@ -662,16 +662,16 @@ html[data-theme='dark'] {
     transition: all 0.15s ease;
 }
 
-.image-converter-available-variables-modal td:first-child:hover {
+.image-resizer-available-variables-modal td:first-child:hover {
     background-color: var(--background-modifier-hover);
 }
 
-.image-converter-available-variables-modal td:nth-child(2) {
+.image-resizer-available-variables-modal td:nth-child(2) {
     /* width: 60%; */
     /* Adjust width ratio as needed */
 }
 
-.image-converter-available-variables-modal td:last-child {
+.image-resizer-available-variables-modal td:last-child {
     font-family: monospace;
     color: var(--text-muted);
 }
@@ -689,7 +689,7 @@ html[data-theme='dark'] {
 }
 
 /* -------------- Link FORMATS --------------------- */
-.image-converter-format-examples-section {
+.image-resizer-format-examples-section {
     margin-top: 20px;
     margin-bottom: 20px;
     border: 1px solid var(--background-modifier-border);
@@ -697,7 +697,7 @@ html[data-theme='dark'] {
 }
 
 /* --- Summary (Clickable Part) --- */
-.image-converter-format-examples-section summary {
+.image-resizer-format-examples-section summary {
     padding: 10px;
     cursor: pointer;
     display: flex;
@@ -709,17 +709,17 @@ html[data-theme='dark'] {
     /* Remove default list-style */
 }
 
-.image-converter-format-examples-section summary::-webkit-details-marker {
+.image-resizer-format-examples-section summary::-webkit-details-marker {
     display: none;
     /* Remove default WebKit marker */
 }
 
-.image-converter-format-examples-section summary:hover {
+.image-resizer-format-examples-section summary:hover {
     background-color: var(--background-secondary);
 }
 
 /* --- Arrow --- */
-.image-converter-format-examples-section summary::after {
+.image-resizer-format-examples-section summary::after {
     content: '▼';
     /* Downward arrow */
     transition: transform 0.2s ease;
@@ -730,52 +730,52 @@ html[data-theme='dark'] {
 }
 
 /* Rotate arrow when details is open */
-.image-converter-format-examples-section[open] summary::after {
+.image-resizer-format-examples-section[open] summary::after {
     transform: rotate(90deg);
 }
 
 /* --- Content --- */
-.image-converter-format-examples-content {
+.image-resizer-format-examples-content {
     padding: 10px;
     border-top: 1px solid var(--background-modifier-border);
 }
 
-.image-converter-format-examples-table {
+.image-resizer-format-examples-table {
     width: 100%;
     margin-top: 10px;
     border-collapse: collapse;
 }
 
-.image-converter-format-label,
-.image-converter-format-example,
-.image-converter-format-description {
+.image-resizer-format-label,
+.image-resizer-format-example,
+.image-resizer-format-description {
     border: 1px solid var(--background-modifier-border);
     padding: 8px;
     text-align: left;
     vertical-align: middle;
 }
 
-.image-converter-format-label {
+.image-resizer-format-label {
     font-weight: bold;
     width: 15%;
 }
 
-.image-converter-format-description {
+.image-resizer-format-description {
     width: 60%;
 }
 
 /* Styling for the <ul> list within the description */
-.image-converter-format-description ul {
+.image-resizer-format-description ul {
     margin: 0;
     padding-left: 20px;
     line-height: 1.5;
 }
 
-.image-converter-format-description li {
+.image-resizer-format-description li {
     margin-bottom: 0;
 }
 
-.image-converter-format-example {
+.image-resizer-format-example {
     /* font-family: var(--font-monospace); */
     white-space: pre-wrap;
     width: 25%;
@@ -783,50 +783,50 @@ html[data-theme='dark'] {
 }
 
 /* --- Practical Scenario --- */
-.image-converter-format-scenario {
+.image-resizer-format-scenario {
     margin-top: 15px;
     border: 1px solid var(--background-modifier-border);
     padding: 10px;
     border-radius: 4px;
 }
 
-.image-converter-format-paths {
+.image-resizer-format-paths {
     font-family: var(--font-monospace);
     font-size: 0.9em;
 }
 
-.image-converter-format-paths>div {
+.image-resizer-format-paths>div {
     display: flex;
     align-items: center;
     margin-bottom: 2px;
 }
 
-.image-converter-path-label {
+.image-resizer-path-label {
     margin-top: 4px;
     margin-right: 5px;
 }
 
-.image-converter-path-value {
+.image-resizer-path-value {
     padding-left: 5px;
 }
 
-.image-converter-format-result {
+.image-resizer-format-result {
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px solid var(--background-modifier-border);
 }
 
-.image-converter-result-label {
+.image-resizer-result-label {
     color: var(--text-muted);
 }
 
-.image-converter-result-value {
+.image-resizer-result-value {
     font-family: var(--font-monospace);
     padding-left: 20px;
 }
 
 /* ---------- Preview Container ------------------------*/
-.image-converter-preview-container {
+.image-resizer-preview-container {
     margin-top: -8px;
     padding: 0px;
     border: none;
@@ -837,7 +837,7 @@ html[data-theme='dark'] {
     justify-content: flex-end;
 }
 
-.image-converter-preview-label {
+.image-resizer-preview-label {
     font-style: italic;
     font-weight: normal;
     font-size: smaller;
@@ -850,7 +850,7 @@ html[data-theme='dark'] {
     /* Hide the label if desired */
 }
 
-.image-converter-preview-path {
+.image-resizer-preview-path {
     font-style: italic;
     font-family: var(--font-monospace);
     font-size: var(--font-ui-smaller);
@@ -860,26 +860,26 @@ html[data-theme='dark'] {
 }
 
 /* --- Input Field and Preview Wrapper --- */
-.image-converter-custom-template-setting-wrapper,
-.image-converter-subfolder-name-setting-wrapper {
+.image-resizer-custom-template-setting-wrapper,
+.image-resizer-subfolder-name-setting-wrapper {
     /* Consider removing border/padding if you want a more seamless look */
     /* border: 1px solid var(--background-modifier-border);
     padding: 10px; */
     border-radius: 6px;
 }
 
-.image-converter-subfolder-name-setting-wrapper input[type='text'],
-.image-converter-custom-path-setting-wrapper input[type='text'],
-.image-converter-custom-template-setting-wrapper input[type='text'] {
+.image-resizer-subfolder-name-setting-wrapper input[type='text'],
+.image-resizer-custom-path-setting-wrapper input[type='text'],
+.image-resizer-custom-template-setting-wrapper input[type='text'] {
     width: 350px;
 }
 
-.image-converter-preset-form textarea {
+.image-resizer-preset-form textarea {
     width: 239px;
 }
 
 /* --- Style for Units Dropdown --- */
-.image-converter-resize-units-dropdown {
+.image-resizer-resize-units-dropdown {
     max-width: 55px;
     min-width: 55px;
     width: auto;
@@ -898,7 +898,7 @@ html[data-theme='dark'] {
 /* ----------------------------------------------------------------------- */
 
 /* --- Section Container --- */
-.image-converter-settings-tab .image-caption-settings-section {
+.image-resizer-settings-tab .image-caption-settings-section {
     display: flex;
     /* align-items: center; */
     gap: 10px;
@@ -909,7 +909,7 @@ html[data-theme='dark'] {
 
 
 /* --- Section Header (Clickable Toggle Area) --- */
-.image-converter-settings-tab .image-caption-settings-section .settings-section-header {
+.image-resizer-settings-tab .image-caption-settings-section .settings-section-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -918,28 +918,28 @@ html[data-theme='dark'] {
 }
 
 
-.image-converter-settings-tab .image-caption-settings-section .settings-section-title {
+.image-resizer-settings-tab .image-caption-settings-section .settings-section-title {
     /* flex-grow: 1; */
     margin-left: 0.5em;
     font-weight: 600;
     margin-bottom: 5px;
 }
 
-.image-converter-settings-tab .image-caption-settings-section .settings-section-toggle-button {
+.image-resizer-settings-tab .image-caption-settings-section .settings-section-toggle-button {
     margin-left: auto;
     margin-right: 0;
 }
 
 
 /* --- Chevron Icon --- */
-.image-converter-settings-tab .image-caption-settings-section .settings-section-chevron-icon {
+.image-resizer-settings-tab .image-caption-settings-section .settings-section-chevron-icon {
     margin-right: 5px;
     transition: transform 0.2s ease;
 }
 
 
 /* --- HIDE CHEVRON WHEN IMAGE ALIGNMENT IS DISABLED --- */
-.image-converter-settings-tab .image-caption-settings-section:not(.image-caption-enabled) .settings-section-chevron-icon {
+.image-resizer-settings-tab .image-caption-settings-section:not(.image-caption-enabled) .settings-section-chevron-icon {
     /* Refined selector */
     display: none;
     /* Hide chevron when image alignment section is disabled */
@@ -947,7 +947,7 @@ html[data-theme='dark'] {
 
 
 /* --- Indentation for Settings within Section --- */
-.image-converter-settings-tab .image-caption-settings-section .setting-item {
+.image-resizer-settings-tab .image-caption-settings-section .setting-item {
     padding-left: 1.5em;
     border-top: none;
     margin-top: 0 !important;
@@ -955,7 +955,7 @@ html[data-theme='dark'] {
 }
 
 /* --- Hide Settings when Section is Collapsed --- */
-.image-converter-settings-tab .image-caption-settings-section.settings-section-collapsed>*:not(.settings-section-header) {
+.image-resizer-settings-tab .image-caption-settings-section.settings-section-collapsed>*:not(.settings-section-header) {
     display: none;
 }
 
@@ -976,7 +976,7 @@ html[data-theme='dark'] {
 .image-captions-enabled .internal-embed.image-embed[alt] {
     display: flex !important;
     flex-direction: column;
-    align-items: var(--image-converter-caption-align-items);
+    align-items: var(--image-resizer-caption-align-items);
     justify-content: center;
     width: fit-content;
 }
@@ -986,20 +986,20 @@ html[data-theme='dark'] {
     display: block;
     width: var(--img-width);
     font-family: var(--font-interface);
-    font-size: var(--image-converter-caption-font-size, var(--font-smaller));
-    color: var(--image-converter-caption-color, var(--text-muted));
-    background-color: var(--image-converter-caption-bg, transparent);
-    opacity: var(--image-converter-caption-opacity, 1);
+    font-size: var(--image-resizer-caption-font-size, var(--font-smaller));
+    color: var(--image-resizer-caption-color, var(--text-muted));
+    background-color: var(--image-resizer-caption-bg, transparent);
+    opacity: var(--image-resizer-caption-opacity, 1);
     content: attr(alt);
-    margin-top: var(--image-converter-caption-margin-top, 4px);
-    padding: var(--image-converter-caption-padding, 2px 4px);
-    border-radius: var(--image-converter-caption-border-radius, 0);
-    font-style: var(--image-converter-caption-font-style, italic);
-    font-weight: var(--image-converter-caption-font-weight, normal);
-    text-transform: var(--image-converter-caption-text-transform, none);
-    letter-spacing: var(--image-converter-caption-letter-spacing, normal);
-    border: var(--image-converter-caption-border, none);
-    text-align: var(--image-converter-caption-text-align, center);
+    margin-top: var(--image-resizer-caption-margin-top, 4px);
+    padding: var(--image-resizer-caption-padding, 2px 4px);
+    border-radius: var(--image-resizer-caption-border-radius, 0);
+    font-style: var(--image-resizer-caption-font-style, italic);
+    font-weight: var(--image-resizer-caption-font-weight, normal);
+    text-transform: var(--image-resizer-caption-text-transform, none);
+    letter-spacing: var(--image-resizer-caption-letter-spacing, normal);
+    border: var(--image-resizer-caption-border, none);
+    text-align: var(--image-resizer-caption-text-align, center);
     transition: all 0.2s ease;
     box-sizing: border-box;
 }
@@ -1017,24 +1017,24 @@ html[data-theme='dark'] {
 
 /* MODAL WINDOW - each drop */
 /* FILENAME--------------------------------------------------------------------------- */
-.image-converter-preset-selection-modal {
+.image-resizer-preset-selection-modal {
     padding: 0;
 }
 
-.image-converter-main-container {
+.image-resizer-main-container {
     display: flex;
     height: 100%;
     gap: 20px;
 }
 
-.image-converter-settings-column {
+.image-resizer-settings-column {
     flex: 3;
     padding: 0px;
     /* overflow-y: auto; */
     max-height: 80vh;
 }
 
-.image-converter-preview-column {
+.image-resizer-preview-column {
     flex: 2;
     background: var(--background-secondary);
     padding: 20px;
@@ -1045,25 +1045,25 @@ html[data-theme='dark'] {
     overflow-y: auto;
 }
 
-.image-converter-section-header {
+.image-resizer-section-header {
     display: flex;
     align-items: center;
     gap: 8px;
     margin-bottom: 7px;
 }
 
-.image-converter-section-header h3 {
+.image-resizer-section-header h3 {
     margin: 0;
 }
 
-.image-converter-help-button {
+.image-resizer-help-button {
     color: var(--text-muted);
     padding: 4px;
     height: 24px;
     width: 24px;
 }
 
-.image-converter-preset-section {
+.image-resizer-preset-section {
     margin-bottom: 6px;
     padding: 15px;
     background: var(--background-primary);
@@ -1071,26 +1071,26 @@ html[data-theme='dark'] {
     border: 1px solid var(--background-modifier-border);
 }
 
-.image-converter-preset-section h3 {
+.image-resizer-preset-section h3 {
     margin-top: 0;
     margin-bottom: 15px;
     font-size: 1.1em;
     color: var(--text-normal);
 }
 
-.image-converter-input-group {
+.image-resizer-input-group {
     margin-bottom: 5px;
     /* padding: 15px; */
     background: var(--background-primary);
     border-radius: 6px;
 }
 
-.image-converter-preview-header {
+.image-resizer-preview-header {
     margin-bottom: 5px;
     margin-top: 15px;
 }
 
-.image-converter-modal-preview-container {
+.image-resizer-modal-preview-container {
     font-family: var(--font-monospace);
     font-size: 0.9em;
     padding: 15px;
@@ -1099,14 +1099,14 @@ html[data-theme='dark'] {
     border: 1px solid var(--background-modifier-border);
 }
 
-.image-converter-conversion-container {
+.image-resizer-conversion-container {
     padding: 15px;
     background: var(--background-secondary);
     border-radius: 6px;
 }
 
 /* Action buttons */
-.image-converter-action-section {
+.image-resizer-action-section {
     margin-top: 32px;
     padding-top: 20px;
     border-top: 1px solid var(--background-modifier-border);
@@ -1115,64 +1115,64 @@ html[data-theme='dark'] {
     gap: 8px;
 }
 
-.image-converter-action-section .setting-item {
+.image-resizer-action-section .setting-item {
     padding: 0;
     margin: 0;
     border-top: none;
 }
 
 /* Enhance dropdown and input styling */
-.image-converter-preset-selection-modal .dropdown {
+.image-resizer-preset-selection-modal .dropdown {
     border-radius: 4px;
     min-width: 200px;
 }
 
-.image-converter-preset-selection-modal input {
+.image-resizer-preset-selection-modal input {
     border-radius: 4px;
     width: 100%;
 }
 
 /* Preview components */
-.image-converter-preview-path {
+.image-resizer-preview-path {
     display: flex;
     flex-direction: column;
     gap: 10px;
 }
 
-.image-converter-preview-component {
+.image-resizer-preview-component {
     padding: 8px;
     background: var(--background-secondary);
     border-radius: 4px;
 }
 
-.image-converter-preview-label {
+.image-resizer-preview-label {
     color: var(--text-muted);
     font-size: 0.9em;
     margin-bottom: 4px;
 }
 
-.image-converter-preview-value {
+.image-resizer-preview-value {
     word-break: break-all;
     color: var(--text-normal);
 }
 
-.image-converter-title-group {
+.image-resizer-title-group {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.image-converter-title-group h3 {
+.image-resizer-title-group h3 {
     margin: 0;
 }
 
 /* Dropdown and input styling */
-.image-converter-preset-selection-modal .setting-item {
+.image-resizer-preset-selection-modal .setting-item {
     border: none;
     padding: 0 0 12px 0;
 }
 
-.image-converter-section-description {
+.image-resizer-section-description {
     margin: 0 0 20px 0;
     color: var(--text-muted);
     font-size: 12px;
@@ -1181,7 +1181,7 @@ html[data-theme='dark'] {
 
 
 /* ------------------------------- */
-.image-converter-contextmenu-input-group {
+.image-resizer-contextmenu-input-group {
     display: flex;
     align-items: center;
     gap: 2px;
@@ -1189,17 +1189,17 @@ html[data-theme='dark'] {
 }
 
 /* New style for labels */
-.image-converter-contextmenu-input-group label {
+.image-resizer-contextmenu-input-group label {
     min-width: 53px; /* Fixed width for all labels */
     text-align: left; /* Right-align the labels */
     padding-right: 2px; /* Space between label and input */
 }
 
 /* Updated input styles */
-.image-converter-contextmenu-dimensions-input,
-.image-converter-contextmenu-name-input,
-.image-converter-contextmenu-path-input,
-.image-converter-contextmenu-caption-input {
+.image-resizer-contextmenu-dimensions-input,
+.image-resizer-contextmenu-name-input,
+.image-resizer-contextmenu-path-input,
+.image-resizer-contextmenu-caption-input {
     flex: 1;
     min-width: 0; /* Prevents flex items from overflowing */
     padding: 4px 8px;
@@ -1211,28 +1211,28 @@ html[data-theme='dark'] {
 }
 
 /* Add hover state for inputs */
-.image-converter-contextmenu-dimensions-input:hover,
-.image-converter-contextmenu-name-input:hover,
-.image-converter-contextmenu-path-input:hover,
-.image-converter-contextmenu-caption-input:hover {
+.image-resizer-contextmenu-dimensions-input:hover,
+.image-resizer-contextmenu-name-input:hover,
+.image-resizer-contextmenu-path-input:hover,
+.image-resizer-contextmenu-caption-input:hover {
     border-color: var(--background-modifier-border-hover);
 }
 
 /* Add focus state for inputs */
-.image-converter-contextmenu-dimensions-input:focus,
-.image-converter-contextmenu-name-input:focus,
-.image-converter-contextmenu-path-input:focus,
-.image-converter-contextmenu-caption-input:focus {
+.image-resizer-contextmenu-dimensions-input:focus,
+.image-resizer-contextmenu-name-input:focus,
+.image-resizer-contextmenu-path-input:focus,
+.image-resizer-contextmenu-caption-input:focus {
     border-color: var(--interactive-accent);
     box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
     outline: none;
 }
 
-.image-converter-contextmenu-input-group .image-converter-contextmenu-dimensions-input {
+.image-resizer-contextmenu-input-group .image-resizer-contextmenu-dimensions-input {
     max-width: 85px
 }
 /* Updated container style */
-.image-converter-contextmenu-info-container {
+.image-resizer-contextmenu-info-container {
     display: grid;
     grid-template-columns: minmax(200px, 1fr) auto; /* Minimum width for inputs */
     gap: var(--size-4-1);
@@ -1245,7 +1245,7 @@ html[data-theme='dark'] {
 }
 
 /* Update button style */
-.image-converter-contextmenu-button {
+.image-resizer-contextmenu-button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1260,13 +1260,13 @@ html[data-theme='dark'] {
     transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.image-converter-contextmenu-button:hover {
+.image-resizer-contextmenu-button:hover {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
 }
 
 /* Optional: Style for the icon containers */
-.image-converter-contextmenu-icon-container {
+.image-resizer-contextmenu-icon-container {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1274,21 +1274,21 @@ html[data-theme='dark'] {
 }
 
 /* Add disabled state styles */
-.image-converter-contextmenu-disabled {
+.image-resizer-contextmenu-disabled {
     opacity: 0.5;
     cursor: not-allowed;
     background-color: var(--background-modifier-form-field);
 }
 
 
-.image-converter-contextmenu-dimension-inputs {
+.image-resizer-contextmenu-dimension-inputs {
     display: flex;
     align-items: center;
     gap: 4px;
     flex: 1;
 }
 
-.image-converter-contextmenu-dimension-input {
+.image-resizer-contextmenu-dimension-input {
     width: 60px;
     padding: 4px 8px;
     border: 1px solid var(--background-modifier-border);
@@ -1300,14 +1300,14 @@ html[data-theme='dark'] {
 }
 
 /* Remove arrows from number inputs */
-.image-converter-contextmenu-dimension-input::-webkit-outer-spin-button,
-.image-converter-contextmenu-dimension-input::-webkit-inner-spin-button {
+.image-resizer-contextmenu-dimension-input::-webkit-outer-spin-button,
+.image-resizer-contextmenu-dimension-input::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
 }
 
 /* Style the multiplication symbol */
-.image-converter-contextmenu-dimension-inputs > span {
+.image-resizer-contextmenu-dimension-inputs > span {
     color: var(--text-muted);
     font-size: 0.9em;
 }
@@ -1319,7 +1319,7 @@ html[data-theme='dark'] {
 /* ------------------------------------------------------------------ */
 
 /* Modal styling */
-.image-converter-annotation-tool-image-annotation-modal {
+.image-resizer-annotation-tool-image-annotation-modal {
     max-width: 95vw;
     max-height: 95vh;
     margin: auto;
@@ -1330,7 +1330,7 @@ html[data-theme='dark'] {
     overflow: hidden;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-modal-container {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-modal-container {
     background-color: var(--background-primary);
     border-radius: 8px;
     display: flex;
@@ -1342,7 +1342,7 @@ html[data-theme='dark'] {
     position: relative;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-canvas-container {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-canvas-container {
     flex: 1;
     display: flex;
     justify-content: center;
@@ -1353,14 +1353,14 @@ html[data-theme='dark'] {
     position: relative;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-canvas-container canvas {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-canvas-container canvas {
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
 }
 
 /* Toolbar styling */
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar {
     position: relative;
     /* Changed from absolute */
     top: auto;
@@ -1376,7 +1376,7 @@ html[data-theme='dark'] {
     border-radius: var(--radius-m);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar button {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar button {
     background-color: var(--interactive-normal);
     border: none;
     padding: 4px 8px;
@@ -1390,7 +1390,7 @@ html[data-theme='dark'] {
     font-size: var(--font-ui-small);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-preset-buttons {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-preset-buttons {
     margin-left: auto;
     margin-right: auto;
     gap: 8px;
@@ -1398,7 +1398,7 @@ html[data-theme='dark'] {
     border-top: 1px solid var(--background-modifier-border);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .preset-button {
+.image-resizer-annotation-tool-image-annotation-modal .preset-button {
     display: flex;
     padding: 4px 8px;
     border: 1px solid var(--background-modifier-border);
@@ -1407,18 +1407,18 @@ html[data-theme='dark'] {
     background: var(--background-primary);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-preset-color {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-preset-color {
     width: 16px;
     height: 16px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 2px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .preset-button:hover {
+.image-resizer-annotation-tool-image-annotation-modal .preset-button:hover {
     background-color: var(--background-modifier-hover);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .preset-number {
+.image-resizer-annotation-tool-image-annotation-modal .preset-number {
     font-size: 0.8em;
     opacity: 0.8;
     margin-left: 4.5px;
@@ -1428,14 +1428,14 @@ html[data-theme='dark'] {
 
 
 
-.image-converter-annotation-tool-image-annotation-modal .control-label {
+.image-resizer-annotation-tool-image-annotation-modal .control-label {
     font-size: 12px;
     color: var(--text-muted);
     margin-bottom: 2px;
     white-space: nowrap;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .size-buttons-container {
+.image-resizer-annotation-tool-image-annotation-modal .size-buttons-container {
     display: flex;
     gap: 27px;
     margin-top: 8px;
@@ -1444,52 +1444,52 @@ html[data-theme='dark'] {
 
 
 
-.image-converter-annotation-tool-image-annotation-modal .opacity-buttons-container {
+.image-resizer-annotation-tool-image-annotation-modal .opacity-buttons-container {
     display: flex;
     gap: 8px;
     margin-top: 8px;
     margin-bottom: 2px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-button-group {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-button-group {
     display: flex;
     gap: 4px;
     align-items: center;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-button-group button {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-button-group button {
     padding: 4px 8px;
     min-width: 36px;
     height: 24px;
     font-size: 12px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-button-group button.is-active {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-button-group button.is-active {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
 }
 
 
 
-.image-converter-annotation-tool-image-annotation-modal .blend-modes-container {
+.image-resizer-annotation-tool-image-annotation-modal .blend-modes-container {
     display: flex;
     gap: 18px;
     margin-top: 8px;
     margin-bottom: 2px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .blend-modes-container .dropdown-container {
+.image-resizer-annotation-tool-image-annotation-modal .blend-modes-container .dropdown-container {
     min-width: 100px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .blend-modes-container .dropdown {
+.image-resizer-annotation-tool-image-annotation-modal .blend-modes-container .dropdown {
     width: 80%;
     height: 100%;
 }
 
 
 
-.image-converter-annotation-tool-image-annotation-modal .layer-controls {
+.image-resizer-annotation-tool-image-annotation-modal .layer-controls {
     display: flex;
     gap: 20px;
     margin-top: 8px;
@@ -1498,10 +1498,10 @@ html[data-theme='dark'] {
 
 
 
-.image-converter-annotation-tool-image-annotation-modal .size-buttons-container .control-label,
-.image-converter-annotation-tool-image-annotation-modal .opacity-buttons-container .control-label,
-.image-converter-annotation-tool-image-annotation-modal .blend-modes-container .control-label,
-.image-converter-annotation-tool-image-annotation-modal .layer-controls .control-label {
+.image-resizer-annotation-tool-image-annotation-modal .size-buttons-container .control-label,
+.image-resizer-annotation-tool-image-annotation-modal .opacity-buttons-container .control-label,
+.image-resizer-annotation-tool-image-annotation-modal .blend-modes-container .control-label,
+.image-resizer-annotation-tool-image-annotation-modal .layer-controls .control-label {
     margin-top: auto;
     margin-bottom: auto;
 }
@@ -1511,46 +1511,46 @@ html[data-theme='dark'] {
 
 
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-color-swatches {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-color-swatches {
     display: flex;
     flex-direction: column;
     gap: 8px;
     padding: 8px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-color-row {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-color-row {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-row-label {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-row-label {
     font-size: 12px;
     min-width: 70px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-swatches-container {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-swatches-container {
     display: flex;
     gap: 8px;
 }
 
-/* .image-converter-annotation-tool-image-annotation-modal .color-column {
+/* .image-resizer-annotation-tool-image-annotation-modal .color-column {
     display: flex;
     flex-direction: column;
     gap: 4px;
 } */
 
-.image-converter-annotation-tool-image-annotation-modal .section-label {
+.image-resizer-annotation-tool-image-annotation-modal .section-label {
     font-size: 12px;
     margin-bottom: 4px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .dominant-container {
+.image-resizer-annotation-tool-image-annotation-modal .dominant-container {
     display: flex;
     gap: 8px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .color-swatch {
+.image-resizer-annotation-tool-image-annotation-modal .color-swatch {
     width: 24px;
     height: 24px;
     border-radius: 4px;
@@ -1559,11 +1559,11 @@ html[data-theme='dark'] {
 }
 
 
-.image-converter-annotation-tool-image-annotation-modal .color-swatch:hover {
+.image-resizer-annotation-tool-image-annotation-modal .color-swatch:hover {
     transform: scale(1.1);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .color-separator {
+.image-resizer-annotation-tool-image-annotation-modal .color-separator {
     height: 1px;
     margin: 4px 0;
 }
@@ -1572,7 +1572,7 @@ html[data-theme='dark'] {
 
 
 
-.image-converter-annotation-tool-image-annotation-modal .background-dropdown {
+.image-resizer-annotation-tool-image-annotation-modal .background-dropdown {
     position: fixed;
     z-index: 1000;
     background-color: var(--background-primary);
@@ -1583,11 +1583,11 @@ html[data-theme='dark'] {
     width: 54px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .background-dropdown.background-dropdown-hidden {
+.image-resizer-annotation-tool-image-annotation-modal .background-dropdown.background-dropdown-hidden {
     display: none;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .background-dropdown .background-option {
+.image-resizer-annotation-tool-image-annotation-modal .background-dropdown .background-option {
         display: flex;
         align-items: center;
         padding: 6px 8px;
@@ -1637,7 +1637,7 @@ html[data-theme='dark'] {
 
 
 
-.image-converter-annotation-tool-image-annotation-modal .dominant-section {
+.image-resizer-annotation-tool-image-annotation-modal .dominant-section {
     display: flex;
     flex-direction: column;
 }
@@ -1648,7 +1648,7 @@ html[data-theme='dark'] {
     overflow: hidden;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .modal-resize-handle {
+.image-resizer-annotation-tool-image-annotation-modal .modal-resize-handle {
     position: absolute;
     bottom: 0;
     right: 0;
@@ -1664,11 +1664,11 @@ html[data-theme='dark'] {
     z-index: 100;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .is-resizing {
+.image-resizer-annotation-tool-image-annotation-modal .is-resizing {
     user-select: none;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-canvas-container {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-canvas-container {
     transition: width 0.1s ease, height 0.1s ease;
     background: var(--background-secondary);
     overflow: hidden;
@@ -1677,7 +1677,7 @@ html[data-theme='dark'] {
 }
 
 /* Add checkerboard pattern for transparent areas */
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-canvas-container::before {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-canvas-container::before {
     content: '';
     position: absolute;
     top: 0;
@@ -1696,22 +1696,22 @@ html[data-theme='dark'] {
 }
 
 /* Hover states */
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar button:hover {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar button:hover {
     background-color: var(--interactive-hover);
 }
 
 /* Active state for buttons */
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar button.is-active {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar button.is-active {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar button svg {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar button svg {
     width: 16px;
     height: 16px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .annotation-toolbar-group {
+.image-resizer-annotation-tool-image-annotation-modal .annotation-toolbar-group {
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
@@ -1720,7 +1720,7 @@ html[data-theme='dark'] {
     /* Remove fixed width */
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar input[type="color"] {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar input[type="color"] {
     width: 30px;
     height: 30px;
     padding: 0;
@@ -1729,24 +1729,24 @@ html[data-theme='dark'] {
     cursor: pointer;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .annotation-toolbar-group:last-child {
+.image-resizer-annotation-tool-image-annotation-modal .annotation-toolbar-group:last-child {
     border-right: none;
 }
 
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-left-section {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-left-section {
     display: flex;
     /* align-items: center; */
     gap: 8px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-drawing-tools-column {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-drawing-tools-column {
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .toolbar-separator {
+.image-resizer-annotation-tool-image-annotation-modal .toolbar-separator {
     width: 1px;
     height: 100%;
     background-color: var(--background-modifier-border);
@@ -1754,44 +1754,44 @@ html[data-theme='dark'] {
 }
 
 
-.image-converter-annotation-tool-image-annotation-modal .drawing-group {
+.image-resizer-annotation-tool-image-annotation-modal .drawing-group {
     display: flex;
     align-items: center;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-color-picker-wrapper {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-color-picker-wrapper {
     display: flex;
     /* align-items: center; */
     padding: 2px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-background-color-wrapper {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-background-color-wrapper {
     display: flex;
     align-items: center;
 }
 
 /* 
-.image-converter-annotation-tool-image-annotation-modal .background-alpha-slider {
+.image-resizer-annotation-tool-image-annotation-modal .background-alpha-slider {
     width: 60px;
     height: 24px;
     margin: 0;
     padding: 0;
 } */
 
-.image-converter-annotation-tool-image-annotation-modal .preset-button .image-converter-annotation-tool-preset-color {
+.image-resizer-annotation-tool-image-annotation-modal .preset-button .image-resizer-annotation-tool-preset-color {
     width: 20px;
     height: 20px;
     border-radius: 10px;
     transition: all 0.2s ease;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .preset-button.text-preset .image-converter-annotation-tool-preset-color {
+.image-resizer-annotation-tool-image-annotation-modal .preset-button.text-preset .image-resizer-annotation-tool-preset-color {
     position: relative;
     border-style: solid;
     border-width: 2px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .color-picker {
+.image-resizer-annotation-tool-image-annotation-modal .color-picker {
     width: 24px;
     height: 24px;
     margin-top: 30px;
@@ -1801,91 +1801,91 @@ html[data-theme='dark'] {
     cursor: pointer;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .color-picker::-webkit-color-swatch-wrapper {
+.image-resizer-annotation-tool-image-annotation-modal .color-picker::-webkit-color-swatch-wrapper {
     padding: 0;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .color-picker::-webkit-color-swatch {
+.image-resizer-annotation-tool-image-annotation-modal .color-picker::-webkit-color-swatch {
     border: none;
     border-radius: var(--radius-s);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .color-picker::-moz-color-swatch {
+.image-resizer-annotation-tool-image-annotation-modal .color-picker::-moz-color-swatch {
     border: 2px solid var(--background-modifier-border);
     border-radius: var(--radius-s);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .color-picker:hover {
+.image-resizer-annotation-tool-image-annotation-modal .color-picker:hover {
     opacity: 0.8;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .annotation-toolbar-group {
+.image-resizer-annotation-tool-image-annotation-modal .annotation-toolbar-group {
     display: flex;
     gap: 4px;
     padding: 0 8px;
     border-right: 1px solid var(--background-modifier-border);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .annotation-toolbar-group:last-child {
+.image-resizer-annotation-tool-image-annotation-modal .annotation-toolbar-group:last-child {
     border-right: none;
 }
 
-.image-converter-annotation-tool-image-annotation-modal button.is-active {
+.image-resizer-annotation-tool-image-annotation-modal button.is-active {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
 }
 
-.image-converter-annotation-tool-image-annotation-modal button:disabled {
+.image-resizer-annotation-tool-image-annotation-modal button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-canvas-container {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-canvas-container {
     position: relative;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-canvas-container textarea {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-canvas-container textarea {
     position: absolute;
     pointer-events: auto;
 }
 
 
 /* Optional: Add hover effect for delete icon */
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-canvas-container:hover .delete-icon {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-canvas-container:hover .delete-icon {
     opacity: 1;
 }
 
 /* Save button styling */
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar button.mod-cta {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar button.mod-cta {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
 }
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar button.mod-cta:hover {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar button.mod-cta:hover {
     background-color: var(--interactive-accent-hover);
 }
 
 /* Mobile-specific adjustments */
 @media (max-width: 768px) {
-    .image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar {
+    .image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar {
         padding: 4px;
         gap: 4px;
     }
 
-    .image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar button {
+    .image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar button {
         padding: 6px;
     }
 
-    .image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-annotation-toolbar button svg {
+    .image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-annotation-toolbar button svg {
         width: 14px;
         height: 14px;
     }
 
-    .image-converter-annotation-tool-image-annotation-modal .slider-container {
+    .image-resizer-annotation-tool-image-annotation-modal .slider-container {
         min-width: 100px;
     }
 
-    .image-converter-annotation-tool-image-annotation-modal .brush-controls {
+    .image-resizer-annotation-tool-image-annotation-modal .brush-controls {
         flex-direction: column;
         padding-left: 4px;
         margin-left: 4px;
@@ -1893,7 +1893,7 @@ html[data-theme='dark'] {
 }
 
 
-.image-converter-annotation-tool-image-annotation-modal .image-converter-annotation-tool-control-group {
+.image-resizer-annotation-tool-image-annotation-modal .image-resizer-annotation-tool-control-group {
     display: flex;
     gap: 5px;
     margin-top: 8px;
@@ -1901,13 +1901,13 @@ html[data-theme='dark'] {
     align-items: center;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .text-background-controls {
+.image-resizer-annotation-tool-image-annotation-modal .text-background-controls {
     display: flex;
     flex-direction: column;
     gap: 4px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .text-bg-controls {
+.image-resizer-annotation-tool-image-annotation-modal .text-bg-controls {
     display: flex;
     flex-direction: row;
     align-content: center;
@@ -1915,7 +1915,7 @@ html[data-theme='dark'] {
     align-items: center;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .background-color-picker {
+.image-resizer-annotation-tool-image-annotation-modal .background-color-picker {
     width: 24px;
     height: 24px;
     padding: 0;
@@ -1925,7 +1925,7 @@ html[data-theme='dark'] {
     margin-right: 4px;
 }
 
-.image-converter-annotation-tool-image-annotation-modal .layer-controls {
+.image-resizer-annotation-tool-image-annotation-modal .layer-controls {
     display: flex;
     flex-direction: row;
     align-content: center;
@@ -2525,7 +2525,7 @@ html[data-theme='dark'] {
 /* ------------------------------------------------------------------ */
 /* We could add a border or other visual indicator here?? For now it is just
     generally class to keep for identification purposes.*/
-/*.image-converter-aligned {
+/*.image-resizer-aligned {
     border: 1px solid red; 
 } */
 
@@ -2762,7 +2762,7 @@ html[data-theme='dark'] {
 /* ============================================ */
 
 /* Main compact container */
-.image-converter-compact-container {
+.image-resizer-compact-container {
     max-width: -webkit-fill-available;
     margin: 0 auto;
     padding: 0;
@@ -2772,7 +2772,7 @@ html[data-theme='dark'] {
 }
 
 /* Compact header */
-.image-converter-compact-header {
+.image-resizer-compact-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2783,7 +2783,7 @@ html[data-theme='dark'] {
     overflow: hidden;
 }
 
-.image-converter-compact-title {
+.image-resizer-compact-title {
     margin: 0;
     font-size: 1.4em;
     font-weight: 600;
@@ -2795,19 +2795,19 @@ html[data-theme='dark'] {
 }
 
 /* Variables button in header */
-.image-converter-variables-header {
+.image-resizer-variables-header {
     flex: 0 0 auto;
     order: 2;
 }
 
-.image-converter-variables-header .setting-item {
+.image-resizer-variables-header .setting-item {
     padding: 0 !important;
     border: none !important;
     margin: 0 !important;
     min-height: auto !important;
 }
 
-.image-converter-variables-header-btn {
+.image-resizer-variables-header-btn {
     font-size: 0.85em !important;
     padding: 4px 10px !important;
     height: auto !important;
@@ -2816,21 +2816,21 @@ html[data-theme='dark'] {
 }
 
 /* Global preset dropdown in header */
-.image-converter-global-mini {
+.image-resizer-global-mini {
     flex: 0 0 auto;
     min-width: 110px;
     /* max-width: 140px; */
     order: 3;
 }
 
-.image-converter-compact-inputs {
+.image-resizer-compact-inputs {
     display: flex;
     /* flex-direction: column; */
     gap: 6px;
 }
 
 /* NEW LAYOUT: Two-row structure for folder/filename groups */
-.image-converter-compact-input-group {
+.image-resizer-compact-input-group {
     padding: 4px;
     background: var(--background-secondary);
     border-radius: 8px;
@@ -2844,7 +2844,7 @@ html[data-theme='dark'] {
 }
 
 /* Row 1: Label and Dropdown on same line */
-.image-converter-label-dropdown-row {
+.image-resizer-label-dropdown-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2853,7 +2853,7 @@ html[data-theme='dark'] {
     overflow: hidden;
 }
 
-.image-converter-group-label {
+.image-resizer-group-label {
     font-weight: 500;
     font-size: 0.735em;
     color: var(--text-faint);
@@ -2864,31 +2864,31 @@ html[data-theme='dark'] {
     white-space: nowrap;
 }
 
-.image-converter-preset-dropdown-container {
+.image-resizer-preset-dropdown-container {
     flex: 0 0 auto;
     min-width: 140px;
     max-width: 100%;
     overflow: hidden;
 }
 
-.image-converter-preset-dropdown-setting {
+.image-resizer-preset-dropdown-setting {
     padding: 0 !important;
     border: none !important;
     margin: 0 !important;
 }
 
-.image-converter-preset-dropdown-setting .setting-item {
+.image-resizer-preset-dropdown-setting .setting-item {
     padding: 0;
     border: none;
     margin: 0;
     min-height: auto;
 }
 
-.image-converter-preset-dropdown-setting .setting-item-control {
+.image-resizer-preset-dropdown-setting .setting-item-control {
     margin-left: 0 !important;
 }
 
-.image-converter-preset-dropdown-setting-item {
+.image-resizer-preset-dropdown-setting-item {
     padding: 0 !important;
     border: none !important;
     margin: 0 !important;
@@ -2896,7 +2896,7 @@ html[data-theme='dark'] {
 }
 
 /* Style the dropdown - let Obsidian handle the native appearance and arrows */
-.image-converter-preset-dropdown {
+.image-resizer-preset-dropdown {
     width: 100% !important;
     height: 16px !important;
     font-size: var(--font-ui-smaller) !important;
@@ -2905,16 +2905,16 @@ html[data-theme='dark'] {
 }
 
 /* Add preset type indicators to dropdown */
-.image-converter-preset-dropdown[data-preset-type="folder"]::before {
+.image-resizer-preset-dropdown[data-preset-type="folder"]::before {
     content: "Folder-presets ";
 }
 
-.image-converter-preset-dropdown[data-preset-type="filename"]::before {
+.image-resizer-preset-dropdown[data-preset-type="filename"]::before {
     content: "Filename-presets ";
 }
 
 /* Compact dropdown styling for folder and filename dropdowns */
-.image-converter-compact-dropdown {
+.image-resizer-compact-dropdown {
     height: 24px !important;
     font-size: 12px !important;
     padding: 2px 8px !important;
@@ -2939,56 +2939,56 @@ html[data-theme='dark'] {
 }
 
 /* Fallback for custom arrow if Obsidian doesn't provide the icon variable */
-.image-converter-compact-dropdown:not([style*="--icon-dropdown"]) {
+.image-resizer-compact-dropdown:not([style*="--icon-dropdown"]) {
     background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e") !important;
 }
 
 /* Light theme specific arrow */
-.theme-light .image-converter-compact-dropdown {
+.theme-light .image-resizer-compact-dropdown {
     background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e") !important;
 }
 
 /* Dark theme specific arrow */
-.theme-dark .image-converter-compact-dropdown {
+.theme-dark .image-resizer-compact-dropdown {
     background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aaaaaa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e") !important;
 }
 
 /* Hover state for compact dropdown */
-.image-converter-compact-dropdown:hover {
+.image-resizer-compact-dropdown:hover {
     background-color: var(--background-modifier-hover) !important;
     border-color: var(--interactive-accent) !important;
 }
 
 /* Focus state for compact dropdown */
-.image-converter-compact-dropdown:focus {
+.image-resizer-compact-dropdown:focus {
     border-color: var(--interactive-accent) !important;
     box-shadow: 0 0 0 2px var(--interactive-accent-alpha) !important;
     outline: none !important;
 }
 
 /* Row 2: Full-width input field */
-.image-converter-input-row {
+.image-resizer-input-row {
     width: 100%;
 }
 
-.image-converter-input-row .setting-item {
+.image-resizer-input-row .setting-item {
     padding: 0;
     border: none;
     margin: 0;
     width: 100%;
 }
 
-.image-converter-input-row .setting-item-control {
+.image-resizer-input-row .setting-item-control {
     margin-left: 0 !important;
     width: 100%;
 }
 
 /* Override default Obsidian setting-item spacing */
-.image-converter-input-row .setting-item > *:first-child {
+.image-resizer-input-row .setting-item > *:first-child {
     margin-inline-end: 0 !important;
 }
 
-.image-converter-full-width-input {
+.image-resizer-full-width-input {
     width: 100% !important;
     height: 32px !important;
     padding: 6px 12px !important;
@@ -3000,7 +3000,7 @@ html[data-theme='dark'] {
 }
 
 /* Legacy styles - keeping for backward compatibility */
-.image-converter-compact-input-row {
+.image-resizer-compact-input-row {
     display: flex;
     align-items: stretch;
     gap: 16px;
@@ -3010,7 +3010,7 @@ html[data-theme='dark'] {
     border: 1px solid var(--background-modifier-border);
 }
 
-.image-converter-compact-label {
+.image-resizer-compact-label {
     min-width: 80px;
     font-weight: 500;
     color: var(--text-normal);
@@ -3019,31 +3019,31 @@ html[data-theme='dark'] {
     align-items: center;
 }
 
-.image-converter-compact-input-container {
+.image-resizer-compact-input-container {
     display: flex;
     gap: 8px;
     flex: 1;
     align-items: stretch;
 }
 
-.image-converter-text-container {
+.image-resizer-text-container {
     flex: 1;
     display: flex;
     align-items: stretch;
 }
 
-.image-converter-text-container .setting-item {
+.image-resizer-text-container .setting-item {
     padding: 0;
     border: none;
     margin: 0;
     flex: 1;
 }
 
-.image-converter-text-container .setting-item-control {
+.image-resizer-text-container .setting-item-control {
     flex: 1;
 }
 
-.image-converter-text-container input[type="text"] {
+.image-resizer-text-container input[type="text"] {
     width: 100%;
     height: 32px;
     padding: 4px 8px;
@@ -3052,26 +3052,26 @@ html[data-theme='dark'] {
     background: var(--background-primary);
 }
 
-.image-converter-preset-mini {
+.image-resizer-preset-mini {
     flex: 0 0 120px;
     min-width: 120px;
     display: flex;
     align-items: stretch;
 }
 
-.image-converter-preset-mini .setting-item {
+.image-resizer-preset-mini .setting-item {
     padding: 0;
     border: none;
     margin: 0;
     flex: 1;
 }
 
-.image-converter-preset-mini .setting-item-control {
+.image-resizer-preset-mini .setting-item-control {
     flex: 1;
 }
 
-.image-converter-preset-mini select,
-.image-converter-preset-mini .dropdown {
+.image-resizer-preset-mini select,
+.image-resizer-preset-mini .dropdown {
     width: 100%;
     height: 32px;
     padding: 4px 8px;
@@ -3080,40 +3080,40 @@ html[data-theme='dark'] {
     background: var(--background-primary);
 }
 
-.image-converter-preset-mini-setting {
+.image-resizer-preset-mini-setting {
     padding: 0 !important;
     border: none !important;
     margin: 0 !important;
 }
 
-.image-converter-preset-mini-setting .setting-item-control {
+.image-resizer-preset-mini-setting .setting-item-control {
     margin-left: 0 !important;
 }
 
 /* Additional styling for the new text and preset setting items */
-.image-converter-text-setting-item {
+.image-resizer-text-setting-item {
     padding: 0 !important;
     border: none !important;
     margin: 0 !important;
     min-height: auto !important;
 }
 
-.image-converter-text-setting-item .setting-item-control {
+.image-resizer-text-setting-item .setting-item-control {
     margin-left: 0 !important;
 }
 
-.image-converter-preset-setting-item {
+.image-resizer-preset-setting-item {
     padding: 0 !important;
     border: none !important;
     margin: 0 !important;
     min-height: auto !important;
 }
 
-.image-converter-preset-setting-item .setting-item-control {
+.image-resizer-preset-setting-item .setting-item-control {
     margin-left: 0 !important;
 }
 
-.image-converter-text-input {
+.image-resizer-text-input {
     width: 100% !important;
     height: 32px !important;
     padding: 4px 8px !important;
@@ -3123,27 +3123,27 @@ html[data-theme='dark'] {
     font-size: var(--font-ui-small) !important;
 }
 
-.image-converter-preset-dropdown {
+.image-resizer-preset-dropdown {
     width: 100% !important;
     height: 28px !important;
     font-size: var(--font-ui-small) !important;
 }
 
 /* Fix global preset mini styling */
-.image-converter-global-mini-setting {
+.image-resizer-global-mini-setting {
     padding: 0 !important;
     border: none !important;
     margin: 0 !important;
     min-height: auto !important;
 }
 
-.image-converter-global-mini-setting .setting-item-control {
+.image-resizer-global-mini-setting .setting-item-control {
     margin-left: 0 !important;
     max-width: 120px;
     overflow: visible;
 }
 
-.image-converter-global-mini-setting .dropdown {
+.image-resizer-global-mini-setting .dropdown {
     max-width: 120px !important;
     width: 120px !important;
     box-sizing: border-box !important;
@@ -3157,8 +3157,8 @@ html[data-theme='dark'] {
 }
 
 /* When dropdown is opened, the dropdown list should expand */
-.image-converter-global-mini-setting .dropdown[size]:not([size="1"]),
-.image-converter-global-mini-setting .dropdown:not([size]) {
+.image-resizer-global-mini-setting .dropdown[size]:not([size="1"]),
+.image-resizer-global-mini-setting .dropdown:not([size]) {
     width: auto !important;
     min-width: 120px !important;
     max-width: 250px !important;
@@ -3166,7 +3166,7 @@ html[data-theme='dark'] {
 }
 
 /* Style the dropdown options to handle long text better */
-.image-converter-global-mini-setting .dropdown option {
+.image-resizer-global-mini-setting .dropdown option {
     white-space: nowrap !important;
     padding: 4px 8px !important;
     min-width: 120px !important;
@@ -3174,8 +3174,8 @@ html[data-theme='dark'] {
 }
 
 /* For browsers that support it, expand the dropdown list container */
-.image-converter-global-mini-setting select:focus,
-.image-converter-global-mini-setting select:active {
+.image-resizer-global-mini-setting select:focus,
+.image-resizer-global-mini-setting select:active {
     width: auto !important;
     min-width: 120px !important;
     max-width: 250px !important;
@@ -3183,14 +3183,14 @@ html[data-theme='dark'] {
     z-index: 1001 !important;
 }
 
-.image-converter-global-mini-setting .setting-item-name {
+.image-resizer-global-mini-setting .setting-item-name {
     font-size: 1.1em !important;
     font-weight: 600 !important;
     min-width: 30px !important;
 }
 
 /* Quality grid styling */
-.image-converter-quality-grid {
+.image-resizer-quality-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
@@ -3198,43 +3198,43 @@ html[data-theme='dark'] {
 }
 
 /* Hide setting item borders in compact layout */
-.image-converter-compact-container .setting-item {
+.image-resizer-compact-container .setting-item {
     border-top: none !important;
 }
 
 /* Ensure consistent heights for all interactive elements */
-.image-converter-compact-input-row input,
-.image-converter-compact-input-row select,
-.image-converter-compact-input-row .dropdown {
+.image-resizer-compact-input-row input,
+.image-resizer-compact-input-row select,
+.image-resizer-compact-input-row .dropdown {
     height: 32px !important;
     box-sizing: border-box !important;
 }
 
 /* Processing Card Layout */
-.image-converter-processing-card {
+.image-resizer-processing-card {
     background: var(--background-secondary);
     border-radius: 8px;
     border: 1px solid var(--background-modifier-border);
     overflow: hidden;
 }
 
-.image-converter-processing-card-header {
+.image-resizer-processing-card-header {
     padding: 4px 4px;
     /* border-bottom: 1px solid var(--background-modifier-border); */
     background: var(--background-primary);
     transition: background-color 0.2s ease;
 }
 
-.image-converter-processing-card-header-clickable {
+.image-resizer-processing-card-header-clickable {
     cursor: pointer;
     user-select: none;
 }
 
-.image-converter-processing-card-header-clickable:hover {
+.image-resizer-processing-card-header-clickable:hover {
     background: var(--background-modifier-hover);
 }
 
-.image-converter-processing-card-header-content {
+.image-resizer-processing-card-header-content {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -3242,7 +3242,7 @@ html[data-theme='dark'] {
     padding: 4px;
 }
 
-.image-converter-processing-card-chevron {
+.image-resizer-processing-card-chevron {
     font-size: 0.535em;
     transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
     color: var(--text-faint);
@@ -3252,14 +3252,14 @@ html[data-theme='dark'] {
     flex-shrink: 0;
 }
 
-.image-converter-processing-card-title {
+.image-resizer-processing-card-title {
     margin: 0;
     font-size: 1.1em;
     font-weight: 600;
     color: var(--text-normal);
 }
 
-.image-converter-processing-card-content {
+.image-resizer-processing-card-content {
     padding: 10px;
     overflow: hidden;
     transition: max-height 0.3s cubic-bezier(0.4, 0.0, 0.2, 1), 
@@ -3269,20 +3269,20 @@ html[data-theme='dark'] {
     opacity: 1;
 }
 
-.image-converter-processing-card-preview {
+.image-resizer-processing-card-preview {
     padding: 12px 20px;
     background: var(--background-primary);
     border-bottom: 1px solid var(--background-modifier-border);
     display: block;
 }
 
-.image-converter-processing-card-preview-content {
+.image-resizer-processing-card-preview-content {
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
-.image-converter-processing-preview-text {
+.image-resizer-processing-preview-text {
     font-size: 0.735em;
     color: var(--text-faint);
     /* font-family: var(--font-monospace); */
@@ -3294,42 +3294,42 @@ html[data-theme='dark'] {
 }
 
 /* Grid Layout for 2x2 structure */
-.image-converter-grid-header-row {
+.image-resizer-grid-header-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
     margin-bottom: 8px;
 }
 
-.image-converter-grid-header {
+.image-resizer-grid-header {
     font-weight: 600;
     color: var(--text-faint);
     font-size: 0.735em;
     text-align: left;
 }
 
-.image-converter-grid-component-row {
+.image-resizer-grid-component-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
     /* margin-bottom: 20px; */
 }
 
-.image-converter-grid-component {
+.image-resizer-grid-component {
     min-height: 32px;
 }
 
 /* Dropdown and slider styling for grid components - ensure proper alignment */
-.image-converter-grid-dropdown-setting,
-.image-converter-grid-slider-setting {
+.image-resizer-grid-dropdown-setting,
+.image-resizer-grid-slider-setting {
     padding: 0 !important;
     border: none !important;
     margin: 0 !important;
     min-height: auto !important;
 }
 
-.image-converter-grid-dropdown-setting .setting-item,
-.image-converter-grid-slider-setting .setting-item {
+.image-resizer-grid-dropdown-setting .setting-item,
+.image-resizer-grid-slider-setting .setting-item {
     padding: 0 !important;
     border: none !important;
     margin: 0 !important;
@@ -3338,8 +3338,8 @@ html[data-theme='dark'] {
     align-items: stretch !important;
 }
 
-.image-converter-grid-dropdown-setting .setting-item-control,
-.image-converter-grid-slider-setting .setting-item-control {
+.image-resizer-grid-dropdown-setting .setting-item-control,
+.image-resizer-grid-slider-setting .setting-item-control {
     margin-left: 0 !important;
     margin-right: 0 !important;
     width: 100% !important;
@@ -3347,68 +3347,68 @@ html[data-theme='dark'] {
 }
 
 /* Ensure the dropdown and slider fill their containers and align properly */
-.image-converter-grid-dropdown-setting .dropdown,
-.image-converter-grid-slider-setting .slider {
+.image-resizer-grid-dropdown-setting .dropdown,
+.image-resizer-grid-slider-setting .slider {
     width: 100% !important;
     margin: 0 !important;
 }
 
 /* Remove any default setting item spacing that could cause misalignment */
-.image-converter-grid-dropdown-setting .setting-item-info,
-.image-converter-grid-slider-setting .setting-item-info {
+.image-resizer-grid-dropdown-setting .setting-item-info,
+.image-resizer-grid-slider-setting .setting-item-info {
     display: none !important;
 }
 
-.image-converter-grid-dropdown-setting .setting-item-name,
-.image-converter-grid-slider-setting .setting-item-name {
+.image-resizer-grid-dropdown-setting .setting-item-name,
+.image-resizer-grid-slider-setting .setting-item-name {
     display: none !important;
 }
 
-.image-converter-grid-dropdown-setting .setting-item-description,
-.image-converter-grid-slider-setting .setting-item-description {
+.image-resizer-grid-dropdown-setting .setting-item-description,
+.image-resizer-grid-slider-setting .setting-item-description {
     display: none !important;
 }
 
 /* Quality header that shows percentage */
-.image-converter-quality-header {
+.image-resizer-quality-header {
     font-weight: 600;
     font-size: 0.735em;
     color: var(--text-faint);
 }
 
 /* Make quality slider appear slightly lower for better visual alignment */
-.image-converter-grid-slider-setting {
+.image-resizer-grid-slider-setting {
     padding-top: 6px !important;
 }
 
 /* Ensure the slider container has consistent spacing */
-.image-converter-grid-slider-setting .setting-item-control {
+.image-resizer-grid-slider-setting .setting-item-control {
     padding-top: 8px !important;
 }
 
 /* Legacy styles - keeping for backward compatibility */
-.image-converter-compact-processing {
+.image-resizer-compact-processing {
     background: var(--background-secondary);
     border-radius: 8px;
     padding: 20px;
     border: 1px solid var(--background-modifier-border);
 }
 
-.image-converter-compact-section-title {
+.image-resizer-compact-section-title {
     margin: 0 0 16px 0;
     font-size: 1.1em;
     font-weight: 600;
     color: var(--text-normal);
 }
 
-.image-converter-processing-grid {
+.image-resizer-processing-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 16px;
     margin-bottom: 20px;
 }
 
-.image-converter-grid-item .setting-item {
+.image-resizer-grid-item .setting-item {
     padding: 0;
     border: none;
     background: var(--background-primary);
@@ -3417,7 +3417,7 @@ html[data-theme='dark'] {
     border: 1px solid var(--background-modifier-border);
 }
 
-.image-converter-compact-preview {
+.image-resizer-compact-preview {
     /* border-radius: 8px;
     padding: 20px; */
     display: flex;
@@ -3428,13 +3428,13 @@ html[data-theme='dark'] {
     gap: 16px;
 }
 
-.image-converter-preview-title-compact {
+.image-resizer-preview-title-compact {
     font-weight: 600;
     color: var(--text-normal);
     margin-bottom: 12px;
 }
 
-.image-converter-preview-content-compact {
+.image-resizer-preview-content-compact {
     /* font-family: var(--font-monospace); */
     font-size: 0.9em;
     /* padding: 12px; */
@@ -3444,7 +3444,7 @@ html[data-theme='dark'] {
     color: var(--text-muted);
 }
 
-.image-converter-compact-actions {
+.image-resizer-compact-actions {
     display: flex;
     justify-content: flex-end;
     gap: 12px;
@@ -3452,18 +3452,18 @@ html[data-theme='dark'] {
     /* border-top: 1px solid var(--background-modifier-border); */
 }
 
-.image-converter-help-compact {
+.image-resizer-help-compact {
     margin-top: 16px;
 }
 
-.image-converter-help-compact-btn {
+.image-resizer-help-compact-btn {
     font-size: 0.85em !important;
     padding: 4px 8px !important;
 }
 
 /* Ensure dropdowns and inputs have proper sizing - made thinner for compact design */
-.image-converter-preset-selection-modal .dropdown,
-.image-converter-preset-selection-modal input[type="text"] {
+.image-resizer-preset-selection-modal .dropdown,
+.image-resizer-preset-selection-modal input[type="text"] {
     min-height: 24px;
     height: 24px;
     font-size: 12px;
@@ -3474,13 +3474,13 @@ html[data-theme='dark'] {
     box-sizing: border-box;
 }
 
-.image-converter-preset-selection-modal .dropdown:hover,
-.image-converter-preset-selection-modal input[type="text"]:hover {
+.image-resizer-preset-selection-modal .dropdown:hover,
+.image-resizer-preset-selection-modal input[type="text"]:hover {
     border-color: var(--background-modifier-border-hover);
 }
 
-.image-converter-preset-selection-modal .dropdown:focus,
-.image-converter-preset-selection-modal input[type="text"]:focus {
+.image-resizer-preset-selection-modal .dropdown:focus,
+.image-resizer-preset-selection-modal input[type="text"]:focus {
     border-color: var(--interactive-accent);
     box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
 }
@@ -3490,30 +3490,30 @@ html[data-theme='dark'] {
 /* ============================================ */
 
 /* Hide setting name and description elements in preset selection modal */
-.image-converter-preset-selection-modal .image-converter-hide-name-desc .setting-item-name,
-.image-converter-preset-selection-modal .image-converter-hide-name-desc .setting-item-description {
+.image-resizer-preset-selection-modal .image-resizer-hide-name-desc .setting-item-name,
+.image-resizer-preset-selection-modal .image-resizer-hide-name-desc .setting-item-description {
     display: none !important;
 }
 
 /* Alternative approach using specific classes for different setting types */
-.image-converter-preset-dropdown-setting .setting-item-name,
-.image-converter-preset-dropdown-setting .setting-item-description,
-.image-converter-text-setting .setting-item-name,
-.image-converter-text-setting .setting-item-description,
-.image-converter-grid-dropdown-setting .setting-item-name,
-.image-converter-grid-dropdown-setting .setting-item-description,
-.image-converter-grid-slider-setting .setting-item-name,
-.image-converter-grid-slider-setting .setting-item-description {
+.image-resizer-preset-dropdown-setting .setting-item-name,
+.image-resizer-preset-dropdown-setting .setting-item-description,
+.image-resizer-text-setting .setting-item-name,
+.image-resizer-text-setting .setting-item-description,
+.image-resizer-grid-dropdown-setting .setting-item-name,
+.image-resizer-grid-dropdown-setting .setting-item-description,
+.image-resizer-grid-slider-setting .setting-item-name,
+.image-resizer-grid-slider-setting .setting-item-description {
     display: none !important;
 }
 
 /* Processing card header cursor pointer */
-.image-converter-processing-card-header-clickable {
+.image-resizer-processing-card-header-clickable {
     cursor: pointer !important;
 }
 
 /* Processing card content visibility states */
-.image-converter-processing-card-content.image-converter-collapsed {
+.image-resizer-processing-card-content.image-resizer-collapsed {
     max-height: 0;
     opacity: 0;
     padding-top: 0;
@@ -3521,13 +3521,13 @@ html[data-theme='dark'] {
     overflow: hidden;
 }
 
-.image-converter-processing-card-content.image-converter-expanded {
+.image-resizer-processing-card-content.image-resizer-expanded {
     max-height: 500px;
     opacity: 1;
     padding: 10px;
 }
 
-.image-converter-preview-header-compact {
+.image-resizer-preview-header-compact {
     /* margin-top: 10px; */
 }
 /* ============================================ */
@@ -3537,28 +3537,28 @@ html[data-theme='dark'] {
 /* Small screens - adjust dropdown layout */
 @media (max-width: 400px) {
     /* Make the first row stack vertically on very small screens */
-    .image-converter-label-dropdown-row {
+    .image-resizer-label-dropdown-row {
         flex-direction: column;
         align-items: flex-start;
         gap: 8px;
     }
 
-    .image-converter-preset-dropdown-container {
+    .image-resizer-preset-dropdown-container {
         width: 100%;
         min-width: 0;
         max-width: 100%;
     }
 
-    .image-converter-group-label {
+    .image-resizer-group-label {
         margin-bottom: 4px;
     }
 
     /* Reduce padding on very small screens */
-    .image-converter-compact-input-group {
+    .image-resizer-compact-input-group {
         padding: 12px;
     }
 
-    .image-converter-compact-container {
+    .image-resizer-compact-container {
         padding: 0 8px;
         gap: 9px;
     }
@@ -3566,12 +3566,12 @@ html[data-theme='dark'] {
 
 /* Medium small screens - keep horizontal but adjust sizing */
 @media (max-width: 500px) and (min-width: 401px) {
-    .image-converter-preset-dropdown-container {
+    .image-resizer-preset-dropdown-container {
         min-width: 100px;
         flex: 1 1 auto;
     }
     
-    .image-converter-group-label {
+    .image-resizer-group-label {
         font-size: 0.9em;
     }
 }

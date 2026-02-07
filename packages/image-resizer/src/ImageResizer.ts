@@ -7,7 +7,7 @@ import {
 	debounce,
 	Component,
 } from "obsidian";
-import ImageConverterPlugin from "./main";
+import ImageResizerPlugin from "./main";
 import { LinkFormatter } from "./LinkFormatter";
 
 export interface ResizeState {
@@ -74,7 +74,7 @@ export class ImageResizer extends Component {
 	private cachedEditorMaxWidth: number | null = null;
 	private linkFormatter: LinkFormatter;
 
-	constructor(private plugin: ImageConverterPlugin) {
+	constructor(private plugin: ImageResizerPlugin) {
 		super();
 		this.linkFormatter = new LinkFormatter(this.plugin.app);
 		this.throttledUpdateImageLink = this.throttle(
@@ -324,6 +324,15 @@ export class ImageResizer extends Component {
 			target.hasAttribute("filesource") &&
 			target.getAttribute("filesource")?.endsWith(".excalidraw.md");
 
+		console.log("[ImageResizer] Hover detected:", {
+			isImage: target.instanceOf(HTMLImageElement),
+			hasFilesource: target.hasAttribute("filesource"),
+			filesource: target.getAttribute("filesource"),
+			isExcalidraw: isExcalidrawImage,
+			classes: target.className,
+			src: (target as HTMLImageElement).src,
+		});
+
 		// Handle external images and Excalidraw images: add a border and perform edge detection for cursor change
 		if (
 			target.instanceOf(HTMLImageElement) &&
@@ -341,16 +350,24 @@ export class ImageResizer extends Component {
 
 			// For Excalidraw images, enable dragging and pointer events
 			if (isExcalidrawImage) {
+				console.log(
+					"[ImageResizer] Enabling Excalidraw image for resize",
+				);
 				if (target.getAttribute("draggable") === "false") {
 					target.removeAttribute("draggable");
+					console.log("[ImageResizer] Removed draggable=false");
 				}
 				// Ensure pointer events are enabled
 				target.style.pointerEvents = "auto";
 				// Prevent default drag behavior
 				target.style.userSelect = "none";
+				console.log(
+					"[ImageResizer] Set pointer-events and user-select",
+				);
 			}
 
 			target.addClass("image-resize-border");
+			console.log("[ImageResizer] Added image-resize-border class");
 			this.handleEdgeDetection(event, target);
 			return;
 		}
@@ -461,7 +478,7 @@ export class ImageResizer extends Component {
 				"image-position-right",
 				"image-wrap",
 				"image-no-wrap",
-				"image-converter-aligned",
+				"image-resizer-aligned",
 			];
 			for (const className of alignmentClasses) {
 				if (handleContainer.hasClass(className)) {
@@ -527,7 +544,7 @@ export class ImageResizer extends Component {
 			"image-position-right",
 			"image-wrap",
 			"image-no-wrap",
-			"image-converter-aligned",
+			"image-resizer-aligned",
 		];
 		for (const className of alignmentClasses) {
 			if (image.hasClass(className)) {
@@ -570,6 +587,13 @@ export class ImageResizer extends Component {
 
 		const target = event.target as HTMLElement;
 
+		console.log("[ImageResizer] MouseDown:", {
+			tagName: target.tagName,
+			hasResizeHandle: target.hasClass("image-resize-handle"),
+			hasResizeBorder: target.hasClass("image-resize-border"),
+			classes: target.className,
+		});
+
 		// Handle resize handle click (internal images)
 		if (target.hasClass("image-resize-handle")) {
 			event.preventDefault();
@@ -584,6 +608,7 @@ export class ImageResizer extends Component {
 			target.instanceOf(HTMLImageElement) &&
 			target.hasClass("image-resize-border")
 		) {
+			console.log("[ImageResizer] Border image clicked, starting resize");
 			event.preventDefault();
 			event.stopPropagation();
 			this.startResize(event, target); // Treat image as resize target
@@ -695,11 +720,13 @@ export class ImageResizer extends Component {
 
 			// Resizing logic based on handle type
 			if (this.currentHandle === "border") {
-				// Uniform scaling for border resize (external images)
-				const scaleFactor = Math.max(
-					(this.initialWidth + deltaX) / this.initialWidth,
-					(this.initialHeight + deltaY) / this.initialHeight,
-				);
+				// Uniform scaling for border resize (external images and Excalidraw)
+				// Use the average of X and Y scale factors for proportional resizing
+				const scaleX = (this.initialWidth + deltaX) / this.initialWidth;
+				const scaleY =
+					(this.initialHeight + deltaY) / this.initialHeight;
+				const scaleFactor = (scaleX + scaleY) / 2;
+
 				newWidth = Math.max(minSize, this.initialWidth * scaleFactor);
 				newHeight = Math.max(minSize, this.initialHeight * scaleFactor);
 			} else {

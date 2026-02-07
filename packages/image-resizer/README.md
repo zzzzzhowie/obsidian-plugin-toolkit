@@ -1,4 +1,4 @@
-# Image Converter
+# Image Resizer
 
 A minimal Obsidian plugin that allows you to drag-resize images in markdown files.
 
@@ -14,16 +14,16 @@ A minimal Obsidian plugin that allows you to drag-resize images in markdown file
 
 1. Open **Settings** in Obsidian
 2. Go to **Community Plugins** and disable Safe Mode
-3. Click **Browse** and search for "Image Converter"
+3. Click **Browse** and search for "Image Resizer"
 4. Click **Install**, then **Enable**
 
 ### Manual Installation
 
-1. Download `main.js`, `styles.css`, and `manifest.json` from the [latest release](https://github.com/YOUR-USERNAME/obsidian-image-converter/releases)
-2. Create a folder in your vault: `.obsidian/plugins/image-converter/`
+1. Download `main.js`, `styles.css`, and `manifest.json` from the [latest release](https://github.com/YOUR-USERNAME/obsidian-image-resizer/releases)
+2. Create a folder in your vault: `.obsidian/plugins/image-resizer/`
 3. Copy the downloaded files into this folder
 4. Reload Obsidian
-5. Go to **Settings → Community Plugins** and enable "Image Converter"
+5. Go to **Settings → Community Plugins** and enable "Image Resizer"
 
 ## Usage
 
@@ -34,7 +34,7 @@ A minimal Obsidian plugin that allows you to drag-resize images in markdown file
 
 ## Settings
 
-Open **Settings → Image Converter** to configure:
+Open **Settings → Image Resizer** to configure:
 
 - **Enable image drag resize**: Toggle the feature on/off
 - **Scroll-wheel resize modifier**: Key to hold while scrolling (Shift, Control, Alt, Meta)
