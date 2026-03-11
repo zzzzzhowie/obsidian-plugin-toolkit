@@ -5,6 +5,7 @@ import type MyPlugin from "./main";
 export class FolderNoteManager {
 	app: App;
 	plugin: MyPlugin;
+	private styleEl: HTMLStyleElement | null = null;
 
 	constructor(app: App, plugin: MyPlugin) {
 		this.app = app;
@@ -14,26 +15,22 @@ export class FolderNoteManager {
 	initialize() {
 		// Add folder note indicator to file explorer when layout is ready
 		this.app.workspace.onLayoutReady(() => {
-			// Immediately hide folder notes to prevent flash
-			this.hideAllFolderNotesQuick();
-			
-			// Multiple retries with increasing delays for better compatibility
+			// Immediately inject CSS rules to hide folder notes.
+			// This uses a <style> element with data-path selectors so that
+			// folder notes are hidden even inside collapsed (not-yet-rendered) folders.
+			// This is the key fix: CSS rules apply as soon as elements enter the DOM,
+			// so we don't need to wait for elements to be rendered.
+			this.updateFolderNoteStyles();
+
+			// Still run DOM-based updates for click handlers and folder styling
 			setTimeout(() => {
 				this.updateAllFolderNotes();
 			}, 50);
-			
-			setTimeout(() => {
-				this.updateAllFolderNotes();
-			}, 200);
-			
+
 			setTimeout(() => {
 				this.updateAllFolderNotes();
 			}, 500);
-			
-			setTimeout(() => {
-				this.updateAllFolderNotes();
-			}, 1000);
-			
+
 			setTimeout(() => {
 				this.updateAllFolderNotes();
 			}, 2000);
@@ -43,16 +40,19 @@ export class FolderNoteManager {
 		this.plugin.registerEvent(
 			this.app.vault.on("create", (file) => {
 				if (file instanceof TFile && file.extension === "md") {
+					// Immediately update CSS rules so the file is hidden right away
+					this.updateFolderNoteStyles();
 					setTimeout(() => {
 						this.updateFolderNoteForFile(file);
 					}, 100);
 				}
-			})
+			}),
 		);
 
 		this.plugin.registerEvent(
 			this.app.vault.on("rename", (file, oldPath) => {
 				if (file instanceof TFile && file.extension === "md") {
+					this.updateFolderNoteStyles();
 					setTimeout(() => {
 						this.updateFolderNoteForFile(file);
 						// Also update the old location
@@ -62,12 +62,13 @@ export class FolderNoteManager {
 						}
 					}, 100);
 				}
-			})
+			}),
 		);
 
 		this.plugin.registerEvent(
 			this.app.vault.on("delete", (file) => {
 				if (file instanceof TFile && file.extension === "md") {
+					this.updateFolderNoteStyles();
 					const parent = file.parent;
 					if (parent) {
 						setTimeout(() => {
@@ -75,21 +76,17 @@ export class FolderNoteManager {
 						}, 100);
 					}
 				}
-			})
+			}),
 		);
 
 		// Update on layout changes
 		this.plugin.registerEvent(
 			this.app.workspace.on("layout-change", () => {
-				// Immediately hide to prevent flash
-				this.hideAllFolderNotesQuick();
+				// CSS rules already handle hiding, just update DOM-based styling
 				setTimeout(() => {
 					this.updateAllFolderNotes();
 				}, 100);
-				setTimeout(() => {
-					this.updateAllFolderNotes();
-				}, 500);
-			})
+			}),
 		);
 
 		// Update when files are opened (clicking on files might refresh DOM)
@@ -108,12 +105,15 @@ export class FolderNoteManager {
 								this.highlightFolder(folder);
 							} catch (error) {
 								// Silently fail - don't interfere with file opening
-								console.error("Failed to expand/highlight folder:", error);
+								console.error(
+									"Failed to expand/highlight folder:",
+									error,
+								);
 							}
 						}, 200);
 					}
 				}
-				
+
 				setTimeout(() => {
 					try {
 						this.updateAllFolderNotes();
@@ -122,7 +122,7 @@ export class FolderNoteManager {
 						console.error("Failed to update folder notes:", error);
 					}
 				}, 100);
-			})
+			}),
 		);
 
 		// Update when active leaf changes
@@ -131,7 +131,7 @@ export class FolderNoteManager {
 				setTimeout(() => {
 					this.updateAllFolderNotes();
 				}, 100);
-			})
+			}),
 		);
 	}
 
@@ -140,7 +140,7 @@ export class FolderNoteManager {
 		parts.pop(); // Remove file name
 		const parentPath = parts.join("/");
 		if (!parentPath) return this.app.vault.getRoot();
-		
+
 		const parent = this.app.vault.getAbstractFileByPath(parentPath);
 		return parent instanceof TFolder ? parent : null;
 	}
@@ -153,7 +153,10 @@ export class FolderNoteManager {
 	}
 
 	updateAllFolderNotes() {
-		// First, show all previously hidden folder notes (even if disabled)
+		// First, update the CSS-based hiding rules
+		this.updateFolderNoteStyles();
+
+		// Show all DOM-class-hidden folder notes (clean up old approach)
 		this.showAllHiddenFolderNotes();
 
 		if (!this.plugin.settings.showFolderNotes) {
@@ -162,13 +165,14 @@ export class FolderNoteManager {
 			return;
 		}
 
-		// Then update each folder
+		// Then update each folder (for click handlers and has-folder-note class)
 		const folders = this.getAllFolders();
 		folders.forEach((folder) => this.updateFolderNote(folder));
 	}
 
 	private showAllHiddenFolderNotes() {
-		const fileExplorerLeaves = this.app.workspace.getLeavesOfType("file-explorer");
+		const fileExplorerLeaves =
+			this.app.workspace.getLeavesOfType("file-explorer");
 		if (!fileExplorerLeaves || fileExplorerLeaves.length === 0) {
 			return;
 		}
@@ -186,14 +190,17 @@ export class FolderNoteManager {
 		}
 
 		// Remove the hidden class from all previously hidden files
-		const hiddenFiles = fileExplorerView.containerEl.querySelectorAll('.is-folder-note-hidden');
+		const hiddenFiles = fileExplorerView.containerEl.querySelectorAll(
+			".is-folder-note-hidden",
+		);
 		hiddenFiles.forEach((el) => {
-			el.removeClass('is-folder-note-hidden');
+			el.removeClass("is-folder-note-hidden");
 		});
 	}
 
 	private removeAllFolderNoteStyles() {
-		const fileExplorerLeaves = this.app.workspace.getLeavesOfType("file-explorer");
+		const fileExplorerLeaves =
+			this.app.workspace.getLeavesOfType("file-explorer");
 		if (!fileExplorerLeaves || fileExplorerLeaves.length === 0) {
 			return;
 		}
@@ -211,42 +218,87 @@ export class FolderNoteManager {
 		}
 
 		// Remove all folder note classes and click handlers
-		const folderTitles = fileExplorerView.containerEl.querySelectorAll('.nav-folder-title.has-folder-note');
+		const folderTitles = fileExplorerView.containerEl.querySelectorAll(
+			".nav-folder-title.has-folder-note",
+		);
 		folderTitles.forEach((folderTitle) => {
 			const el = folderTitle as HTMLElement;
-			el.removeClass('has-folder-note');
+			el.removeClass("has-folder-note");
 
 			// Remove click handler from the title content
-			const folderTitleContent = el.querySelector('.nav-folder-title-content') as HTMLElement;
+			const folderTitleContent = el.querySelector(
+				".nav-folder-title-content",
+			) as HTMLElement;
 			if (folderTitleContent) {
-				const existingContentHandler = (folderTitleContent as any)._folderNoteClickHandler;
+				const existingContentHandler = (folderTitleContent as any)
+					._folderNoteClickHandler;
 				if (existingContentHandler) {
-					folderTitleContent.removeEventListener("click", existingContentHandler);
+					folderTitleContent.removeEventListener(
+						"click",
+						existingContentHandler,
+					);
 					delete (folderTitleContent as any)._folderNoteClickHandler;
 				}
 			}
 		});
 	}
 
-	private hideAllFolderNotesQuick() {
-		if (!this.plugin.settings.showFolderNotes) return;
+	/**
+	 * Inject/update a <style> element with CSS rules that hide folder note files
+	 * by their data-path attribute. This works even for elements not yet in the DOM
+	 * (e.g. inside collapsed folders), because CSS rules apply as soon as elements
+	 * are rendered — fixing the "merge on click" bug.
+	 */
+	private updateFolderNoteStyles() {
+		if (!this.plugin.settings.showFolderNotes) {
+			// Remove the style element if the feature is disabled
+			if (this.styleEl) {
+				this.styleEl.remove();
+				this.styleEl = null;
+			}
+			return;
+		}
 
+		// Collect all folder note file paths
+		const folderNotePaths: string[] = [];
 		const folders = this.getAllFolders();
 		folders.forEach((folder) => {
 			const folderNote = getFolderNote(folder, this.app);
 			if (folderNote) {
-				// Quickly hide the file element
-				const fileEl = this.getFileElement(folderNote);
-				if (fileEl) {
-					fileEl.addClass("is-folder-note-hidden");
-				}
+				folderNotePaths.push(folderNote.path);
 			}
 		});
+
+		// Build CSS rules
+		const cssRules = folderNotePaths
+			.map((path) => {
+				const escaped = escapeCSSSelector(path);
+				return `.nav-file:has(> .nav-file-title[data-path="${escaped}"]) { display: none !important; }`;
+			})
+			.join("\n");
+
+		// Create or update the style element
+		if (!this.styleEl) {
+			this.styleEl = document.createElement("style");
+			this.styleEl.id = "folder-note-hide-styles";
+			document.head.appendChild(this.styleEl);
+		}
+		this.styleEl.textContent = cssRules;
+	}
+
+	/**
+	 * Remove the injected style element (e.g. on plugin unload)
+	 */
+	removeDynamicStyles() {
+		if (this.styleEl) {
+			this.styleEl.remove();
+			this.styleEl = null;
+		}
 	}
 
 	private getAllFolders(): TFolder[] {
 		const folders: TFolder[] = [];
-		
+
 		const collectFolders = (folder: TFolder) => {
 			folders.push(folder);
 			folder.children.forEach((child) => {
@@ -272,12 +324,18 @@ export class FolderNoteManager {
 		}
 
 		// Get the folder title content element (the text part)
-		const folderTitleContent = folderTitleEl.querySelector(".nav-folder-title-content") as HTMLElement;
+		const folderTitleContent = folderTitleEl.querySelector(
+			".nav-folder-title-content",
+		) as HTMLElement;
 
 		// Remove existing click handler
-		const existingContentHandler = (folderTitleContent as any)._folderNoteClickHandler;
+		const existingContentHandler = (folderTitleContent as any)
+			._folderNoteClickHandler;
 		if (existingContentHandler) {
-			folderTitleContent.removeEventListener("click", existingContentHandler);
+			folderTitleContent.removeEventListener(
+				"click",
+				existingContentHandler,
+			);
 			delete (folderTitleContent as any)._folderNoteClickHandler;
 		}
 
@@ -293,26 +351,33 @@ export class FolderNoteManager {
 				const contentHandler = (e: MouseEvent) => {
 					// Check if the click is actually on the text (not the padding/whitespace)
 					const target = e.target as HTMLElement;
-					
+
 					// Only handle if clicking directly on the content element itself
-					if (target === folderTitleContent || target.classList.contains('nav-folder-title-content')) {
+					if (
+						target === folderTitleContent ||
+						target.classList.contains("nav-folder-title-content")
+					) {
 						// Get the text width to determine if click is on actual text
 						const range = document.createRange();
 						const textNode = folderTitleContent.firstChild;
-						
+
 						if (textNode && textNode.nodeType === Node.TEXT_NODE) {
 							range.selectNodeContents(textNode);
 							const textRect = range.getBoundingClientRect();
 							const clickX = e.clientX;
-							
+
 							// Only open folder note if click is within the text bounds
-							if (clickX >= textRect.left && clickX <= textRect.right) {
+							if (
+								clickX >= textRect.left &&
+								clickX <= textRect.right
+							) {
 								e.preventDefault();
 								e.stopPropagation();
 								// Check for Cmd (Mac) or Ctrl (Windows/Linux) key
 								// If modifier key pressed, open in new tab; otherwise open in current tab
 								const openInNewTab = e.metaKey || e.ctrlKey;
-								const leaf = this.app.workspace.getLeaf(openInNewTab);
+								const leaf =
+									this.app.workspace.getLeaf(openInNewTab);
 								leaf.openFile(folderNote);
 							}
 							// Otherwise, let the default toggle behavior happen
@@ -320,7 +385,8 @@ export class FolderNoteManager {
 					}
 				};
 
-				(folderTitleContent as any)._folderNoteClickHandler = contentHandler;
+				(folderTitleContent as any)._folderNoteClickHandler =
+					contentHandler;
 				folderTitleContent.addEventListener("click", contentHandler);
 			}
 		} else {
@@ -337,7 +403,8 @@ export class FolderNoteManager {
 	}
 
 	private getFileElement(file: TFile): HTMLElement | null {
-		const fileExplorerLeaves = this.app.workspace.getLeavesOfType("file-explorer");
+		const fileExplorerLeaves =
+			this.app.workspace.getLeavesOfType("file-explorer");
 		if (!fileExplorerLeaves || fileExplorerLeaves.length === 0) {
 			return null;
 		}
@@ -357,20 +424,21 @@ export class FolderNoteManager {
 		// Find the file element by data-path attribute with escaped path
 		const escapedPath = escapeCSSSelector(file.path);
 		const fileElements = fileExplorerView.containerEl.querySelectorAll(
-			`.nav-file-title[data-path="${escapedPath}"]`
+			`.nav-file-title[data-path="${escapedPath}"]`,
 		);
 
 		if (fileElements && fileElements.length > 0) {
 			// Return the parent tree-item element
 			const fileTitle = fileElements[0] as HTMLElement;
-			return fileTitle.closest('.tree-item.nav-file') as HTMLElement;
+			return fileTitle.closest(".tree-item.nav-file") as HTMLElement;
 		}
 
 		return null;
 	}
 
 	private getFolderElement(folder: TFolder): HTMLElement | null {
-		const fileExplorerLeaves = this.app.workspace.getLeavesOfType("file-explorer");
+		const fileExplorerLeaves =
+			this.app.workspace.getLeavesOfType("file-explorer");
 		if (!fileExplorerLeaves || fileExplorerLeaves.length === 0) {
 			return null;
 		}
@@ -389,11 +457,14 @@ export class FolderNoteManager {
 
 		// Find the folder title element by data-path attribute with escaped path
 		const escapedPath = escapeCSSSelector(folder.path);
-		const folderTitleElements = fileExplorerView.containerEl.querySelectorAll(
-			`.nav-folder-title[data-path="${escapedPath}"]`
-		);
+		const folderTitleElements =
+			fileExplorerView.containerEl.querySelectorAll(
+				`.nav-folder-title[data-path="${escapedPath}"]`,
+			);
 
-		return folderTitleElements && folderTitleElements.length > 0 ? (folderTitleElements[0] as HTMLElement) : null;
+		return folderTitleElements && folderTitleElements.length > 0
+			? (folderTitleElements[0] as HTMLElement)
+			: null;
 	}
 
 	/**
@@ -410,7 +481,7 @@ export class FolderNoteManager {
 		};
 
 		expandParents(folder);
-		
+
 		// Scroll to the folder after a short delay to ensure DOM is updated
 		setTimeout(() => {
 			this.scrollToFolder(folder);
@@ -428,20 +499,22 @@ export class FolderNoteManager {
 			}
 
 			// Check if folder is already expanded
-			const treeItem = folderTitleEl.closest('.tree-item') as HTMLElement;
+			const treeItem = folderTitleEl.closest(".tree-item") as HTMLElement;
 			if (!treeItem) {
 				return;
 			}
 
 			// Check if the folder is collapsed
-			const isCollapsed = treeItem.classList.contains('is-collapsed');
+			const isCollapsed = treeItem.classList.contains("is-collapsed");
 
 			if (isCollapsed) {
 				// Only use DOM manipulation - don't trigger click events that might interfere
-				treeItem.classList.remove('is-collapsed');
-				const children = treeItem.querySelector('.nav-folder-children') as HTMLElement;
+				treeItem.classList.remove("is-collapsed");
+				const children = treeItem.querySelector(
+					".nav-folder-children",
+				) as HTMLElement;
 				if (children) {
-					children.style.display = '';
+					children.style.display = "";
 				}
 			}
 		} catch (error) {
@@ -461,9 +534,9 @@ export class FolderNoteManager {
 
 		// Scroll the folder into view
 		folderTitleEl.scrollIntoView({
-			behavior: 'smooth',
-			block: 'center',
-			inline: 'nearest'
+			behavior: "smooth",
+			block: "center",
+			inline: "nearest",
 		});
 	}
 
@@ -472,7 +545,8 @@ export class FolderNoteManager {
 	 */
 	highlightFolder(folder: TFolder) {
 		try {
-			const fileExplorerLeaves = this.app.workspace.getLeavesOfType("file-explorer");
+			const fileExplorerLeaves =
+				this.app.workspace.getLeavesOfType("file-explorer");
 			if (!fileExplorerLeaves || fileExplorerLeaves.length === 0) {
 				return;
 			}
@@ -488,7 +562,7 @@ export class FolderNoteManager {
 				// Method 1: Try using file explorer view's internal methods
 				if (fileExplorerView) {
 					// Try revealFile method (might work for folders too)
-					if (typeof fileExplorerView.revealFile === 'function') {
+					if (typeof fileExplorerView.revealFile === "function") {
 						try {
 							fileExplorerView.revealFile(folder);
 							// Give it a moment, then override the highlight
@@ -514,7 +588,8 @@ export class FolderNoteManager {
 	 * Override Obsidian's default file highlight to highlight folder instead
 	 */
 	private overrideHighlightToFolder(folder: TFolder) {
-		const fileExplorerLeaves = this.app.workspace.getLeavesOfType("file-explorer");
+		const fileExplorerLeaves =
+			this.app.workspace.getLeavesOfType("file-explorer");
 		if (!fileExplorerLeaves || fileExplorerLeaves.length === 0) {
 			return;
 		}
@@ -525,36 +600,36 @@ export class FolderNoteManager {
 		}
 		const fileExplorerView = fileExplorer.view as any;
 		const fileExplorerViewContainer = fileExplorerView?.containerEl;
-		
+
 		if (!fileExplorerViewContainer) {
 			return;
 		}
 
 		// Remove active/selected class from all items (files and folders)
 		const activeItems = fileExplorerViewContainer.querySelectorAll(
-			'.nav-folder-title.is-active, .nav-file-title.is-active, .nav-folder-title.is-selected, .nav-file-title.is-selected'
+			".nav-folder-title.is-active, .nav-file-title.is-active, .nav-folder-title.is-selected, .nav-file-title.is-selected",
 		);
 		activeItems.forEach((item: Element) => {
-			item.classList.remove('is-active', 'is-selected');
+			item.classList.remove("is-active", "is-selected");
 		});
 
 		// Also remove from tree-item level
 		const activeTreeItems = fileExplorerViewContainer.querySelectorAll(
-			'.tree-item.is-active, .tree-item.is-selected'
+			".tree-item.is-active, .tree-item.is-selected",
 		);
 		activeTreeItems.forEach((item: Element) => {
-			item.classList.remove('is-active', 'is-selected');
+			item.classList.remove("is-active", "is-selected");
 		});
 
 		// Add active class to the folder
 		const folderTitleEl = this.getFolderElement(folder);
 		if (folderTitleEl) {
-			folderTitleEl.classList.add('is-active');
-			const treeItem = folderTitleEl.closest('.tree-item') as HTMLElement;
+			folderTitleEl.classList.add("is-active");
+			const treeItem = folderTitleEl.closest(".tree-item") as HTMLElement;
 			if (treeItem) {
-				treeItem.classList.add('is-active');
+				treeItem.classList.add("is-active");
 			}
-			
+
 			// Scroll to folder
 			this.scrollToFolder(folder);
 		}
@@ -582,7 +657,7 @@ export class FolderNoteManager {
 						const notePath = `${folder.path}/${folder.name}.md`;
 						const newFile = await this.app.vault.create(
 							notePath,
-							`# ${folder.name}\n\n`
+							`# ${folder.name}\n\n`,
 						);
 						const leaf = this.app.workspace.getLeaf(false);
 						await leaf.openFile(newFile);
@@ -591,4 +666,3 @@ export class FolderNoteManager {
 		}
 	}
 }
-

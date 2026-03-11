@@ -38,8 +38,8 @@ export default class MyPlugin extends Plugin {
 				"file-menu",
 				(menu: Menu, file: TAbstractFile) => {
 					this.addContextMenuItems(menu, file);
-				}
-			)
+				},
+			),
 		);
 
 		// Initialize settings hash
@@ -74,7 +74,7 @@ export default class MyPlugin extends Plugin {
 				if (file.path === pluginDataPath) {
 					await checkSettingsSync();
 				}
-			})
+			}),
 		);
 
 		// Add settings tab
@@ -83,12 +83,13 @@ export default class MyPlugin extends Plugin {
 
 	onunload() {
 		this.pinnedItemsManager.cleanup();
+		this.folderNoteManager.removeDynamicStyles();
 	}
 
 	addContextMenuItems(menu: Menu, file: TAbstractFile) {
 		// Add pin/unpin menu item
 		const isPinned = this.settings.pinnedItems.some(
-			(item) => item.path === file.path
+			(item) => item.path === file.path,
 		);
 
 		if (!isPinned) {
@@ -119,9 +120,9 @@ export default class MyPlugin extends Plugin {
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			await this.loadData()
+			await this.loadData(),
 		);
-		
+
 		// Migrate old pinned items without order field
 		let needsSave = false;
 		this.settings.pinnedItems.forEach((item, index) => {
@@ -130,7 +131,7 @@ export default class MyPlugin extends Plugin {
 				needsSave = true;
 			}
 		});
-		
+
 		if (needsSave) {
 			await this.saveSettings();
 		}
@@ -162,7 +163,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Show folder notes")
 			.setDesc(
-				"Show an indicator (📝) next to folders that have a folder note (a markdown file with the same name as the folder)."
+				"Show an indicator (📝) next to folders that have a folder note (a markdown file with the same name as the folder).",
 			)
 			.addToggle((toggle) =>
 				toggle
@@ -171,14 +172,14 @@ class MyPluginSettingTab extends PluginSettingTab {
 						this.plugin.settings.showFolderNotes = value;
 						await this.plugin.saveSettings();
 						this.plugin.folderNoteManager.updateAllFolderNotes();
-					})
+					}),
 			);
 
 		// File count settings
 		new Setting(containerEl)
 			.setName("Show file count")
 			.setDesc(
-				"Show the number of files in each folder. Displays as 'direct/total' where direct is the number of files directly in the folder and total includes subfolders."
+				"Show the number of files in each folder. Displays as 'direct/total' where direct is the number of files directly in the folder and total includes subfolders.",
 			)
 			.addToggle((toggle) =>
 				toggle
@@ -187,7 +188,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 						this.plugin.settings.showFileCount = value;
 						await this.plugin.saveSettings();
 						this.plugin.fileCountManager.updateAllFileCounts();
-					})
+					}),
 			);
 
 		containerEl.createEl("h3", { text: "Pinned Items" });
@@ -195,7 +196,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Pin files and folders")
 			.setDesc(
-				"Right-click on any file or folder in the file explorer to pin it to the top for quick access."
+				"Right-click on any file or folder in the file explorer to pin it to the top for quick access.",
 			);
 
 		// Display current pinned items
@@ -219,7 +220,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 						return orderA - orderB;
 					}
 					return a.name.localeCompare(b.name);
-				}
+				},
 			);
 
 			sortedItems.forEach((item, index) => {
@@ -277,12 +278,14 @@ class MyPluginSettingTab extends PluginSettingTab {
 					if (e.dataTransfer) {
 						e.dataTransfer.dropEffect = "move";
 					}
-					const dragging = listEl.querySelector(".dragging") as HTMLElement;
+					const dragging = listEl.querySelector(
+						".dragging",
+					) as HTMLElement;
 					if (!dragging) return;
 
 					const afterElement = this.getDragAfterElement(
 						listEl,
-						e.clientY
+						e.clientY,
 					);
 					if (afterElement == null) {
 						listEl.appendChild(dragging);
@@ -310,7 +313,9 @@ class MyPluginSettingTab extends PluginSettingTab {
 
 					// Reorder items based on current DOM order
 					const newOrder: { path: string; order: number }[] = [];
-					const children = Array.from(listEl.children) as HTMLElement[];
+					const children = Array.from(
+						listEl.children,
+					) as HTMLElement[];
 					children.forEach((child, idx) => {
 						const path = child.dataset.path;
 						if (path) {
@@ -335,7 +340,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 							this.plugin.pinnedItemsManager.refreshPinnedItems();
 							this.display();
-						})
+						}),
 				);
 		} else {
 			containerEl.createEl("p", {
@@ -347,10 +352,10 @@ class MyPluginSettingTab extends PluginSettingTab {
 
 	private getDragAfterElement(
 		container: HTMLElement,
-		y: number
+		y: number,
 	): HTMLElement | null {
 		const draggableElements = Array.from(
-			container.querySelectorAll("li:not(.dragging)")
+			container.querySelectorAll("li:not(.dragging)"),
 		) as HTMLElement[];
 
 		return draggableElements.reduce(
@@ -364,8 +369,10 @@ class MyPluginSettingTab extends PluginSettingTab {
 					return closest;
 				}
 			},
-			{ offset: Number.NEGATIVE_INFINITY, element: null as HTMLElement | null }
+			{
+				offset: Number.NEGATIVE_INFINITY,
+				element: null as HTMLElement | null,
+			},
 		).element;
 	}
 }
-
