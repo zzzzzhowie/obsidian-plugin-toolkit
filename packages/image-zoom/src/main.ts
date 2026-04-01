@@ -135,6 +135,13 @@ export default class ImageZoomPlugin extends Plugin {
       }
     });
 
+    // Close on overlay tap (mobile) — only when tapping the backdrop directly
+    this.zoomOverlay.addEventListener("touchend", (e) => {
+      if (e.target === this.zoomOverlay) {
+        this.closeZoom();
+      }
+    });
+
     // Prevent click-through by stopping propagation
     this.zoomOverlay.addEventListener("mousedown", (e) => {
       e.stopPropagation();
@@ -287,6 +294,73 @@ export default class ImageZoomPlugin extends Plugin {
 
     container.addEventListener("mousedown", startDrag);
     container.style.cursor = "grab";
+
+    // ── Touch support (mobile) ──────────────────────────────────────────────
+    // Tracks the last distance between two fingers for pinch-to-zoom
+    let lastTouchDist = 0;
+    // Tracks the last single-finger position for drag-to-pan
+    let lastTouchX = 0;
+    let lastTouchY = 0;
+
+    const getTouchDist = (touches: TouchList): number => {
+      const t0 = touches[0];
+      const t1 = touches[1];
+      if (!t0 || !t1) return 0;
+      const dx = t0.clientX - t1.clientX;
+      const dy = t0.clientY - t1.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    container.addEventListener("touchstart", (e: TouchEvent) => {
+      e.preventDefault();
+      if (e.touches.length === 2) {
+        // Pinch start — record initial distance
+        lastTouchDist = getTouchDist(e.touches);
+      } else if (e.touches.length === 1) {
+        // Single-finger drag start
+        const t0 = e.touches[0];
+        if (t0) {
+          lastTouchX = t0.clientX;
+          lastTouchY = t0.clientY;
+        }
+      }
+    }, { passive: false });
+
+    container.addEventListener("touchmove", (e: TouchEvent) => {
+      e.preventDefault();
+      if (e.touches.length === 2) {
+        // Pinch-to-zoom
+        const newDist = getTouchDist(e.touches);
+        if (lastTouchDist > 0) {
+          const pinchRatio = newDist / lastTouchDist;
+          this.scale *= pinchRatio;
+          this.scale = Math.max(0.5, Math.min(this.scale, 10));
+          this.updateImageTransform(true);
+          this.updateToolbar();
+        }
+        lastTouchDist = newDist;
+      } else if (e.touches.length === 1) {
+        // Single-finger pan
+        const t0 = e.touches[0];
+        if (t0) {
+          const dx = t0.clientX - lastTouchX;
+          const dy = t0.clientY - lastTouchY;
+          this.translateX += dx;
+          this.translateY += dy;
+          lastTouchX = t0.clientX;
+          lastTouchY = t0.clientY;
+          this.updateImageTransform(true);
+        }
+      }
+    }, { passive: false });
+
+    container.addEventListener("touchend", (e: TouchEvent) => {
+      // When lifting fingers, reset distance tracker so the next
+      // pinch starts cleanly (avoids a jump if one finger lifts first)
+      if (e.touches.length < 2) {
+        lastTouchDist = 0;
+      }
+    });
   }
 
   private createToolbar() {

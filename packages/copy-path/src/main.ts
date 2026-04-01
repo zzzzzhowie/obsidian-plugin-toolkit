@@ -185,7 +185,7 @@ export default class CopyPathPlugin extends Plugin {
 
 	/**
 	 * Check if a given line is inside a code block
-	 * Detects code blocks by checking if the line's DOM element is wrapped by HyperMD-codeblock class
+	 * Uses CodeMirror state to check the line's block type — reliable even with virtual scrolling.
 	 */
 	private isInCodeBlock(editor: Editor, lineNumber: number): boolean {
 		try {
@@ -195,37 +195,42 @@ export default class CopyPathPlugin extends Plugin {
 				return false;
 			}
 
-			// @ts-ignore - dom property exists but not in types
-			const dom = cmEditor.dom || cmEditor.contentDOM;
-			if (!dom) {
+			const state = cmEditor.state;
+			if (!state) {
 				return false;
 			}
 
-			// Get the line element for the given line number
-			// @ts-ignore - querySelectorAll exists on DOM
-			const lines = dom.querySelectorAll('.cm-line') as NodeListOf<HTMLElement>;
-			if (!lines || !lines.length || lines.length <= lineNumber) {
-				return false;
-			}
+			// state.doc.line() is 1-based, lineNumber is 0-based
+			const docLine = state.doc.line(lineNumber + 1);
 
-			const lineElement = lines[lineNumber];
-			if (!lineElement) {
-				return false;
-			}
-
-			// Check if the line element or its parent has HyperMD-codeblock class
-			let currentElement: HTMLElement | null = lineElement;
-			while (currentElement && currentElement !== dom) {
-				if (
-					currentElement.classList &&
-					currentElement.classList.contains('HyperMD-codeblock')
-				) {
-					return true;
+			// Check via block types on each line using languageDataAt or blockType
+			// The most reliable way: inspect the line's content classes via state.field if available,
+			// or fall back to checking the line text for fenced code block markers above it.
+			// We scan backwards from current line to find unmatched ``` fence.
+			let inFencedBlock = false;
+			let fenceMarker = '';
+			for (let i = 1; i <= lineNumber + 1; i++) {
+				const l = state.doc.line(i);
+				const text = l.text as string;
+				const fenceMatch = text.match(/^(`{3,}|~{3,})/);
+				const fenceStr = fenceMatch?.[1];
+				if (fenceMatch && fenceStr) {
+					const fenceChar = fenceStr.charAt(0);
+					if (!inFencedBlock) {
+						inFencedBlock = true;
+						fenceMarker = fenceChar; // ` or ~
+					} else if (fenceChar === fenceMarker) {
+						// Closing fence must use same character and be at least as long
+						const minLen = Math.max(fenceStr.length, fenceMarker.length);
+						if (text.startsWith(fenceChar.repeat(minLen))) {
+							inFencedBlock = false;
+							fenceMarker = '';
+						}
+					}
 				}
-				currentElement = currentElement.parentElement;
 			}
 
-			return false;
+			return inFencedBlock;
 		} catch (error) {
 			// If detection fails, assume not in code block (fail-safe)
 			return false;
