@@ -1,6 +1,13 @@
-import { Editor, MarkdownView, Notice, Plugin } from 'obsidian';
+import { Editor, MarkdownView, Notice, Plugin, TAbstractFile } from 'obsidian';
 
 export default class CopyPathPlugin extends Plugin {
+	/**
+	 * Vault-relative path of the last item the user clicked/hovered in the file explorer.
+	 * Used because file-explorer nav items are not real focusable DOM elements,
+	 * so document.activeElement never lands inside them.
+	 */
+	private lastExplorerPath: string | null = null;
+
 	async onload() {
 		// Register command to copy absolute path
 		this.addCommand({
@@ -19,87 +26,151 @@ export default class CopyPathPlugin extends Plugin {
 				this.copyAbsolutePath();
 			},
 		});
-		
-		// Add direct keyboard listener as primary method for editor context
-		// Use capture phase to intercept before other handlers
+
+		// Wait for layout to be ready before registering file-explorer tracking,
+		// because the file-explorer leaf may not exist during onload.
+		this.app.workspace.onLayoutReady(() => {
+			this.registerExplorerTracking();
+		});
+
+		// Keyboard listener — fires on Mod+Alt+C anywhere that is NOT an input/modal.
+		// We intentionally do NOT restrict to "editor" or "file explorer" focus,
+		// because file-explorer nav items are non-focusable divs and never receive
+		// document.activeElement focus.
 		const handleKeyDown = (evt: KeyboardEvent) => {
-			// Check for cmd+option+C (Mac) or ctrl+alt+C (Windows/Linux)
-			// Use evt.code instead of evt.key because on macOS, Option+C produces 'ç' not 'c'
+			// Use evt.code because on macOS, Option+C produces 'ç' not 'c'
 			const isMod = evt.metaKey || evt.ctrlKey;
 			const isAlt = evt.altKey;
 			const isC = evt.code === 'KeyC';
-			
-			if (isMod && isAlt && isC) {
-				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (!activeView) {
-					return;
-				}
-				
-				const activeElement = document.activeElement;
-				
-				// Don't trigger in input fields, command palette, etc.
-				const isInputField = activeElement?.tagName === 'INPUT' || 
-				                    activeElement?.tagName === 'TEXTAREA' ||
-				                    activeElement?.closest('.prompt') !== null ||
-				                    activeElement?.closest('.modal') !== null ||
-				                    activeElement?.closest('.suggestion-container') !== null;
-				
-				// Check if we're in CodeMirror editor
-				const isInEditor = activeElement?.closest('.cm-editor') !== null ||
-				                  activeElement?.closest('.markdown-source-view') !== null ||
-				                  activeElement?.closest('.markdown-preview-view') !== null;
-				
-				if (!isInputField && isInEditor) {
-					evt.preventDefault();
-					evt.stopPropagation();
-					evt.stopImmediatePropagation();
-					this.copyAbsolutePath();
-				}
-			}
+
+			if (!isMod || !isAlt || !isC) return;
+
+			const activeElement = document.activeElement;
+
+			// Skip input fields, command palette, modals, etc.
+			const isInputField =
+				activeElement?.tagName === 'INPUT' ||
+				activeElement?.tagName === 'TEXTAREA' ||
+				activeElement?.closest('.prompt') !== null ||
+				activeElement?.closest('.modal') !== null ||
+				activeElement?.closest('.suggestion-container') !== null;
+
+			if (isInputField) return;
+
+			evt.preventDefault();
+			evt.stopPropagation();
+			evt.stopImmediatePropagation();
+			this.copyAbsolutePath();
 		};
-		
-		// Register with capture phase (true = capture phase)
+
+		// Capture phase so we intercept before CodeMirror or other handlers
 		document.addEventListener('keydown', handleKeyDown, true);
 		this.register(() => {
 			document.removeEventListener('keydown', handleKeyDown, true);
 		});
 	}
 
-	onunload() {
+	onunload() {}
+
+	/**
+	 * Register a mousedown listener (via event delegation) on the file explorer
+	 * container so we always know the last item the user interacted with,
+	 * regardless of whether keyboard focus moved elsewhere.
+	 */
+	private registerExplorerTracking() {
+		const leaves = this.app.workspace.getLeavesOfType('file-explorer');
+		for (const leaf of leaves) {
+			this.registerDomEvent(
+				leaf.view.containerEl,
+				'mousedown',
+				(evt: MouseEvent) => {
+					const target = evt.target as HTMLElement | null;
+					if (!target) return;
+					// Walk up from the clicked element to find the nearest [data-path] node.
+					// Both .nav-file-title and .nav-folder-title carry data-path in Obsidian.
+					const item = target.closest('[data-path]') as HTMLElement | null;
+					if (item?.dataset.path) {
+						this.lastExplorerPath = item.dataset.path;
+					}
+				}
+			);
+		}
+
+		// Also handle new file-explorer leaves opened after startup (rare, but safe)
+		this.registerEvent(
+			this.app.workspace.on('layout-change', () => {
+				const currentLeaves = this.app.workspace.getLeavesOfType('file-explorer');
+				for (const leaf of currentLeaves) {
+					// registerDomEvent is idempotent for the same element+type combo
+					// in practice each leaf is new so this is fine
+					this.registerDomEvent(
+						leaf.view.containerEl,
+						'mousedown',
+						(evt: MouseEvent) => {
+							const target = evt.target as HTMLElement | null;
+							if (!target) return;
+							const item = target.closest('[data-path]') as HTMLElement | null;
+							if (item?.dataset.path) {
+								this.lastExplorerPath = item.dataset.path;
+							}
+						}
+					);
+				}
+			})
+		);
 	}
 
 	private async copyAbsolutePath() {
 		try {
-			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!activeView) {
-				return;
-			}
-
-			const file = activeView.file;
-			if (!file) {
-				return;
-			}
-
-			// Get absolute path using vault adapter
 			const vault = this.app.vault;
-			// @ts-ignore - getFullPath exists on adapter but not in types
-			const absolutePath = vault.adapter.getFullPath(file.path);
+			const activeElement = document.activeElement;
 
-			// Check if cursor is in a header DOM element
-			const headerAnchor = this.getCurrentHeaderAnchor(activeView);
-			
-			// Build the path with optional header anchor
-			const pathWithoutQuotes = headerAnchor ? `${absolutePath}#${headerAnchor}` : absolutePath;
-			// Wrap path with double quotes
-			const pathToCopy = `"${pathWithoutQuotes}"`;
+			// Determine if keyboard focus is currently inside a Markdown editor.
+			const isInEditor =
+				activeElement?.closest('.cm-editor') !== null ||
+				activeElement?.closest('.markdown-source-view') !== null ||
+				activeElement?.closest('.markdown-preview-view') !== null;
 
-			// Copy to clipboard
-			await navigator.clipboard.writeText(pathToCopy);
-			
-			// Show notification with absolute path
-			const displayPath = headerAnchor ? `${absolutePath}#${headerAnchor}` : absolutePath;
-			new Notice(`Path copied: "${displayPath}"`);
-		} catch (error) {
+			if (isInEditor) {
+				// ── EDITOR CONTEXT ────────────────────────────────────────────
+				// Copy the currently open file's path, optionally with a header anchor.
+				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (!activeView?.file) return;
+
+				// @ts-ignore - getFullPath exists on adapter but not in public types
+				const absolutePath: string = vault.adapter.getFullPath(activeView.file.path);
+				const headerAnchor = this.getCurrentHeaderAnchor(activeView);
+				const pathWithAnchor = headerAnchor ? `${absolutePath}#${headerAnchor}` : absolutePath;
+
+				await navigator.clipboard.writeText(`"${pathWithAnchor}"`);
+				new Notice(`Path copied: "${pathWithAnchor}"`);
+				return;
+			}
+
+			// ── FILE EXPLORER CONTEXT ─────────────────────────────────────────
+			// Focus is NOT in editor (e.g. user clicked a folder/file in the sidebar).
+			// Use the last item the user moused-down on inside the file explorer.
+			if (this.lastExplorerPath) {
+				const abstractFile = vault.getAbstractFileByPath(this.lastExplorerPath);
+				if (abstractFile) {
+					// @ts-ignore - getFullPath exists on adapter but not in public types
+					const absolutePath: string = vault.adapter.getFullPath(abstractFile.path);
+					await navigator.clipboard.writeText(`"${absolutePath}"`);
+					new Notice(`Path copied: "${absolutePath}"`);
+					return;
+				}
+			}
+
+			// ── FALLBACK ──────────────────────────────────────────────────────
+			// Editor not active, no explorer selection — try whatever is open.
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!activeView?.file) return;
+
+			// @ts-ignore
+			const absolutePath: string = vault.adapter.getFullPath(activeView.file.path);
+			await navigator.clipboard.writeText(`"${absolutePath}"`);
+			new Notice(`Path copied: "${absolutePath}"`);
+		} catch {
 			// Silently fail
 		}
 	}
@@ -110,21 +181,18 @@ export default class CopyPathPlugin extends Plugin {
 			const cursor = editor.getCursor();
 			const line = editor.getLine(cursor.line);
 
-			// First check if the current line is in a code block
-			// If it is, don't treat # as a header
+			// Don't treat # inside code blocks as headers
 			if (this.isInCodeBlock(editor, cursor.line)) {
 				return null;
 			}
 
-			// Check if the line is a header (starts with #)
 			const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
 			if (!headerMatch || !headerMatch[2]) {
 				return null;
 			}
 
-			// Get the header text
 			const headerText = headerMatch[2].trim();
-			
+
 			// Convert header text to anchor format
 			// Keep Chinese characters, only replace spaces with hyphens
 			const anchor = headerText
@@ -132,41 +200,23 @@ export default class CopyPathPlugin extends Plugin {
 				.replace(/-+/g, '-')
 				.replace(/^-|-$/g, '');
 
-			// If anchor is empty, return null
-			if (!anchor || anchor.length === 0) {
-				return null;
-			}
+			if (!anchor) return null;
 
-			// Check if cursor is actually in the header DOM element using CodeMirror API
 			// @ts-ignore - cm property exists but not in types
 			const cmEditor = editor.cm;
-			
-			// Convert cursor position to offset (cmEditor.domAtPos needs offset, not {line, ch})
-			// Use CodeMirror state to calculate offset
 			const state = cmEditor.state;
-			const lineStart = state.doc.line(cursor.line + 1).from; // line is 0-based, state.doc.line is 1-based
+			const lineStart = state.doc.line(cursor.line + 1).from;
 			const lineEnd = state.doc.line(cursor.line + 1).to;
-			const offset = lineStart + cursor.ch;
-			
-			// If cursor is at the very beginning of the line (before #), check a position slightly ahead
-			// This handles the case where the DOM node at position 0 might not be inside cm-header yet
-			const checkOffset = cursor.ch === 0 ? Math.min(lineStart + 1, lineEnd) : offset;
-			
-			// Get the DOM node at cursor position (or slightly ahead if at start)
-			const domAtPos = cmEditor.domAtPos(checkOffset);
-			if (!domAtPos || !domAtPos.node) {
-				// If we can't get DOM node but line is a header, still return anchor
-				// This handles edge cases where DOM might not be ready
-				return anchor;
-			}
+			const checkOffset = cursor.ch === 0 ? Math.min(lineStart + 1, lineEnd) : lineStart + cursor.ch;
 
-			// Check if the element or its parent is a header element (cm-header class)
+			const domAtPos = cmEditor.domAtPos(checkOffset);
+			if (!domAtPos?.node) return anchor;
+
 			let currentElement: Node | null = domAtPos.node;
 			let depth = 0;
 			while (currentElement && currentElement.nodeType !== Node.DOCUMENT_NODE && depth < 10) {
 				if (currentElement.nodeType === Node.ELEMENT_NODE) {
-					const el = currentElement as Element;
-					if (el.classList && el.classList.contains('cm-header')) {
+					if ((currentElement as Element).classList?.contains('cm-header')) {
 						return anchor;
 					}
 				}
@@ -174,53 +224,36 @@ export default class CopyPathPlugin extends Plugin {
 				depth++;
 			}
 
-			// If we didn't find cm-header class but the line is a header and cursor is on that line,
-			// still return the anchor (handles edge cases like cursor at very beginning)
-			// This ensures we catch headers even when DOM structure isn't perfect
 			return anchor;
-		} catch (error) {
+		} catch {
 			return null;
 		}
 	}
 
 	/**
-	 * Check if a given line is inside a code block
-	 * Uses CodeMirror state to check the line's block type — reliable even with virtual scrolling.
+	 * Check if a given line is inside a fenced code block by scanning from the
+	 * top of the document. Uses CodeMirror state for reliability.
 	 */
 	private isInCodeBlock(editor: Editor, lineNumber: number): boolean {
 		try {
-			// @ts-ignore - cm property exists but not in types
+			// @ts-ignore
 			const cmEditor = editor.cm;
-			if (!cmEditor) {
-				return false;
-			}
+			if (!cmEditor?.state) return false;
 
 			const state = cmEditor.state;
-			if (!state) {
-				return false;
-			}
-
-			// state.doc.line() is 1-based, lineNumber is 0-based
-			const docLine = state.doc.line(lineNumber + 1);
-
-			// Check via block types on each line using languageDataAt or blockType
-			// The most reliable way: inspect the line's content classes via state.field if available,
-			// or fall back to checking the line text for fenced code block markers above it.
-			// We scan backwards from current line to find unmatched ``` fence.
 			let inFencedBlock = false;
 			let fenceMarker = '';
+
 			for (let i = 1; i <= lineNumber + 1; i++) {
-				const l = state.doc.line(i);
-				const text = l.text as string;
+				const text = state.doc.line(i).text as string;
 				const fenceMatch = text.match(/^(`{3,}|~{3,})/);
 				const fenceStr = fenceMatch?.[1];
 				if (fenceMatch && fenceStr) {
 					const fenceChar = fenceStr.charAt(0);
 					if (!inFencedBlock) {
 						inFencedBlock = true;
-						fenceMarker = fenceChar; // ` or ~
+						fenceMarker = fenceChar;
 					} else if (fenceChar === fenceMarker) {
-						// Closing fence must use same character and be at least as long
 						const minLen = Math.max(fenceStr.length, fenceMarker.length);
 						if (text.startsWith(fenceChar.repeat(minLen))) {
 							inFencedBlock = false;
@@ -231,8 +264,7 @@ export default class CopyPathPlugin extends Plugin {
 			}
 
 			return inFencedBlock;
-		} catch (error) {
-			// If detection fails, assume not in code block (fail-safe)
+		} catch {
 			return false;
 		}
 	}
