@@ -181,25 +181,29 @@ export default class ImageZoomPlugin extends Plugin {
       const naturalWidth = img.naturalWidth || img.width;
       const naturalHeight = img.naturalHeight || img.height;
 
-      // Calculate initial scale to ensure image is visible
-      // Target: fill at least 60% of viewport width or height
+      // Calculate initial scale so the image fills 80% of the viewport
+      // while still fitting entirely within it.
       const viewportWidth = window.innerWidth * 0.9; // 90vw
       const viewportHeight = window.innerHeight * 0.9; // 90vh
-      const targetSize = 0.6; // Target 60% of viewport
 
-      const scaleByWidth = (viewportWidth * targetSize) / naturalWidth;
-      const scaleByHeight = (viewportHeight * targetSize) / naturalHeight;
+      // Scale to fit the viewport — use the smaller ratio so the whole image is visible
+      const scaleByWidth = viewportWidth / naturalWidth;
+      const scaleByHeight = viewportHeight / naturalHeight;
+      const fitScale = Math.min(scaleByWidth, scaleByHeight);
 
-      // Use the smaller scale to ensure image fits
-      // Allow upscaling for small images, but cap at 10x (1000%) maximum zoom
-      const initialScale = Math.min(10, Math.max(scaleByWidth, scaleByHeight));
+      // Then scale up to ~80 % of the viewport if the image is very small
+      // but never reduce below fitScale (never let it overflow)
+      const expandedScale = Math.min(scaleByWidth, scaleByHeight) * 0.85;
+      const initialScale = Math.max(fitScale, expandedScale);
       this.scale = initialScale;
 
-      // Reset styles that might interfere with zoom display
-      this.currentImage.style.maxWidth = "90vw";
-      this.currentImage.style.maxHeight = "90vh";
+      // Use the natural size as the CSS base size so transform: scale()
+      // has a real reference point. maxWidth/maxHeight are handled by
+      // the container CSS; don't let inline styles fight the transform.
       this.currentImage.style.width = `${naturalWidth}px`;
       this.currentImage.style.height = `${naturalHeight}px`;
+      this.currentImage.style.maxWidth = "none";
+      this.currentImage.style.maxHeight = "none";
       this.currentImage.style.objectFit = "contain";
 
       container.appendChild(this.currentImage);
@@ -238,7 +242,7 @@ export default class ImageZoomPlugin extends Plugin {
         // Pinch gesture: zoom in/out
         const delta = e.deltaY > 0 ? 0.98 : 1.02;
         this.scale *= delta;
-        this.scale = Math.max(0.5, Math.min(this.scale, 10));
+        this.scale = Math.max(0.1, Math.min(this.scale, 50));
         this.updateImageTransform(true); // Disable transition for smooth pinch
         this.updateToolbar();
       } else {
@@ -334,7 +338,7 @@ export default class ImageZoomPlugin extends Plugin {
         if (lastTouchDist > 0) {
           const pinchRatio = newDist / lastTouchDist;
           this.scale *= pinchRatio;
-          this.scale = Math.max(0.5, Math.min(this.scale, 10));
+          this.scale = Math.max(0.1, Math.min(this.scale, 50));
           this.updateImageTransform(true);
           this.updateToolbar();
         }
@@ -369,7 +373,14 @@ export default class ImageZoomPlugin extends Plugin {
     // Zoom out button
     const zoomOutBtn = this.toolbar.createEl("button");
     zoomOutBtn.textContent = "−";
+    zoomOutBtn.setAttribute("aria-label", "Zoom out");
     zoomOutBtn.addEventListener("click", () => this.zoomBy(0.9));
+
+    // Reset button
+    const resetBtn = this.toolbar.createEl("button", { cls: "zoom-reset-btn" });
+    resetBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
+    resetBtn.setAttribute("aria-label", "Reset to 100%");
+    resetBtn.addEventListener("click", () => this.resetZoom());
 
     // Zoom info
     const zoomInfo = this.toolbar.createEl("span");
@@ -379,6 +390,7 @@ export default class ImageZoomPlugin extends Plugin {
     // Zoom in button
     const zoomInBtn = this.toolbar.createEl("button");
     zoomInBtn.textContent = "+";
+    zoomInBtn.setAttribute("aria-label", "Zoom in");
     zoomInBtn.addEventListener("click", () => this.zoomBy(1.1));
 
     this.updateToolbar();
@@ -395,7 +407,15 @@ export default class ImageZoomPlugin extends Plugin {
 
   private zoomBy(factor: number) {
     this.scale *= factor;
-    this.scale = Math.max(0.5, Math.min(this.scale, 10));
+    this.scale = Math.max(0.1, Math.min(this.scale, 50));
+    this.updateImageTransform();
+    this.updateToolbar();
+  }
+
+  private resetZoom() {
+    this.scale = 1;
+    this.translateX = 0;
+    this.translateY = 0;
     this.updateImageTransform();
     this.updateToolbar();
   }
