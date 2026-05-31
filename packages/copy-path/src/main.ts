@@ -68,6 +68,25 @@ export default class CopyPathPlugin extends Plugin {
 		this.register(() => {
 			document.removeEventListener('keydown', handleKeyDown, true);
 		});
+
+		// Clear lastExplorerPath whenever the user clicks outside the file explorer.
+		// Without this, lastExplorerPath persists indefinitely and the vault-root
+		// fallback is never reached even after the user has moved focus elsewhere.
+		const handleMouseDown = (evt: MouseEvent) => {
+			const target = evt.target as HTMLElement | null;
+			if (!target) return;
+			const explorerLeaves = this.app.workspace.getLeavesOfType('file-explorer');
+			const isInsideExplorer = explorerLeaves.some((leaf) =>
+				leaf.view.containerEl.contains(target)
+			);
+			if (!isInsideExplorer) {
+				this.lastExplorerPath = null;
+			}
+		};
+		document.addEventListener('mousedown', handleMouseDown, true);
+		this.register(() => {
+			document.removeEventListener('mousedown', handleMouseDown, true);
+		});
 	}
 
 	onunload() {}
@@ -164,12 +183,23 @@ export default class CopyPathPlugin extends Plugin {
 			// ── FALLBACK ──────────────────────────────────────────────────────
 			// Editor not active, no explorer selection — try whatever is open.
 			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!activeView?.file) return;
+			if (activeView?.file) {
+				// @ts-ignore
+				const absolutePath: string = vault.adapter.getFullPath(activeView.file.path);
+				await navigator.clipboard.writeText(`"${absolutePath}"`);
+				new Notice(`Path copied: "${absolutePath}"`);
+				return;
+			}
 
-			// @ts-ignore
-			const absolutePath: string = vault.adapter.getFullPath(activeView.file.path);
-			await navigator.clipboard.writeText(`"${absolutePath}"`);
-			new Notice(`Path copied: "${absolutePath}"`);
+			// ── VAULT ROOT FALLBACK ────────────────────────────────────────────
+			// No window focused, no file open, no explorer selection —
+			// fall back to the vault's root directory path.
+			// @ts-ignore - getFullPath exists on adapter but not in public types
+			const vaultPath: string = vault.adapter.getFullPath('/');
+			// Remove trailing slash if present
+			const cleanVaultPath = vaultPath.replace(/\/$/, '');
+			await navigator.clipboard.writeText(`"${cleanVaultPath}"`);
+			new Notice(`Vault path copied: "${cleanVaultPath}"`);
 		} catch {
 			// Silently fail
 		}
