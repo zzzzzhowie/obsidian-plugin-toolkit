@@ -1,0 +1,9 @@
+{
+	"id": "hide-ui-elements",
+	"name": "Hide UI Elements",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Toggle visibility of sidebar tabs and status bar items.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}

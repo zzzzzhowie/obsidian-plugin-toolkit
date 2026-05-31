@@ -15,7 +15,9 @@
         "build:file-explorer": "pnpm --filter @obsidian-plugin-toolkit/file-explorer-enhancements build",
         "build:copy-path": "pnpm --filter @obsidian-plugin-toolkit/copy-path build",
         "build:paste-enhanced": "pnpm --filter @obsidian-plugin-toolkit/paste-enhanced build",
-        "build:image-zoom": "pnpm --filter @obsidian-plugin-toolkit/image-zoom build"
+        "build:image-zoom": "pnpm --filter @obsidian-plugin-toolkit/image-zoom build",
+        "dev:hide-ui-elements": "pnpm --filter @obsidian-plugin-toolkit/hide-ui-elements dev",
+        "build:hide-ui-elements": "pnpm --filter @obsidian-plugin-toolkit/hide-ui-elements build"
     },
     "keywords": [
         "obsidian",

@@ -1,0 +1,12 @@
+body.hue-hide-tag-tab .workspace-tab-header[data-type="tag"] { display: none !important; }
+body.hue-hide-all-properties-tab .workspace-tab-header[data-type="all-properties"] { display: none !important; }
+body.hue-hide-bookmarks-tab .workspace-tab-header[data-type="bookmarks"] { display: none !important; }
+body.hue-hide-outgoing-links-tab .workspace-tab-header[data-type="outgoing-link"] { display: none !important; }
+body.hue-hide-backlink-status .status-bar-item.plugin-backlink { display: none !important; }
+body.hue-hide-editor-status .status-bar-item.plugin-editor-status { display: none !important; }
+body.hue-hide-sync-status .status-bar-item.plugin-sync { display: none !important; }
+body.hue-hide-bookmark-status .status-bar-item.plugin-bookmarks { display: none !important; }
+body.hue-hide-character-count .status-bar-item.plugin-word-count .status-bar-item-segment:nth-child(2) { display: none !important; }
+body.hue-hide-character-count .status-bar-item-segment { margin-right: 0 !important; }
+body.hue-hide-file-properties-tab .workspace-tab-header[data-type="file-properties"] { display: none !important; }
+body.hue-hide-vault-name .workspace-sidedock-vault-profile { display: none !important; }
