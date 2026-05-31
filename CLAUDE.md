@@ -53,7 +53,7 @@ All packages call `createBuildContext(options)` from build-tools and pass a mini
 - Marking Obsidian/Electron/CodeMirror packages as external (not bundled)
 - Copying `manifest.json` and `styles.css` to the output directory
 - Copying the built `main.js` to the package root (required by Obsidian to load the plugin)
-- In dev mode: symlinking the build output into the local Obsidian vault at `/Users/yeyan1996/Library/Mobile Documents/iCloud~md~obsidian/Documents/default/.obsidian/plugins`
+- In dev mode: symlinking the build output into the local Obsidian vault at the path defined by `OBSIDIAN_PLUGINS_DIR` in `.env` (see `.env.example`)
 - In production mode: copying instead of symlinking
 
 Each package's `esbuild.config.mjs` is ~5 lines and only specifies what's unique (entry point, output directory, any `onBuildEnd` hooks).

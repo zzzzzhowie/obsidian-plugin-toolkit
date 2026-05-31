@@ -1,7 +1,18 @@
 import esbuild from "esbuild";
 import { builtinModules } from "node:module";
 import { copyFileSync, mkdirSync, existsSync, readFileSync, writeFileSync, symlinkSync, rmSync, cpSync, statSync } from "fs";
-import { join, resolve } from "path";
+import { join, resolve, dirname } from "path";
+import { fileURLToPath } from "url";
+
+// Load .env from repo root (two levels up from build-tools/)
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath = resolve(__dirname, "../.env");
+if (existsSync(envPath)) {
+	for (const line of readFileSync(envPath, "utf-8").split("\n")) {
+		const match = line.match(/^([^#=]+)=(.*)$/);
+		if (match) process.env[match[1].trim()] = match[2].trim();
+	}
+}
 
 /**
  * Update manifest.json version number (optional feature)
@@ -37,7 +48,7 @@ export function updateManifestVersion(manifestPath = "manifest.json") {
  * @param {boolean} isDev - Whether in development mode (symlink) or build mode (copy)
  */
 function syncToObsidian(distDir, packagePath, isDev) {
-	const OBSIDIAN_PLUGINS_DIR = '/Users/yeyan1996/Library/Mobile Documents/iCloud~md~obsidian/Documents/default/.obsidian/plugins';
+	const OBSIDIAN_PLUGINS_DIR = process.env.OBSIDIAN_PLUGINS_DIR ?? '';
 	
 	if (!existsSync(OBSIDIAN_PLUGINS_DIR)) {
 		console.warn(`⚠️  Obsidian plugins directory does not exist: ${OBSIDIAN_PLUGINS_DIR}`);

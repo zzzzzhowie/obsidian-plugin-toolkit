@@ -49,3 +49,6 @@ data.json
 **/compression-examples/**
 **/*compression-examples/**
 
+# Local config (contains personal paths)
+.env
+
