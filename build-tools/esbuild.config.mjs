@@ -167,6 +167,7 @@ if you want to view the source, please visit the github repository of this plugi
 			"@lezer/highlight",
 			"@lezer/lr",
 			...builtinModules,
+			...builtinModules.map((m) => `node:${m}`),
 		],
 		format: "cjs",
 		target: "es2018",
@@ -177,6 +178,23 @@ if you want to view the source, please visit the github repository of this plugi
 		minify: prod && minify,
 		keepNames: keepNames,
 		plugins: [
+			{
+				// Userland polyfill subpaths like "process/" and "string_decoder/"
+				// (used by readable-stream) mirror Node builtins. Resolve them to the
+				// bare builtin and mark external — it's available in Electron. Without
+				// this, esbuild leaves an unresolvable require("process/") in the bundle.
+				name: "builtin-polyfill-subpath",
+				setup(build) {
+					const builtinSet = new Set(builtinModules);
+					build.onResolve({ filter: /\/$/ }, (args) => {
+						const bare = args.path.slice(0, -1);
+						if (builtinSet.has(bare)) {
+							return { path: bare, external: true };
+						}
+						return null;
+					});
+				},
+			},
 			{
 				name: "copy-files",
 				setup(build) {

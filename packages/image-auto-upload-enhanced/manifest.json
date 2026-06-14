@@ -1,0 +1,9 @@
+{
+  "id": "image-auto-upload-enhanced",
+  "name": "Image Auto Upload Enhanced",
+  "version": "4.1.0",
+  "minAppVersion": "0.10.7",
+  "description": "This plugin uploads images from your clipboard by PicGo",
+  "author": "yeyan1996",
+  "isDesktopOnly": false
+}

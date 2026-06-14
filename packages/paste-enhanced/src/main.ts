@@ -22,6 +22,19 @@ export default class PasteEnhancedPlugin extends Plugin {
 					return; // If plugin is disabled, don't process
 				}
 
+				// If the clipboard contains an image file, this is an image paste,
+				// not a text/code paste. Skip so the image-upload plugin can handle
+				// it — otherwise we'd also insert the original <img> as markdown,
+				// producing a duplicate alongside the uploaded image.
+				const files = evt.clipboardData?.files;
+				if (
+					files &&
+					files.length > 0 &&
+					Array.from(files).some(f => f.type.startsWith("image"))
+				) {
+					return;
+				}
+
 				// Get clipboard content (prefer HTML, fallback to plain text)
 				const clipboardHtml =
 					evt.clipboardData?.getData("text/html") || null;

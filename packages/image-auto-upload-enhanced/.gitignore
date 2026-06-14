@@ -1,0 +1,10 @@
+# dependencies
+node_modules
+
+# build output
+main.js
+*.js.map
+image-auto-upload-enhanced/
+
+# obsidian plugin data
+data.json

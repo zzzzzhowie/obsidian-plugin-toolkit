@@ -1,0 +1,40 @@
+{
+  "name": "@obsidian-plugin-toolkit/image-auto-upload-enhanced",
+  "version": "4.1.0",
+  "description": "This plugin uploads images from your clipboard by PicGo and embeds the uploaded image into your note.",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "version": "node version-bump.mjs && git add manifest.json versions.json",
+    "lint": "eslint ."
+  },
+  "keywords": [
+    "obsidian.md",
+    "picgo"
+  ],
+  "author": "yeyan1996",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "9.30.1",
+    "@types/node": "^20.0.0",
+    "@types/path-browserify": "^1.0.3",
+    "electron": "^33.2.0",
+    "esbuild": "0.25.5",
+    "eslint-plugin-obsidianmd": "0.1.9",
+    "globals": "14.0.0",
+    "jiti": "2.6.1",
+    "tslib": "2.4.0",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.35.1"
+  },
+  "dependencies": {
+    "image-type": "^5.2.0",
+    "obsidian": "latest",
+    "path-browserify": "^1.0.1"
+  },
+  "peerDependencies": {
+    "obsidian": ">=1.0.0"
+  }
+}
