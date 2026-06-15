@@ -1,4 +1,4 @@
-lea{
+{
     "name": "obsidian-plugin-toolkit",
     "version": "1.0.0",
     "description": "Monorepo for Obsidian plugins",
