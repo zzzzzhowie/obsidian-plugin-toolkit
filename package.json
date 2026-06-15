@@ -1,4 +1,4 @@
-{
+lea{
     "name": "obsidian-plugin-toolkit",
     "version": "1.0.0",
     "description": "Monorepo for Obsidian plugins",
@@ -19,7 +19,9 @@
         "dev:hide-ui-elements": "pnpm --filter @obsidian-plugin-toolkit/hide-ui-elements dev",
         "build:hide-ui-elements": "pnpm --filter @obsidian-plugin-toolkit/hide-ui-elements build",
         "dev:image-auto-upload-enhanced": "pnpm --filter @obsidian-plugin-toolkit/image-auto-upload-enhanced dev",
-        "build:image-auto-upload-enhanced": "pnpm --filter @obsidian-plugin-toolkit/image-auto-upload-enhanced build"
+        "build:image-auto-upload-enhanced": "pnpm --filter @obsidian-plugin-toolkit/image-auto-upload-enhanced build",
+        "dev:file-hider": "pnpm --filter @obsidian-plugin-toolkit/file-hider dev",
+        "build:file-hider": "pnpm --filter @obsidian-plugin-toolkit/file-hider build"
     },
     "keywords": [
         "obsidian",
@@ -28,7 +30,6 @@
     ],
     "author": "",
     "license": "MIT",
-    "packageManager": "pnpm@9.12.3+sha512.cce0f9de9c5a7c95bef944169cc5dfe8741abfb145078c0d508b868056848a87c81e626246cb60967cbd7fd29a6c062ef73ff840d96b3c86c40ac92cf4a813ee",
     "devDependencies": {},
     "engines": {
         "node": ">=16",

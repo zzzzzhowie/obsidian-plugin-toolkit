@@ -1,0 +1,9 @@
+{
+	"id": "file-hider",
+	"name": "File Hider",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Hide specific files and folders from the Obsidian file explorer.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}
