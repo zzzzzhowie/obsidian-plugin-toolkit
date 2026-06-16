@@ -63,6 +63,20 @@ function syncToObsidian(distDir, packagePath, isDev) {
 		return;
 	}
 	
+	// In build mode, back up user's data.json before wiping the target directory
+	// so that pinned items and other runtime settings are preserved across builds.
+	let savedDataJson = null;
+	if (!isDev) {
+		const existingDataJsonPath = join(targetPath, "data.json");
+		if (existsSync(existingDataJsonPath)) {
+			try {
+				savedDataJson = readFileSync(existingDataJsonPath, "utf-8");
+			} catch (error) {
+				console.warn(`⚠️  Failed to back up data.json: ${error.message}`);
+			}
+		}
+	}
+
 	// Remove existing target (symlink or directory)
 	if (existsSync(targetPath)) {
 		try {
@@ -84,6 +98,17 @@ function syncToObsidian(distDir, packagePath, isDev) {
 			console.log(`✓ Symlinked ${distDir} -> Obsidian plugins`);
 		} else {
 			cpSync(sourcePath, targetPath, { recursive: true });
+
+			// Restore user's data.json that was backed up before the copy
+			if (savedDataJson !== null) {
+				try {
+					writeFileSync(join(targetPath, "data.json"), savedDataJson, "utf-8");
+					console.log(`✓ Restored data.json (user settings preserved)`);
+				} catch (error) {
+					console.warn(`⚠️  Failed to restore data.json: ${error.message}`);
+				}
+			}
+
 			console.log(`✓ Copied ${distDir} -> Obsidian plugins`);
 		}
 	} catch (error) {

@@ -1,5 +1,5 @@
 import { extname } from "path-browserify";
-import { Readable } from "stream";
+import type { Readable } from "stream";
 
 export interface IStringKeyMap<T> {
   [key: string]: T;
