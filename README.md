@@ -13,7 +13,12 @@ obsidian-plugin-toolkit/
 ├── packages/
 │   ├── file-explorer/                     # @obsidian-plugin-toolkit/file-explorer-enhancements
 │   ├── copy-path/                          # @obsidian-plugin-toolkit/copy-path
-│   └── paste-enhanced/                     # @obsidian-plugin-toolkit/paste-enhanced
+│   ├── paste-enhanced/                     # @obsidian-plugin-toolkit/paste-enhanced
+│   ├── file-hider/                         # @obsidian-plugin-toolkit/file-hider
+│   ├── hide-ui-elements/                   # @obsidian-plugin-toolkit/hide-ui-elements
+│   ├── image-zoom/                         # @obsidian-plugin-toolkit/image-zoom
+│   ├── image-auto-upload-enhanced/         # @obsidian-plugin-toolkit/image-auto-upload-enhanced
+│   └── mermaid-fit/                        # @obsidian-plugin-toolkit/mermaid-fit
 ├── package.json
 ├── pnpm-workspace.yaml
 └── README.md
@@ -36,9 +41,14 @@ pnpm dev
 Run a specific plugin in development mode:
 
 ```bash
-pnpm dev:file-explorer    # File Explorer Enhancements
-pnpm dev:copy-path        # Copy Path Plugin
-pnpm dev:paste-enhanced   # Paste Enhanced Plugin
+pnpm dev:file-explorer              # File Explorer Enhancements
+pnpm dev:copy-path                  # Copy Path
+pnpm dev:paste-enhanced             # Paste Enhanced
+pnpm dev:file-hider                 # File Hider
+pnpm dev:hide-ui-elements           # Hide UI Elements
+pnpm dev:image-zoom                 # Image Zoom
+pnpm dev:image-auto-upload-enhanced # Image Auto Upload Enhanced
+pnpm dev:mermaid-fit                # Mermaid Fit
 ```
 
 Or use filter:
@@ -63,6 +73,11 @@ Build a specific plugin:
 pnpm build:file-explorer
 pnpm build:copy-path
 pnpm build:paste-enhanced
+pnpm build:file-hider
+pnpm build:hide-ui-elements
+pnpm build:image-zoom
+pnpm build:image-auto-upload-enhanced
+pnpm build:mermaid-fit
 ```
 
 ## Lint
@@ -82,7 +97,22 @@ Enhanced file explorer with pinned items, folder notes, and file count display.
 Copy absolute path of current file with optional header anchor (cmd+option+C).
 
 ### @obsidian-plugin-toolkit/paste-enhanced
-Enhanced paste functionality plugin.
+Enhanced paste functionality that automatically detects code blocks and pastes content accordingly.
+
+### @obsidian-plugin-toolkit/file-hider
+Hide specific files and folders from the Obsidian file explorer.
+
+### @obsidian-plugin-toolkit/hide-ui-elements
+Toggle visibility of sidebar tabs and status bar items.
+
+### @obsidian-plugin-toolkit/image-zoom
+Click to zoom images (and Mermaid diagrams) in Obsidian.
+
+### @obsidian-plugin-toolkit/image-auto-upload-enhanced
+Upload images from your clipboard via PicGo.
+
+### @obsidian-plugin-toolkit/mermaid-fit
+Constrain tall Mermaid diagrams so they fit within one screen (preserves aspect ratio, works with full-width themes).
 
 ## Tech Stack
 
