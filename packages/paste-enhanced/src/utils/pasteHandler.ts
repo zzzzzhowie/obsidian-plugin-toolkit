@@ -108,8 +108,10 @@ function htmlToMarkdown(html: string): string {
 	// Process line by line to remove empty lines between consecutive bullet points
 	const lines = markdown.split('\n');
 	const processedLines: string[] = [];
-	const bulletPointRegex = /^\s*-\s/; // Matches lines starting with "- " (with optional indentation)
-	const bulletPointOnlyRegex = /^\s*-\s*$/; // Matches lines with only bullet marker (no content after)
+	// Matches list items: unordered ("- ", "* ", "+ ") and ordered ("1. ", "2. " ...) with optional indentation
+	const bulletPointRegex = /^\s*(?:[-*+]|\d+\.)\s/;
+	// Matches lines with only a list marker and no content after it
+	const bulletPointOnlyRegex = /^\s*(?:[-*+]|\d+\.)\s*$/;
 	
 	for (let i = 0; i < lines.length; i++) {
 		const currentLine = lines[i];
@@ -186,11 +188,11 @@ function htmlToMarkdown(html: string): string {
 			if (nextNonEmptyIndex < lines.length) {
 				const nextLine = lines[nextNonEmptyIndex];
 				if (nextLine !== undefined && !bulletPointRegex.test(nextLine)) {
-					// Extract the indentation from the bullet line
-					const indentMatch = currentLine.match(/^(\s*)-\s*$/);
-					const indent = indentMatch ? indentMatch[1] : '';
-					// Merge the bullet marker with the next line content
-					const mergedLine = `${indent}- ${nextLine.trim()}`;
+					// Extract the original marker (incl. indentation), e.g. "- ", "  * ", "1." — preserve ordered numbers
+					const markerMatch = currentLine.match(/^(\s*(?:[-*+]|\d+\.))\s*$/);
+					const marker = markerMatch ? markerMatch[1] : currentLine.trim();
+					// Merge the list marker with the next line content
+					const mergedLine = `${marker} ${nextLine.trim()}`;
 					processedLines.push(mergedLine);
 					// Skip all lines until the merged line (including empty lines and the content line)
 					i = nextNonEmptyIndex;
