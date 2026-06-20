@@ -359,17 +359,19 @@ export class PinnedItemsManager {
 							const leaf = this.app.workspace.getLeaf(openInNewTab);
 							await leaf.openFile(file);
 						} else if (file instanceof TFolder) {
-							// Check for modifier keys for folders too
+							// Reveal the folder in the file tree: expand parents, highlight, scroll
+							this.plugin.folderNoteManager.expandFolder(file);
+							setTimeout(() => {
+								this.plugin.folderNoteManager.highlightFolder(file);
+							}, 100);
+
+							// If a folder note exists, still open it (preserve existing behavior)
 							const mouseEvent = evt as MouseEvent;
 							const openInNewTab = mouseEvent.metaKey || mouseEvent.ctrlKey;
-							// For folders, open folder note if it exists, otherwise just expand
 							const folderNote = getFolderNote(file, this.app);
 							if (folderNote) {
 								const leaf = this.app.workspace.getLeaf(openInNewTab);
 								await leaf.openFile(folderNote);
-							} else {
-								// Just show a notice if no folder note
-								new Notice(`Folder: ${file.path}`);
 							}
 						}
 					} else {
