@@ -1,0 +1,9 @@
+{
+	"id": "mermaid-fit",
+	"name": "Mermaid Fit",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Constrain tall Mermaid diagrams so they fit within one screen (preserves aspect ratio, works with full-width themes).",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}
