@@ -94,26 +94,34 @@ export default class MyPlugin extends Plugin {
 
 		if (!isPinned) {
 			menu.addItem((item) => {
-				item.setTitle("📌 Pin to top")
-					.setIcon("pin")
-					.onClick(async () => {
-						await this.pinnedItemsManager.pinItem(file);
-					});
+				item.setTitle("Pin to top").onClick(async () => {
+					await this.pinnedItemsManager.pinItem(file);
+				});
 			});
 		} else {
 			menu.addItem((item) => {
-				item.setTitle("📌 Unpin")
-					.setIcon("pin-off")
-					.onClick(async () => {
-						await this.pinnedItemsManager.unpinItem(file.path);
-					});
+				item.setTitle("Unpin").onClick(async () => {
+					await this.pinnedItemsManager.unpinItem(file.path);
+				});
 			});
 		}
 
-		// Add folder note menu items for folders
-		if (file instanceof TFolder) {
-			this.folderNoteManager.addContextMenuItems(menu, file);
-		}
+		// Add "new folder with note" for both files and folders.
+		// Right-clicking a folder creates inside it; a file creates in its parent.
+		const targetParent =
+			file instanceof TFolder
+				? file
+				: file.parent ?? this.app.vault.getRoot();
+		menu.addItem((item) => {
+			// Place it in the same section as the native "New note"/"New folder"
+			// items (action-primary) so it sits right below them, with no icon.
+			item.setTitle("New folder with note")
+				.setSection("action-primary")
+				.onClick(() =>
+					this.folderNoteManager.createFolderWithNote(targetParent),
+				);
+		});
+
 	}
 
 	async loadSettings() {

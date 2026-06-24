@@ -1,4 +1,4 @@
-import { App, TFolder, TFile, Menu } from "obsidian";
+import { App, TFolder, TFile } from "obsidian";
 import { getFolderNote, escapeCSSSelector, getFolderFromNote } from "./utils";
 import type MyPlugin from "./main";
 
@@ -61,6 +61,11 @@ export class FolderNoteManager {
 							this.updateFolderNote(oldParent);
 						}
 					}, 100);
+				} else if (file instanceof TFolder) {
+					// When a folder with a folder note is renamed, the inner note
+					// keeps its old basename and the merge breaks. Rename the note
+					// to match so the folder note stays merged.
+					this.syncFolderNoteName(file, oldPath);
 				}
 			}),
 		);
@@ -635,34 +640,134 @@ export class FolderNoteManager {
 		}
 	}
 
-	addContextMenuItems(menu: Menu, folder: TFolder) {
-		if (!this.plugin.settings.showFolderNotes) return;
+	/**
+	 * Rename a folder's folder note to match the folder's new name after the
+	 * folder is renamed, keeping the folder-note merge intact.
+	 */
+	private syncFolderNoteName(folder: TFolder, oldPath: string) {
+		const oldName = oldPath.split("/").pop();
+		// If only moved (name unchanged), the note moved with the folder and
+		// still matches — nothing to do.
+		if (!oldName || oldName === folder.name) return;
 
-		const folderNote = getFolderNote(folder, this.app);
+		// Defer a tick so children paths settle after the folder rename, then
+		// locate the old folder note by basename among the folder's children
+		// (more reliable than reconstructing its path).
+		setTimeout(() => {
+			const oldNote = folder.children.find(
+				(child): child is TFile =>
+					child instanceof TFile &&
+					child.extension === "md" &&
+					child.basename === oldName,
+			);
+			if (!oldNote) return;
 
-		if (folderNote) {
-			menu.addItem((item) => {
-				item.setTitle("📝 Open folder note")
-					.setIcon("document")
-					.onClick(() => {
-						const leaf = this.app.workspace.getLeaf(false);
-						leaf.openFile(folderNote);
-					});
-			});
-		} else {
-			menu.addItem((item) => {
-				item.setTitle("📝 Create folder note")
-					.setIcon("document-create")
-					.onClick(async () => {
-						const notePath = `${folder.path}/${folder.name}.md`;
-						const newFile = await this.app.vault.create(
-							notePath,
-							`# ${folder.name}\n\n`,
-						);
-						const leaf = this.app.workspace.getLeaf(false);
-						await leaf.openFile(newFile);
-					});
-			});
+			const base =
+				folder.path === "/" || folder.path === "" ? "" : `${folder.path}/`;
+			const newNotePath = `${base}${folder.name}.md`;
+			if (this.app.vault.getAbstractFileByPath(newNotePath)) return;
+
+			this.app.fileManager
+				.renameFile(oldNote, newNotePath)
+				.then(() => this.updateFolderNoteStyles())
+				.catch((error) =>
+					console.error("Failed to sync folder note name:", error),
+				);
+		}, 50);
+	}
+
+	/**
+	 * Find an available "<base>", "<base> 1", "<base> 2"… name inside `parent`.
+	 */
+	private getAvailableName(parent: TFolder, base: string): string {
+		const join = (n: string) =>
+			parent.path === "/" || parent.path === "" ? n : `${parent.path}/${n}`;
+		let name = base;
+		let i = 0;
+		while (this.app.vault.getAbstractFileByPath(join(name))) {
+			i++;
+			name = `${base} ${i}`;
+		}
+		return name;
+	}
+
+	/**
+	 * Create a new folder together with a same-named markdown note inside it
+	 * (an instant folder-note merge), then put the new folder into inline-rename
+	 * mode so the user can name it. Renaming the folder auto-renames the note via
+	 * the rename handler in initialize().
+	 */
+	async createFolderWithNote(parent: TFolder) {
+		const name = this.getAvailableName(parent, "Untitled");
+		const folderPath =
+			parent.path === "/" || parent.path === ""
+				? name
+				: `${parent.path}/${name}`;
+
+		try {
+			const folder = await this.app.vault.createFolder(folderPath);
+			const note = await this.app.vault.create(
+				`${folderPath}/${name}.md`,
+				"",
+			);
+			// Refresh hide rules so the note is merged immediately.
+			this.updateFolderNoteStyles();
+			// Reveal/expand the new folder, then trigger inline rename.
+			this.expandFolder(folder);
+			setTimeout(() => this.startInlineRename(folder, note), 150);
+		} catch (error) {
+			console.error("Failed to create folder with note:", error);
 		}
 	}
+
+	/**
+	 * Put a folder into the file explorer's inline-rename mode. Uses the
+	 * file-explorer view's (undocumented) internal API, with fallbacks: an F2
+	 * keypress on the folder element, or finally just opening the note.
+	 */
+	private startInlineRename(folder: TFolder, fallbackNote: TFile) {
+		try {
+			const leaves = this.app.workspace.getLeavesOfType("file-explorer");
+			const view = leaves[0]?.view as any;
+
+			if (view && typeof view.startRenameFile === "function") {
+				// Mirror Obsidian's own "New folder" flow: re-sort so the new
+				// item is in the tree, then start inline rename next frame.
+				const run = () => {
+					try {
+						view.sort?.();
+					} catch (e) {
+						// ignore — sort is best-effort
+					}
+					view.startRenameFile(folder);
+				};
+				if (typeof view.nextFrame === "function") {
+					view.nextFrame(run);
+				} else {
+					run();
+				}
+				return;
+			}
+
+			// Fallback 1: dispatch F2 on the folder title (default rename hotkey)
+			const el = this.getFolderElement(folder);
+			if (el) {
+				el.focus();
+				el.dispatchEvent(
+					new KeyboardEvent("keydown", {
+						key: "F2",
+						code: "F2",
+						bubbles: true,
+					}),
+				);
+				return;
+			}
+
+			// Fallback 2: open the note so the user can keep working
+			this.app.workspace.getLeaf(false).openFile(fallbackNote);
+		} catch (error) {
+			console.error("Failed to start inline rename:", error);
+		}
+	}
+
 }
