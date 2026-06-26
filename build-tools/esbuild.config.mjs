@@ -63,17 +63,18 @@ function syncToObsidian(distDir, packagePath, isDev) {
 		return;
 	}
 	
-	// In build mode, back up user's data.json before wiping the target directory
-	// so that pinned items and other runtime settings are preserved across builds.
+	// Always preserve the user's runtime data.json across the sync — in BOTH dev
+	// (symlink) and build (copy) modes. data.json holds plugin settings (pinned
+	// items, etc.) that Obsidian owns at runtime, so it must never be clobbered or
+	// deleted by a rebuild. Read it (resolving through a symlink) before we remove
+	// the target, then write it back into the location Obsidian will read.
 	let savedDataJson = null;
-	if (!isDev) {
-		const existingDataJsonPath = join(targetPath, "data.json");
-		if (existsSync(existingDataJsonPath)) {
-			try {
-				savedDataJson = readFileSync(existingDataJsonPath, "utf-8");
-			} catch (error) {
-				console.warn(`⚠️  Failed to back up data.json: ${error.message}`);
-			}
+	const existingDataJsonPath = join(targetPath, "data.json");
+	if (existsSync(existingDataJsonPath)) {
+		try {
+			savedDataJson = readFileSync(existingDataJsonPath, "utf-8");
+		} catch (error) {
+			console.warn(`⚠️  Failed to back up data.json: ${error.message}`);
 		}
 	}
 
@@ -90,11 +91,21 @@ function syncToObsidian(distDir, packagePath, isDev) {
 			console.warn(`⚠️  Failed to remove existing target: ${error.message}`);
 		}
 	}
-	
+
 	// Create symlink (dev) or copy (build)
 	try {
 		if (isDev) {
 			symlinkSync(sourcePath, targetPath, 'dir');
+			// The symlink exposes sourcePath to Obsidian, so the live data.json
+			// lives at sourcePath/data.json. Restore the preserved data there.
+			if (savedDataJson !== null) {
+				try {
+					writeFileSync(join(sourcePath, "data.json"), savedDataJson, "utf-8");
+					console.log(`✓ Preserved data.json (user settings kept)`);
+				} catch (error) {
+					console.warn(`⚠️  Failed to preserve data.json: ${error.message}`);
+				}
+			}
 			console.log(`✓ Symlinked ${distDir} -> Obsidian plugins`);
 		} else {
 			cpSync(sourcePath, targetPath, { recursive: true });
@@ -156,14 +167,10 @@ if you want to view the source, please visit the github repository of this plugi
 				copyFileSync(file, join(distDir, file));
 			}
 		}
-		
-		// Copy data.json if it exists in package root (for plugins that need initial data)
-		// Only copy if it doesn't already exist in distDir (preserve existing data.json)
-		const dataJsonPath = "data.json";
-		const distDataJsonPath = join(distDir, "data.json");
-		if (existsSync(dataJsonPath) && !existsSync(distDataJsonPath)) {
-			copyFileSync(dataJsonPath, distDataJsonPath);
-		}
+
+		// NOTE: data.json is intentionally NOT copied here. It is a runtime file
+		// owned by Obsidian (plugin settings such as pinned items). Treating it as
+		// a build artifact would clobber the user's live data on every build.
 
 		// Copy main.js to root directory (required by Obsidian)
 		if (existsSync(join(distDir, "main.js"))) {
