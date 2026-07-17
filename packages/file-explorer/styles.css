@@ -132,73 +132,9 @@ available in the app when your plugin is enabled.
 	transform: scale(0.95);
 }
 
-/* Settings Styles */
-.pinned-items-list {
-	list-style: none;
-	padding: 0;
-	margin: 12px 0;
-}
-
-.pinned-items-list li {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 8px 12px;
-	margin: 4px 0;
-	background-color: var(--background-secondary);
-	border-radius: 4px;
-	transition: background-color 0.15s ease, transform 0.1s ease;
-	user-select: none;
-	-webkit-user-select: none;
-}
-
-.pinned-items-list li:hover {
-	background-color: var(--background-modifier-hover);
-}
-
-.pinned-items-list li.dragging {
+/* Drag-to-reorder feedback in the file explorer view */
+.pinned-item.dragging {
 	opacity: 0.5;
-}
-
-.pinned-items-list li.drag-over {
-	background-color: var(--background-modifier-active-hover);
-	border-top: 2px solid var(--interactive-accent);
-}
-
-.pinned-item-drag-handle {
-	margin-right: 8px;
-	color: var(--text-muted);
-	cursor: grab;
-	font-size: 14px;
-	line-height: 1;
-	user-select: none;
-	-webkit-user-select: none;
-}
-
-.pinned-item-drag-handle:active {
-	cursor: grabbing;
-}
-
-.pinned-item-path {
-	flex: 1;
-	font-family: var(--font-monospace);
-	font-size: 12px;
-}
-
-.pinned-item-remove-btn {
-	margin-left: 12px;
-	padding: 4px 12px;
-	font-size: 12px;
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
-	border: none;
-	border-radius: 3px;
-	cursor: pointer;
-	transition: background-color 0.15s ease;
-}
-
-.pinned-item-remove-btn:hover {
-	background-color: var(--interactive-accent-hover);
 }
 
 /* Underline style for folders with folder notes */

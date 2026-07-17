@@ -323,6 +323,10 @@ export class PinnedItemsManager {
 					cls: "pinned-item",
 				});
 
+				// Enable drag-to-reorder directly in the file explorer view
+				itemEl.setAttr("draggable", "true");
+				itemEl.dataset.path = item.path;
+
 				// Icon based on type
 				itemEl.createSpan({
 					cls: "pinned-item-icon",
@@ -403,10 +407,88 @@ export class PinnedItemsManager {
 				this.plugin.registerDomEvent(unpinBtn, "touchstart", handleUnpin);
 				// Keep click for desktop
 				this.plugin.registerDomEvent(unpinBtn, "click", handleUnpin);
+
+				// Drag-to-reorder within the pinned list (desktop).
+				// stopPropagation keeps these from triggering the file
+				// explorer's own file drag-and-drop.
+				const container = this.pinnedContainerEl;
+
+				itemEl.addEventListener("dragstart", (e) => {
+					e.stopPropagation();
+					if (e.dataTransfer) {
+						e.dataTransfer.effectAllowed = "move";
+						e.dataTransfer.setData("text/plain", item.path);
+					}
+					itemEl.classList.add("dragging");
+				});
+
+				itemEl.addEventListener("dragend", () => {
+					itemEl.classList.remove("dragging");
+				});
+
+				itemEl.addEventListener("dragover", (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					if (e.dataTransfer) {
+						e.dataTransfer.dropEffect = "move";
+					}
+					const dragging = container.querySelector(
+						".dragging"
+					) as HTMLElement | null;
+					if (!dragging || dragging === itemEl) return;
+
+					const afterElement = this.getDragAfterElement(
+						container,
+						e.clientY
+					);
+					if (afterElement == null) {
+						container.appendChild(dragging);
+					} else {
+						container.insertBefore(dragging, afterElement);
+					}
+				});
+
+				itemEl.addEventListener("drop", async (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					// Persist the new order from the current DOM order
+					const newOrder: { path: string; order: number }[] = [];
+					Array.from(container.children).forEach((child, idx) => {
+						const path = (child as HTMLElement).dataset.path;
+						if (path) {
+							newOrder.push({ path, order: idx });
+						}
+					});
+					await this.reorderItems(newOrder);
+				});
 			});
 		} catch (error) {
 			console.error("Failed to refresh pinned items:", error);
 		}
+	}
+
+	private getDragAfterElement(
+		container: HTMLElement,
+		y: number
+	): HTMLElement | null {
+		const draggableElements = Array.from(
+			container.querySelectorAll(".pinned-item:not(.dragging)")
+		) as HTMLElement[];
+
+		return draggableElements.reduce(
+			(closest, child) => {
+				const box = child.getBoundingClientRect();
+				const offset = y - box.top - box.height / 2;
+				if (offset < 0 && offset > closest.offset) {
+					return { offset, element: child };
+				}
+				return closest;
+			},
+			{
+				offset: Number.NEGATIVE_INFINITY,
+				element: null as HTMLElement | null,
+			}
+		).element;
 	}
 }
 
