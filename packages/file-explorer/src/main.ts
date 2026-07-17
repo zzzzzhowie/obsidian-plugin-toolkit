@@ -18,6 +18,8 @@ export default class MyPlugin extends Plugin {
 	folderNoteManager: FolderNoteManager;
 	fileCountManager: FileCountManager;
 	private lastSettingsHash: string = "";
+	// The pane the user last clicked in, used to scope the sidebar hotkeys.
+	private lastPointerZone: "file-tree" | "right" | "other" = "other";
 
 	async onload() {
 		await this.loadSettings();
@@ -40,6 +42,59 @@ export default class MyPlugin extends Plugin {
 					this.addContextMenuItems(menu, file);
 				},
 			),
+		);
+
+		// VSCode-style sidebar toggles, scoped to the pane you last interacted
+		// with:
+		//  - Cmd/Ctrl+B while the left file tree is active -> toggle left sidebar
+		//  - Cmd/Ctrl+L while the right sidebar is active  -> toggle right sidebar
+		// Obsidian does NOT move DOM focus into the file explorer / sidebars
+		// (document.activeElement stays <body>), so :focus can't tell us where we
+		// are. Instead we remember the last pointer target's pane. Anything else
+		// (e.g. the editor) is left untouched so defaults still work (Cmd+B = bold).
+		this.registerDomEvent(
+			document,
+			"pointerdown",
+			(evt) => {
+				const target = evt.target as HTMLElement | null;
+				if (
+					target?.closest(
+						'.workspace-leaf-content[data-type="file-explorer"]',
+					)
+				) {
+					this.lastPointerZone = "file-tree";
+				} else if (target?.closest(".mod-right-split")) {
+					this.lastPointerZone = "right";
+				} else {
+					this.lastPointerZone = "other";
+				}
+			},
+			{ capture: true },
+		);
+
+		this.registerDomEvent(
+			window,
+			"keydown",
+			(evt) => {
+				if (!(evt.metaKey || evt.ctrlKey) || evt.shiftKey || evt.altKey)
+					return;
+
+				const key = evt.key.toLowerCase();
+
+				if (key === "b" && this.lastPointerZone === "file-tree") {
+					evt.preventDefault();
+					evt.stopPropagation();
+					this.app.workspace.leftSplit.toggle();
+					return;
+				}
+
+				if (key === "l" && this.lastPointerZone === "right") {
+					evt.preventDefault();
+					evt.stopPropagation();
+					this.app.workspace.rightSplit.toggle();
+				}
+			},
+			{ capture: true },
 		);
 
 		// Initialize settings hash
@@ -204,183 +259,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Pin files and folders")
 			.setDesc(
-				"Right-click on any file or folder in the file explorer to pin it to the top for quick access.",
+				"Right-click on any file or folder in the file explorer to pin it to the top. Reorder pinned items by dragging them directly in the file explorer; remove one by hovering it and clicking ×.",
 			);
-
-		// Display current pinned items
-		if (this.plugin.settings.pinnedItems.length > 0) {
-			containerEl.createEl("h4", { text: "Currently pinned:" });
-			containerEl.createEl("p", {
-				text: "Drag items to reorder them. Changes sync automatically across devices.",
-				cls: "setting-item-description",
-			});
-
-			const listEl = containerEl.createEl("ul", {
-				cls: "pinned-items-list",
-			});
-
-			// Sort items by order for display
-			const sortedItems = [...this.plugin.settings.pinnedItems].sort(
-				(a, b) => {
-					const orderA = a.order ?? 0;
-					const orderB = b.order ?? 0;
-					if (orderA !== orderB) {
-						return orderA - orderB;
-					}
-					return a.name.localeCompare(b.name);
-				},
-			);
-
-			sortedItems.forEach((item, index) => {
-				const itemEl = listEl.createEl("li");
-				itemEl.setAttr("draggable", "true");
-				itemEl.dataset.path = item.path;
-				itemEl.style.cursor = "move";
-
-				// Drag handle icon
-				itemEl.createSpan({
-					text: "⋮⋮",
-					cls: "pinned-item-drag-handle",
-				});
-
-				itemEl.createSpan({
-					text: `${item.type === "folder" ? "📁" : "📄"} ${
-						item.path
-					}`,
-					cls: "pinned-item-path",
-				});
-
-				const removeBtn = itemEl.createEl("button", {
-					text: "Remove",
-					cls: "pinned-item-remove-btn",
-				});
-
-				removeBtn.addEventListener("click", async () => {
-					await this.plugin.pinnedItemsManager.unpinItem(item.path);
-					this.display(); // Refresh the settings display
-				});
-
-				// Drag and drop handlers
-				itemEl.addEventListener("dragstart", (e) => {
-					if (e.dataTransfer) {
-						e.dataTransfer.effectAllowed = "move";
-						e.dataTransfer.setData("text/plain", item.path);
-					}
-					itemEl.classList.add("dragging");
-					setTimeout(() => {
-						itemEl.style.display = "none";
-					}, 0);
-				});
-
-				itemEl.addEventListener("dragend", (e) => {
-					itemEl.classList.remove("dragging");
-					itemEl.style.display = "";
-					// Remove drag-over class from all items
-					listEl.querySelectorAll(".drag-over").forEach((el) => {
-						el.classList.remove("drag-over");
-					});
-				});
-
-				itemEl.addEventListener("dragover", (e) => {
-					e.preventDefault();
-					if (e.dataTransfer) {
-						e.dataTransfer.dropEffect = "move";
-					}
-					const dragging = listEl.querySelector(
-						".dragging",
-					) as HTMLElement;
-					if (!dragging) return;
-
-					const afterElement = this.getDragAfterElement(
-						listEl,
-						e.clientY,
-					);
-					if (afterElement == null) {
-						listEl.appendChild(dragging);
-					} else {
-						listEl.insertBefore(dragging, afterElement);
-					}
-				});
-
-				itemEl.addEventListener("dragenter", (e) => {
-					e.preventDefault();
-					if (!itemEl.classList.contains("dragging")) {
-						itemEl.classList.add("drag-over");
-					}
-				});
-
-				itemEl.addEventListener("dragleave", () => {
-					itemEl.classList.remove("drag-over");
-				});
-
-				itemEl.addEventListener("drop", async (e) => {
-					e.preventDefault();
-					itemEl.classList.remove("drag-over");
-					const draggedPath = e.dataTransfer?.getData("text/plain");
-					if (!draggedPath || draggedPath === item.path) return;
-
-					// Reorder items based on current DOM order
-					const newOrder: { path: string; order: number }[] = [];
-					const children = Array.from(
-						listEl.children,
-					) as HTMLElement[];
-					children.forEach((child, idx) => {
-						const path = child.dataset.path;
-						if (path) {
-							newOrder.push({ path, order: idx });
-						}
-					});
-
-					await this.plugin.pinnedItemsManager.reorderItems(newOrder);
-					this.display(); // Refresh the settings display
-				});
-			});
-
-			new Setting(containerEl)
-				.setName("Clear all pinned items")
-				.setDesc("Remove all pinned items at once")
-				.addButton((button) =>
-					button
-						.setButtonText("Clear all")
-						.setWarning()
-						.onClick(async () => {
-							this.plugin.settings.pinnedItems = [];
-							await this.plugin.saveSettings();
-							this.plugin.pinnedItemsManager.refreshPinnedItems();
-							this.display();
-						}),
-				);
-		} else {
-			containerEl.createEl("p", {
-				text: "No items pinned yet. Right-click on any file or folder to pin it.",
-				cls: "setting-item-description",
-			});
-		}
-	}
-
-	private getDragAfterElement(
-		container: HTMLElement,
-		y: number,
-	): HTMLElement | null {
-		const draggableElements = Array.from(
-			container.querySelectorAll("li:not(.dragging)"),
-		) as HTMLElement[];
-
-		return draggableElements.reduce(
-			(closest, child) => {
-				const box = child.getBoundingClientRect();
-				const offset = y - box.top - box.height / 2;
-
-				if (offset < 0 && offset > closest.offset) {
-					return { offset: offset, element: child };
-				} else {
-					return closest;
-				}
-			},
-			{
-				offset: Number.NEGATIVE_INFINITY,
-				element: null as HTMLElement | null,
-			},
-		).element;
 	}
 }
