@@ -39,6 +39,13 @@ pnpm-debug.log*
 **/obsidian-plugin-*/
 dist/
 
+# Built plugin folders: packages/<name>/<manifest-id>/ (distDir == manifest id).
+# main.js and data.json are already ignored above; also drop the copied
+# manifest.json / styles.css so the whole build folder stays untracked. The
+# source copies at packages/<name>/ (one level up) are unaffected.
+packages/*/*/manifest.json
+packages/*/*/styles.css
+
 # Source maps
 *.map
 
