@@ -323,7 +323,8 @@ export class PinnedItemsManager {
 					cls: "pinned-item",
 				});
 
-				// Enable drag-to-reorder directly in the file explorer view
+				// Native HTML5 drag powers desktop reorder; the touch handlers
+				// below add mobile support (touch never fires HTML5 drag events).
 				itemEl.setAttr("draggable", "true");
 				itemEl.dataset.path = item.path;
 
@@ -385,10 +386,18 @@ export class PinnedItemsManager {
 					}
 				};
 
-				// Use touchstart for iOS to avoid double-tap requirement
-				this.plugin.registerDomEvent(itemEl, "touchstart", openFile);
-				// Keep click for desktop and fallback
-				this.plugin.registerDomEvent(itemEl, "click", openFile);
+				// Open on click — fires for a desktop click and a mobile tap
+				// alike. A touch-drag suppresses this via the flag below.
+				let suppressClick = false;
+				this.plugin.registerDomEvent(itemEl, "click", (e) => {
+					if (suppressClick) {
+						suppressClick = false;
+						e.preventDefault();
+						e.stopPropagation();
+						return;
+					}
+					void openFile(e);
+				});
 
 				// Add unpin button
 				const unpinBtn = itemEl.createSpan({
@@ -396,23 +405,68 @@ export class PinnedItemsManager {
 					text: "×",
 				});
 
-				// Handle unpin with both touch and click
 				const handleUnpin = (e: Event) => {
 					e.stopPropagation(); // Prevent opening the file
 					e.preventDefault();
 					this.unpinItem(item.path);
 				};
-
-				// Use touchstart for iOS immediate response
-				this.plugin.registerDomEvent(unpinBtn, "touchstart", handleUnpin);
-				// Keep click for desktop
 				this.plugin.registerDomEvent(unpinBtn, "click", handleUnpin);
+				// Keep a press on × from arming the row's touch long-press drag.
+				this.plugin.registerDomEvent(unpinBtn, "touchstart", (e) =>
+					e.stopPropagation()
+				);
 
-				// Drag-to-reorder within the pinned list (desktop).
-				// stopPropagation keeps these from triggering the file
-				// explorer's own file drag-and-drop.
 				const container = this.pinnedContainerEl;
 
+				// Move this row to wherever the pointer is, sliding siblings into
+				// the vacated gap with a FLIP animation (touch reorder only).
+				const moveDraggedTo = (clientY: number): void => {
+					const afterElement = this.getDragAfterElement(
+						container,
+						clientY
+					);
+					if (afterElement === itemEl) return;
+
+					const siblings = Array.from(container.children).filter(
+						(c): c is HTMLElement => c !== itemEl
+					);
+					const before = new Map(
+						siblings.map((s) => [s, s.getBoundingClientRect().top])
+					);
+
+					if (afterElement == null) {
+						container.appendChild(itemEl);
+					} else {
+						container.insertBefore(itemEl, afterElement);
+					}
+
+					// FLIP: play each shifted sibling from its old spot to its new one.
+					for (const s of siblings) {
+						const delta = (before.get(s) ?? 0) - s.getBoundingClientRect().top;
+						if (!delta) continue;
+						s.style.transition = "none";
+						s.style.transform = `translateY(${delta}px)`;
+						void s.offsetHeight; // force reflow so the next frame animates
+						s.style.transition = "transform 0.18s ease";
+						s.style.transform = "";
+					}
+				};
+
+				// Persist the new order from the current DOM order.
+				const persistOrder = async (): Promise<void> => {
+					const newOrder: { path: string; order: number }[] = [];
+					Array.from(container.children).forEach((child, idx) => {
+						const path = (child as HTMLElement).dataset.path;
+						if (path) {
+							newOrder.push({ path, order: idx });
+						}
+					});
+					await this.reorderItems(newOrder);
+				};
+
+				// --- Desktop: native HTML5 drag-and-drop (unchanged) ---
+				// stopPropagation keeps these from triggering the file explorer's
+				// own file drag-and-drop.
 				itemEl.addEventListener("dragstart", (e) => {
 					e.stopPropagation();
 					if (e.dataTransfer) {
@@ -436,7 +490,6 @@ export class PinnedItemsManager {
 						".dragging"
 					) as HTMLElement | null;
 					if (!dragging || dragging === itemEl) return;
-
 					const afterElement = this.getDragAfterElement(
 						container,
 						e.clientY
@@ -451,16 +504,131 @@ export class PinnedItemsManager {
 				itemEl.addEventListener("drop", async (e) => {
 					e.preventDefault();
 					e.stopPropagation();
-					// Persist the new order from the current DOM order
-					const newOrder: { path: string; order: number }[] = [];
-					Array.from(container.children).forEach((child, idx) => {
-						const path = (child as HTMLElement).dataset.path;
-						if (path) {
-							newOrder.push({ path, order: idx });
-						}
-					});
-					await this.reorderItems(newOrder);
+					await persistOrder();
 				});
+
+				// --- Mobile: touch long-press drag (touch never fires HTML5 DnD) ---
+				// Long-press to pick up a row; a swipe before the hold engages is
+				// left as a normal scroll.
+				const LONG_PRESS_MS = 350;
+				const TOUCH_THRESHOLD = 10; // px of slop allowed during the hold
+				let touchDragging = false;
+				let touchStartX = 0;
+				let touchStartY = 0;
+				let longPressTimer: number | null = null;
+				// A "lifted" copy of the row that floats under the finger while the
+				// real row becomes an invisible placeholder gap that reflows.
+				let cloneEl: HTMLElement | null = null;
+				let grabOffsetY = 0; // finger offset within the row at pickup
+
+				const clearLongPress = (): void => {
+					if (longPressTimer !== null) {
+						window.clearTimeout(longPressTimer);
+						longPressTimer = null;
+					}
+				};
+
+				// Lift the row: spawn a fixed-position floating clone and turn the
+				// original into a placeholder. Called once the long-press fires.
+				const liftRow = (): void => {
+					const rect = itemEl.getBoundingClientRect();
+					grabOffsetY = touchStartY - rect.top;
+					const clone = itemEl.cloneNode(true) as HTMLElement;
+					clone.classList.add("pinned-item-drag-clone");
+					clone.classList.remove("dragging", "dragging-touch");
+					clone.style.width = `${rect.width}px`;
+					clone.style.left = `${rect.left}px`;
+					clone.style.top = `${rect.top}px`;
+					document.body.appendChild(clone);
+					cloneEl = clone;
+					itemEl.classList.add("dragging", "dragging-touch");
+					// Tactile "pickup" cue where supported.
+					try {
+						navigator.vibrate?.(15);
+					} catch {
+						/* vibrate unsupported */
+					}
+				};
+
+				// Float the clone to follow the finger's Y.
+				const moveClone = (clientY: number): void => {
+					if (cloneEl) cloneEl.style.top = `${clientY - grabOffsetY}px`;
+				};
+
+				const endTouchDrag = (): void => {
+					clearLongPress();
+					touchDragging = false;
+					cloneEl?.remove();
+					cloneEl = null;
+					itemEl.classList.remove("dragging", "dragging-touch");
+				};
+
+				this.plugin.registerDomEvent(
+					itemEl,
+					"touchstart",
+					(e: TouchEvent) => {
+						const t = e.touches[0];
+						if (e.touches.length !== 1 || !t) return;
+						touchStartX = t.clientX;
+						touchStartY = t.clientY;
+						touchDragging = false;
+						longPressTimer = window.setTimeout(() => {
+							longPressTimer = null;
+							touchDragging = true;
+							liftRow();
+						}, LONG_PRESS_MS);
+					}
+				);
+
+				this.plugin.registerDomEvent(
+					itemEl,
+					"touchmove",
+					(e: TouchEvent) => {
+						const t = e.touches[0];
+						if (!t) return;
+						if (!touchDragging) {
+							// Moved before the hold engaged → treat as a scroll.
+							const moved =
+								Math.abs(t.clientX - touchStartX) +
+								Math.abs(t.clientY - touchStartY);
+							if (
+								longPressTimer !== null &&
+								moved > TOUCH_THRESHOLD
+							) {
+								clearLongPress();
+							}
+							return;
+						}
+						// Dragging: block list scroll, float the clone, and reflow.
+						e.preventDefault();
+						moveClone(t.clientY);
+						moveDraggedTo(t.clientY);
+					},
+					{ passive: false }
+				);
+
+				this.plugin.registerDomEvent(
+					itemEl,
+					"touchend",
+					async (e: TouchEvent) => {
+						if (touchDragging) {
+							// Suppress the tap-to-open that would otherwise follow.
+							e.preventDefault();
+							suppressClick = true;
+							endTouchDrag();
+							await persistOrder();
+						} else {
+							endTouchDrag();
+						}
+					},
+					{ passive: false }
+				);
+
+				this.plugin.registerDomEvent(
+					itemEl,
+					"touchcancel",
+					endTouchDrag
+				);
 			});
 		} catch (error) {
 			console.error("Failed to refresh pinned items:", error);

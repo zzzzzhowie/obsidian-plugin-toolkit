@@ -132,9 +132,38 @@ available in the app when your plugin is enabled.
 	transform: scale(0.95);
 }
 
-/* Drag-to-reorder feedback in the file explorer view */
+/* Drag-to-reorder feedback in the file explorer view (desktop native DnD) */
 .pinned-item.dragging {
 	opacity: 0.5;
+	cursor: grabbing;
+	/* Block native scroll/zoom gestures while a touch-drag is in progress. */
+	touch-action: none;
+}
+
+/* Mobile touch drag: the real row becomes an invisible gap while its lifted
+   clone floats under the finger. */
+.pinned-item.dragging-touch {
+	opacity: 0;
+}
+
+/* The lifted, finger-following copy of a row during a touch drag. */
+.pinned-item-drag-clone {
+	position: fixed;
+	z-index: var(--layer-menu, 100);
+	box-sizing: border-box;
+	margin: 0;
+	pointer-events: none;
+	background-color: var(--background-secondary);
+	border-radius: 6px;
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
+	opacity: 0.97;
+	transform: scale(1.03);
+}
+
+/* Siblings glide into the vacated gap (FLIP target). The dragged placeholder
+   itself is excluded so it never animates. */
+.pinned-item:not(.dragging) {
+	will-change: transform;
 }
 
 /* Underline style for folders with folder notes */
