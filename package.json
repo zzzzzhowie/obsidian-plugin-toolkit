@@ -23,7 +23,9 @@
         "dev:file-hider": "pnpm --filter @obsidian-plugin-toolkit/file-hider dev",
         "build:file-hider": "pnpm --filter @obsidian-plugin-toolkit/file-hider build",
         "dev:mermaid-fit": "pnpm --filter @obsidian-plugin-toolkit/mermaid-fit dev",
-        "build:mermaid-fit": "pnpm --filter @obsidian-plugin-toolkit/mermaid-fit build"
+        "build:mermaid-fit": "pnpm --filter @obsidian-plugin-toolkit/mermaid-fit build",
+        "dev:claudian-enhanced": "pnpm --filter @obsidian-plugin-toolkit/claudian-enhanced dev",
+        "build:claudian-enhanced": "pnpm --filter @obsidian-plugin-toolkit/claudian-enhanced build"
     },
     "keywords": [
         "obsidian",
