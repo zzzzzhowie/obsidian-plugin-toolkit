@@ -1,0 +1,5 @@
+/* Keep the editor selection visible after focus moves to the Claudian composer,
+   so a 划词 selection stays highlighted while Claudian carries it over as context. */
+.cm-editor:not(.cm-focused) .cm-selectionBackground {
+	background-color: var(--text-selection) !important;
+}

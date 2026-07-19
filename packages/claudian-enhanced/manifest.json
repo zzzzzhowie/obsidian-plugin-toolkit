@@ -1,0 +1,9 @@
+{
+	"id": "claudian-enhanced",
+	"name": "Claudian Enhanced",
+	"version": "1.0.0",
+	"minAppVersion": "1.7.2",
+	"description": "Toggle the Claudian chat view with one hotkey: auto-focus its input, keep the editor selection highlighted, and restore the sidebar outline on close.",
+	"author": "Howie",
+	"isDesktopOnly": true
+}
