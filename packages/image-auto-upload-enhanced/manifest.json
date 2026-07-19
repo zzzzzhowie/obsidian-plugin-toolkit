@@ -5,5 +5,5 @@
   "minAppVersion": "0.10.7",
   "description": "This plugin uploads images from your clipboard by PicGo",
   "author": "yeyan1996",
-  "isDesktopOnly": false
+  "isDesktopOnly": true
 }
