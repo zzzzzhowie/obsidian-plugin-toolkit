@@ -1,0 +1,21 @@
+/* Backdrop removal is controlled by a global body class (toggled reactively
+   from the plugin). It targets the settings modal's container via :has(),
+   so it works regardless of where `mod-settings` lives. Removing the class
+   restores Obsidian's native dim instantly. */
+body.dev-draggable-hide-bg .modal-container:has(.modal.mod-settings) {
+	background-color: transparent !important;
+	backdrop-filter: none !important;
+	-webkit-backdrop-filter: none !important;
+	pointer-events: none !important;
+}
+
+body.dev-draggable-hide-bg .modal-container:has(.modal.mod-settings) .modal-bg {
+	opacity: 0 !important;
+	pointer-events: none !important;
+}
+
+/* Keep the modal itself fully interactive even though its container is
+   click-through. */
+body.dev-draggable-hide-bg .modal-container:has(.modal.mod-settings) .modal.mod-settings {
+	pointer-events: auto !important;
+}

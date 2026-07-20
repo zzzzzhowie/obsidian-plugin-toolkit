@@ -1,5 +1,6 @@
 import {
 	App,
+	Notice,
 	Plugin,
 	PluginSettingTab,
 	Setting,
@@ -11,12 +12,14 @@ import { MyPluginSettings, DEFAULT_SETTINGS } from "./settings";
 import { PinnedItemsManager } from "./pinned-items";
 import { FolderNoteManager } from "./folder-note";
 import { FileCountManager } from "./file-count";
+import { FileHiderManager } from "./hider";
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 	pinnedItemsManager: PinnedItemsManager;
 	folderNoteManager: FolderNoteManager;
 	fileCountManager: FileCountManager;
+	fileHiderManager: FileHiderManager;
 	private lastSettingsHash: string = "";
 	// The pane the user last clicked in, used to scope the sidebar hotkeys.
 	private lastPointerZone: "file-tree" | "right" | "other" = "other";
@@ -28,11 +31,29 @@ export default class MyPlugin extends Plugin {
 		this.pinnedItemsManager = new PinnedItemsManager(this.app, this);
 		this.folderNoteManager = new FolderNoteManager(this.app, this);
 		this.fileCountManager = new FileCountManager(this.app, this);
+		this.fileHiderManager = new FileHiderManager(this.app, this);
 
 		// Initialize features
 		this.pinnedItemsManager.initialize();
 		this.folderNoteManager.initialize();
 		this.fileCountManager.initialize();
+		this.fileHiderManager.initialize();
+
+		// Command: toggle visibility of all hidden items
+		this.addCommand({
+			id: "toggle-hidden-visibility",
+			name: "Toggle hidden file visibility",
+			callback: () => {
+				this.settings.hideFiles = !this.settings.hideFiles;
+				void this.saveSettings();
+				this.fileHiderManager.refreshStyles();
+				new Notice(
+					this.settings.hideFiles
+						? "Hidden files: invisible"
+						: "Hidden files: visible",
+				);
+			},
+		});
 
 		// Register context menu event for files and folders
 		this.registerEvent(
@@ -44,10 +65,11 @@ export default class MyPlugin extends Plugin {
 			),
 		);
 
-		// VSCode-style sidebar toggles, scoped to the pane you last interacted
+		// VSCode-style sidebar toggle, scoped to the pane you last interacted
 		// with:
 		//  - Cmd/Ctrl+B while the left file tree is active -> toggle left sidebar
-		//  - Cmd/Ctrl+L while the right sidebar is active  -> toggle right sidebar
+		// (Cmd/Ctrl+L is intentionally left alone so claudian-enhanced can use it
+		// to switch the right sidebar between Outline and Claudian.)
 		// Obsidian does NOT move DOM focus into the file explorer / sidebars
 		// (document.activeElement stays <body>), so :focus can't tell us where we
 		// are. Instead we remember the last pointer target's pane. Anything else
@@ -85,13 +107,6 @@ export default class MyPlugin extends Plugin {
 					evt.preventDefault();
 					evt.stopPropagation();
 					this.app.workspace.leftSplit.toggle();
-					return;
-				}
-
-				if (key === "l" && this.lastPointerZone === "right") {
-					evt.preventDefault();
-					evt.stopPropagation();
-					this.app.workspace.rightSplit.toggle();
 				}
 			},
 			{ capture: true },
@@ -114,6 +129,7 @@ export default class MyPlugin extends Plugin {
 					await this.loadSettings();
 					this.lastSettingsHash = JSON.stringify(this.settings);
 					this.pinnedItemsManager.refreshPinnedItems();
+					this.fileHiderManager.refreshStyles();
 				}
 			} catch (error) {
 				// Ignore errors during sync check
@@ -139,6 +155,7 @@ export default class MyPlugin extends Plugin {
 	onunload() {
 		this.pinnedItemsManager.cleanup();
 		this.folderNoteManager.removeDynamicStyles();
+		this.fileHiderManager.cleanup();
 	}
 
 	addContextMenuItems(menu: Menu, file: TAbstractFile) {
@@ -177,6 +194,26 @@ export default class MyPlugin extends Plugin {
 				);
 		});
 
+		// Hide / Unhide the item from the file explorer
+		const isFolder = file instanceof TFolder;
+		const label = isFolder ? "Folder" : "File";
+		if (this.fileHiderManager.isHidden(file.path)) {
+			menu.addItem((item) => {
+				item.setTitle(`Unhide ${label}`)
+					.setIcon("eye")
+					.onClick(() => {
+						void this.fileHiderManager.unhidePath(file.path);
+					});
+			});
+		} else {
+			menu.addItem((item) => {
+				item.setTitle(`Hide ${label}`)
+					.setIcon("eye-off")
+					.onClick(() => {
+						void this.fileHiderManager.hidePath(file.path);
+					});
+			});
+		}
 	}
 
 	async loadSettings() {
@@ -261,5 +298,102 @@ class MyPluginSettingTab extends PluginSettingTab {
 			.setDesc(
 				"Right-click on any file or folder in the file explorer to pin it to the top. Reorder pinned items by dragging them directly in the file explorer; remove one by hovering it and clicking ×.",
 			);
+
+		this.displayHiderSettings(containerEl);
+	}
+
+	private displayHiderSettings(containerEl: HTMLElement): void {
+		const hider = this.plugin.fileHiderManager;
+
+		containerEl.createEl("h3", { text: "Hide Files & Folders" });
+
+		new Setting(containerEl)
+			.setName("Hide files & folders")
+			.setDesc(
+				"When enabled, items in the hidden list below are invisible in the file explorer. Right-click any item to hide it.",
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.hideFiles)
+					.onChange(async (value) => {
+						this.plugin.settings.hideFiles = value;
+						await this.plugin.saveSettings();
+						hider.refreshStyles();
+					}),
+			);
+
+		// ── Wildcard patterns ──────────────────────────────────
+		containerEl.createEl("p", {
+			text: 'Wildcard patterns hide all files/folders matching a name at any nesting level. For example, "attachments" hides every folder named "attachments" across the entire vault.',
+			cls: "setting-item-description",
+		});
+
+		let inputEl: HTMLInputElement | null = null;
+		const doAddPattern = async () => {
+			if (!inputEl) return;
+			const value = inputEl.value.trim();
+			if (!value) return;
+			if (this.plugin.settings.hiddenPatterns.includes(value)) return;
+			await hider.addPattern(value);
+			this.display();
+		};
+
+		new Setting(containerEl)
+			.setName("Add pattern")
+			.addText((text) => {
+				text.setPlaceholder("e.g. attachments");
+				inputEl = text.inputEl;
+				text.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+					if (e.key === "Enter") {
+						void doAddPattern();
+					}
+				});
+			})
+			.addButton((btn) =>
+				btn.setButtonText("Add").onClick(() => {
+					void doAddPattern();
+				}),
+			);
+
+		if (this.plugin.settings.hiddenPatterns.length === 0) {
+			containerEl.createEl("p", {
+				text: "No patterns yet.",
+				cls: "setting-item-description",
+			});
+		} else {
+			for (const pattern of this.plugin.settings.hiddenPatterns) {
+				new Setting(containerEl).setName(pattern).addButton((btn) =>
+					btn
+						.setIcon("cross")
+						.setTooltip("Remove pattern")
+						.onClick(async () => {
+							await hider.removePattern(pattern);
+							this.display();
+						}),
+				);
+			}
+		}
+
+		// ── Exact hidden paths ─────────────────────────────────
+		containerEl.createEl("h4", { text: "Hidden paths" });
+
+		if (this.plugin.settings.hiddenPaths.length === 0) {
+			containerEl.createEl("p", {
+				text: "No hidden files or folders. Right-click an item in the file explorer to hide it.",
+				cls: "setting-item-description",
+			});
+		} else {
+			for (const path of this.plugin.settings.hiddenPaths) {
+				new Setting(containerEl).setName(path).addButton((btn) =>
+					btn
+						.setIcon("cross")
+						.setTooltip("Unhide")
+						.onClick(async () => {
+							await hider.unhidePath(path);
+							this.display();
+						}),
+				);
+			}
+		}
 	}
 }

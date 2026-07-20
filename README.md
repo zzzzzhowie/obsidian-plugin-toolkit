@@ -14,11 +14,11 @@ obsidian-plugin-toolkit/
 │   ├── file-explorer/                     # @obsidian-plugin-toolkit/file-explorer-enhancements
 │   ├── copy-path/                          # @obsidian-plugin-toolkit/copy-path
 │   ├── paste-enhanced/                     # @obsidian-plugin-toolkit/paste-enhanced
-│   ├── file-hider/                         # @obsidian-plugin-toolkit/file-hider
 │   ├── hide-ui-elements/                   # @obsidian-plugin-toolkit/hide-ui-elements
 │   ├── image-zoom/                         # @obsidian-plugin-toolkit/image-zoom
 │   ├── image-auto-upload-enhanced/         # @obsidian-plugin-toolkit/image-auto-upload-enhanced
-│   └── mermaid-fit/                        # @obsidian-plugin-toolkit/mermaid-fit
+│   ├── mermaid-fit/                        # @obsidian-plugin-toolkit/mermaid-fit
+│   └── line-numbers/                        # @obsidian-plugin-toolkit/line-numbers
 ├── package.json
 ├── pnpm-workspace.yaml
 └── README.md
@@ -44,11 +44,11 @@ Run a specific plugin in development mode:
 pnpm dev:file-explorer              # File Explorer Enhancements
 pnpm dev:copy-path                  # Copy Path
 pnpm dev:paste-enhanced             # Paste Enhanced
-pnpm dev:file-hider                 # File Hider
 pnpm dev:hide-ui-elements           # Hide UI Elements
 pnpm dev:image-zoom                 # Image Zoom
 pnpm dev:image-auto-upload-enhanced # Image Auto Upload Enhanced
 pnpm dev:mermaid-fit                # Mermaid Fit
+pnpm dev:line-numbers               # Line Numbers
 ```
 
 Or use filter:
@@ -73,11 +73,11 @@ Build a specific plugin:
 pnpm build:file-explorer
 pnpm build:copy-path
 pnpm build:paste-enhanced
-pnpm build:file-hider
 pnpm build:hide-ui-elements
 pnpm build:image-zoom
 pnpm build:image-auto-upload-enhanced
 pnpm build:mermaid-fit
+pnpm build:line-numbers
 ```
 
 ## Lint
@@ -91,16 +91,13 @@ pnpm lint
 ## Plugins
 
 ### @obsidian-plugin-toolkit/file-explorer-enhancements
-Enhanced file explorer with pinned items, folder notes, and file count display.
+Enhanced file explorer with pinned items, folder notes, file count display, and file/folder hiding (right-click to hide, wildcard patterns, toggle-visibility command).
 
 ### @obsidian-plugin-toolkit/copy-path
 Copy absolute path of current file with optional header anchor (cmd+option+C).
 
 ### @obsidian-plugin-toolkit/paste-enhanced
 Enhanced paste functionality that automatically detects code blocks and pastes content accordingly.
-
-### @obsidian-plugin-toolkit/file-hider
-Hide specific files and folders from the Obsidian file explorer.
 
 ### @obsidian-plugin-toolkit/hide-ui-elements
 Toggle visibility of sidebar tabs and status bar items.
@@ -113,6 +110,9 @@ Upload images from your clipboard via PicGo.
 
 ### @obsidian-plugin-toolkit/mermaid-fit
 Constrain tall Mermaid diagrams so they fit within one screen (preserves aspect ratio, works with full-width themes).
+
+### @obsidian-plugin-toolkit/line-numbers
+Show whole-document line numbers in the editor gutter (every line, not just fenced code blocks). Absolute / relative / hybrid (vim-style) numbering.
 
 ## Tech Stack
 

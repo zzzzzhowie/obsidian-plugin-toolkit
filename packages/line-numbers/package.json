@@ -1,7 +1,7 @@
 {
-	"name": "@obsidian-plugin-toolkit/file-hider",
+	"name": "@obsidian-plugin-toolkit/line-numbers",
 	"version": "1.0.0",
-	"description": "Hide specific files and folders from the Obsidian file explorer.",
+	"description": "Show whole-document line numbers in the editor gutter (every line, not just fenced code blocks). Supports absolute, relative, and hybrid (vim-style) numbering.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
@@ -11,17 +11,19 @@
 		"lint": "eslint ."
 	},
 	"keywords": [],
-	"license": "MIT",
+	"license": "0-BSD",
 	"devDependencies": {
-		"@eslint/js": "9.30.1",
+		"@codemirror/state": "^6.0.0",
+		"@codemirror/view": "^6.0.0",
 		"@types/node": "^20.0.0",
 		"esbuild": "0.25.5",
 		"eslint-plugin-obsidianmd": "0.1.9",
 		"globals": "14.0.0",
-		"jiti": "2.6.1",
 		"tslib": "2.4.0",
 		"typescript": "5.8.3",
-		"typescript-eslint": "8.35.1"
+		"typescript-eslint": "8.35.1",
+		"@eslint/js": "9.30.1",
+		"jiti": "2.6.1"
 	},
 	"dependencies": {
 		"obsidian": "latest"

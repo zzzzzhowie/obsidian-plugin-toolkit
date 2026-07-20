@@ -8,6 +8,8 @@ const CLAUDIAN_INPUT = "textarea.claudian-input";
 const OPEN_COMMAND = "realclaudian:open-view";
 /** View to switch to when Claudian is toggled away inside a sidebar (the sidebar's default). */
 const SIDEBAR_DEFAULT_VIEW = "outline";
+/** Core Outline plugin's command — used to recreate the outline leaf if its tab was closed. */
+const OUTLINE_OPEN_COMMAND = "outline:open";
 
 /** `app.commands` is a stable but undocumented Obsidian API (not in the public typings). */
 interface AppWithCommands {
@@ -62,10 +64,27 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private revealSidebarDefault(claudianLeaf: WorkspaceLeaf): void {
 		const side = this.sidebarOf(claudianLeaf);
 		this.ensureSideOpen(side);
-		const restore = this.app.workspace
+		const restore = this.findSidebarDefault(side);
+		if (restore) {
+			void this.app.workspace.revealLeaf(restore);
+			return;
+		}
+		// The outline tab was closed, so there's nothing to flip back to — ⌘L would
+		// otherwise be a dead key stuck on Claudian. Let the core Outline command
+		// (re)create its leaf, then reveal it so the toggle stays symmetric.
+		(this.app as unknown as AppWithCommands).commands.executeCommandById(
+			OUTLINE_OPEN_COMMAND,
+		);
+		const created = this.findSidebarDefault(side);
+		if (created) void this.app.workspace.revealLeaf(created);
+	}
+
+	private findSidebarDefault(
+		side: "right" | "left" | null,
+	): WorkspaceLeaf | undefined {
+		return this.app.workspace
 			.getLeavesOfType(SIDEBAR_DEFAULT_VIEW)
 			.find((candidate) => this.sidebarOf(candidate) === side);
-		if (restore) void this.app.workspace.revealLeaf(restore);
 	}
 
 	/**

@@ -20,12 +20,14 @@
         "build:hide-ui-elements": "pnpm --filter @obsidian-plugin-toolkit/hide-ui-elements build",
         "dev:image-auto-upload-enhanced": "pnpm --filter @obsidian-plugin-toolkit/image-auto-upload-enhanced dev",
         "build:image-auto-upload-enhanced": "pnpm --filter @obsidian-plugin-toolkit/image-auto-upload-enhanced build",
-        "dev:file-hider": "pnpm --filter @obsidian-plugin-toolkit/file-hider dev",
-        "build:file-hider": "pnpm --filter @obsidian-plugin-toolkit/file-hider build",
         "dev:mermaid-fit": "pnpm --filter @obsidian-plugin-toolkit/mermaid-fit dev",
         "build:mermaid-fit": "pnpm --filter @obsidian-plugin-toolkit/mermaid-fit build",
         "dev:claudian-enhanced": "pnpm --filter @obsidian-plugin-toolkit/claudian-enhanced dev",
-        "build:claudian-enhanced": "pnpm --filter @obsidian-plugin-toolkit/claudian-enhanced build"
+        "build:claudian-enhanced": "pnpm --filter @obsidian-plugin-toolkit/claudian-enhanced build",
+        "dev:line-numbers": "pnpm --filter @obsidian-plugin-toolkit/line-numbers dev",
+        "build:line-numbers": "pnpm --filter @obsidian-plugin-toolkit/line-numbers build",
+        "dev:dev-draggable-settings": "pnpm --filter @obsidian-plugin-toolkit/dev-draggable-settings dev",
+        "build:dev-draggable-settings": "pnpm --filter @obsidian-plugin-toolkit/dev-draggable-settings build"
     },
     "keywords": [
         "obsidian",

@@ -1,0 +1,57 @@
+/*
+ * Compact line-number gutter.
+ * Scoped to .cm-lineNumbers (used by both the built-in absolute gutter and our
+ * custom relative/hybrid gutter, which reuses the same class) so it never
+ * touches other gutters (fold markers, etc.).
+ */
+
+.cm-lineNumbers .cm-gutterElement {
+	/* Tighter than CM's default (0 3px 0 5px) — trims the wide left channel. */
+	padding: 0 4px 0 2px;
+	/* Narrower minimum so short docs don't reserve room for 3-digit numbers. */
+	min-width: 1.5em;
+	/* Slightly smaller, dimmer digits so they recede behind the text. */
+	font-size: 0.85em;
+	color: var(--text-faint);
+}
+
+/* Keep the active line readable when "Highlight active line" is on. */
+.cm-lineNumbers .cm-activeLineGutter {
+	color: var(--text-muted);
+}
+
+/*
+ * Overlay mode ("Float in left margin"): collapse the gutter's reserved width
+ * to 0 (so the text column reclaims it and isn't pushed inward) while keeping
+ * the gutter IN the flow — that preserves CodeMirror's sticky scroll alignment.
+ * The numbers then spill out via `overflow: visible` and are pulled left of the
+ * text with a transform, so they float in the editor's left margin.
+ *
+ * `min-width: 0` is the critical bit: a flex item defaults to `min-width: auto`
+ * and refuses to shrink below its content, so `width: 0` alone leaves the column
+ * reserved. Scoped to `.markdown-source-view` so it never touches sidebars or
+ * other CodeMirror instances. Works best with "Readable line length" on.
+ */
+.line-numbers-overlay .markdown-source-view .cm-gutters {
+	width: 0 !important;
+	min-width: 0 !important;
+	overflow: visible;
+	background-color: transparent;
+	border-right: none;
+}
+
+.line-numbers-overlay .markdown-source-view .cm-gutter {
+	min-width: 0;
+	overflow: visible;
+}
+
+.line-numbers-overlay .markdown-source-view .cm-lineNumbers .cm-gutterElement {
+	/* Right-align the digits and pull them left of the text into the margin, so
+	   1 and 11 line up as a column with a small gap from the text. */
+	overflow: visible;
+	white-space: nowrap;
+	text-align: right;
+	transform: translateX(calc(-100% - 0.6em));
+	/* Numbers sit in the margin, not over the text — don't eat clicks. */
+	pointer-events: none;
+}

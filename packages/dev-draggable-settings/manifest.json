@@ -1,0 +1,9 @@
+{
+	"id": "dev-draggable-settings",
+	"name": "Dev: Draggable Settings",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Developer helper: turns the Settings modal into a draggable, non-blocking floating window so you can toggle options and watch the main UI update live.",
+	"author": "yeyan1996",
+	"isDesktopOnly": true
+}
