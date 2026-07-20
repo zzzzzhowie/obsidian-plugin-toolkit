@@ -25,6 +25,20 @@ export default class LineNumbersPlugin extends Plugin {
 		this.registerEditorExtension(this.editorExtensions);
 		this.refreshExtensions();
 
+		// Peek mode: reveal numbers only while ⌘ (macOS) / Ctrl is held. The
+		// handlers just toggle a body class; the base `line-numbers-peek` class
+		// (set in refreshExtensions) gates whether it has any effect, so these
+		// stay cheap no-ops when peek mode is off.
+		this.registerDomEvent(document, "keydown", (e) => {
+			if (e.key === "Meta" || e.key === "Control") this.setPeekActive(true);
+		});
+		this.registerDomEvent(document, "keyup", (e) => {
+			if (e.key === "Meta" || e.key === "Control") this.setPeekActive(false);
+		});
+		// Releasing the modifier while the window is unfocused (e.g. ⌘+Tab)
+		// never fires keyup here — reset on blur so numbers don't get stuck on.
+		this.registerDomEvent(window, "blur", () => this.setPeekActive(false));
+
 		this.addCommand({
 			id: "toggle-line-numbers",
 			name: "Toggle line numbers",
@@ -40,7 +54,17 @@ export default class LineNumbersPlugin extends Plugin {
 		// Clearing the array + updateOptions removes the gutter from open editors.
 		this.editorExtensions.length = 0;
 		this.app.workspace.updateOptions();
-		document.body.classList.remove("line-numbers-overlay");
+		document.body.classList.remove(
+			"line-numbers-overlay",
+			"line-numbers-peek",
+			"line-numbers-peek-active"
+		);
+	}
+
+	/** Toggle the "numbers currently revealed" state (only meaningful in peek mode). */
+	private setPeekActive(active: boolean): void {
+		const peek = this.settings.enabled && this.settings.revealOnModifier;
+		document.body.classList.toggle("line-numbers-peek-active", peek && active);
 	}
 
 	/** Rebuilds the editor extension from current settings and applies it live. */
@@ -54,20 +78,32 @@ export default class LineNumbersPlugin extends Plugin {
 		}
 		this.app.workspace.updateOptions();
 
-		// The overlay layout is pure CSS, gated by a body class so it only
-		// applies when both the plugin and the option are on.
+		// The overlay layout (numbers float in the left margin, gutter reserves
+		// no width) is now the default whenever the plugin is enabled. Pure CSS,
+		// gated by a body class.
 		document.body.classList.toggle(
 			"line-numbers-overlay",
-			this.settings.enabled && this.settings.overlay
+			this.settings.enabled
 		);
+
+		// Peek mode is also pure CSS: `line-numbers-peek` hides the numbers, and
+		// the key handlers add `line-numbers-peek-active` to reveal them.
+		const peek = this.settings.enabled && this.settings.revealOnModifier;
+		document.body.classList.toggle("line-numbers-peek", peek);
+		if (!peek) document.body.classList.remove("line-numbers-peek-active");
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
+		// Only carry over known keys, so stale fields from older versions
+		// (e.g. a removed `mode` option) get dropped on the next save.
+		const saved = (await this.loadData()) ?? {};
+		this.settings = {
+			enabled: saved.enabled ?? DEFAULT_SETTINGS.enabled,
+			highlightActiveLine:
+				saved.highlightActiveLine ?? DEFAULT_SETTINGS.highlightActiveLine,
+			revealOnModifier:
+				saved.revealOnModifier ?? DEFAULT_SETTINGS.revealOnModifier,
+		};
 	}
 
 	async saveSettings() {

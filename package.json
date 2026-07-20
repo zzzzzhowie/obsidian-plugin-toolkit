@@ -8,6 +8,7 @@
         "dev": "pnpm --filter \"./packages/*\" dev",
         "build": "pnpm --filter \"./packages/*\" build",
         "lint": "pnpm --filter \"./packages/*\" lint",
+        "sync": "node scripts/sync-vaults.mjs",
         "dev:file-explorer": "pnpm --filter @obsidian-plugin-toolkit/file-explorer-enhancements dev",
         "dev:copy-path": "pnpm --filter @obsidian-plugin-toolkit/copy-path dev",
         "dev:paste-enhanced": "pnpm --filter @obsidian-plugin-toolkit/paste-enhanced dev",

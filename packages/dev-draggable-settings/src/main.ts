@@ -176,6 +176,11 @@ export default class DevDraggableSettingsPlugin extends Plugin {
 		const lifecycle = new MutationObserver(() => {
 			if (!document.body.contains(modal)) {
 				controller.abort();
+				// Obsidian reuses the settings modal element across open/close, so
+				// clear the marker — otherwise reopening the (same) element hits the
+				// `dataset.devDraggable` guard and never re-attaches the drag
+				// listeners, leaving it undraggable after the first close.
+				delete modal.dataset.devDraggable;
 				lifecycle.disconnect();
 			}
 		});

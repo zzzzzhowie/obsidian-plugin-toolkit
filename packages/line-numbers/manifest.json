@@ -3,7 +3,7 @@
 	"name": "Line Numbers",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Show whole-document line numbers in the editor gutter (every line, not just fenced code blocks). Supports absolute, relative, and hybrid (vim-style) numbering.",
+	"description": "Show whole-document line numbers in the editor gutter (every line, not just fenced code blocks), with an option to float them in the left margin so the text isn't pushed inward.",
 	"author": "yeyan1996",
 	"isDesktopOnly": false
 }

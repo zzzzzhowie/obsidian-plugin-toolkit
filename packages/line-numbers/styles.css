@@ -21,6 +21,16 @@
 }
 
 /*
+ * Peek mode ("Reveal only while holding ⌘/Ctrl"): hide the numbers until the
+ * modifier is held. `line-numbers-peek` is set while the option is on;
+ * `line-numbers-peek-active` is added by the key handlers while the modifier is
+ * down. Using visibility (not display) keeps layout stable so nothing jumps.
+ */
+.line-numbers-peek:not(.line-numbers-peek-active) .cm-lineNumbers .cm-gutterElement {
+	visibility: hidden;
+}
+
+/*
  * Overlay mode ("Float in left margin"): collapse the gutter's reserved width
  * to 0 (so the text column reclaims it and isn't pushed inward) while keeping
  * the gutter IN the flow — that preserves CodeMirror's sticky scroll alignment.
@@ -29,23 +39,33 @@
  *
  * `min-width: 0` is the critical bit: a flex item defaults to `min-width: auto`
  * and refuses to shrink below its content, so `width: 0` alone leaves the column
- * reserved. Scoped to `.markdown-source-view` so it never touches sidebars or
- * other CodeMirror instances. Works best with "Readable line length" on.
+ * reserved.
+ *
+ * Self-scoped via `:has(.cm-lineNumbers)` — we only collapse the gutter block
+ * that actually holds OUR line numbers, so it never touches sidebars, fold-only
+ * gutters, or other CodeMirror instances. This does NOT depend on Obsidian's
+ * view class names (`.markdown-source-view`), which was fragile and left the
+ * width reserved when it failed to match. Works best with "Readable line
+ * length" on.
  */
-.line-numbers-overlay .markdown-source-view .cm-gutters {
+.line-numbers-overlay .cm-gutters:has(.cm-lineNumbers) {
 	width: 0 !important;
 	min-width: 0 !important;
+	/* The reserved column is gone, but Obsidian/CM keeps a `margin-inline-end`
+	   on the gutters that still pushes the text right — zero it out too. */
+	margin-inline-end: 0 !important;
 	overflow: visible;
 	background-color: transparent;
 	border-right: none;
 }
 
-.line-numbers-overlay .markdown-source-view .cm-gutter {
+.line-numbers-overlay .cm-gutter.cm-lineNumbers {
 	min-width: 0;
+	margin-inline-end: 0 !important;
 	overflow: visible;
 }
 
-.line-numbers-overlay .markdown-source-view .cm-lineNumbers .cm-gutterElement {
+.line-numbers-overlay .cm-lineNumbers .cm-gutterElement {
 	/* Right-align the digits and pull them left of the text into the margin, so
 	   1 and 11 line up as a column with a small gap from the text. */
 	overflow: visible;

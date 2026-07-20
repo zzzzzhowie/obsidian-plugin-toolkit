@@ -7,16 +7,16 @@ export interface LineNumbersSettings {
 	/** Highlight the caret's line in the gutter. */
 	highlightActiveLine: boolean;
 	/**
-	 * Float the gutter in the editor's left margin instead of reserving layout
-	 * width for it, so the text column isn't pushed inward.
+	 * "Peek" mode: keep the numbers hidden and reveal them only while the
+	 * modifier key (⌘ on macOS, Ctrl elsewhere) is held down.
 	 */
-	overlay: boolean;
+	revealOnModifier: boolean;
 }
 
 export const DEFAULT_SETTINGS: LineNumbersSettings = {
 	enabled: true,
 	highlightActiveLine: true,
-	overlay: false,
+	revealOnModifier: false,
 };
 
 export class LineNumbersSettingTab extends PluginSettingTab {
@@ -62,17 +62,16 @@ export class LineNumbersSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Float in left margin")
+			.setName("Reveal only while holding ⌘ / Ctrl")
 			.setDesc(
-				"Overlay the numbers in the editor's left margin instead of " +
-					"reserving a column for them, so the text isn't pushed inward. " +
-					"Works best with “Readable line length” on."
+				"Peek mode: keep the numbers hidden and show them only while the " +
+					"modifier key is held down."
 			)
 			.addToggle((toggle) =>
 				toggle
-					.setValue(this.plugin.settings.overlay)
+					.setValue(this.plugin.settings.revealOnModifier)
 					.onChange(async (value) => {
-						this.plugin.settings.overlay = value;
+						this.plugin.settings.revealOnModifier = value;
 						await this.plugin.saveSettings();
 						this.plugin.refreshExtensions();
 					})
