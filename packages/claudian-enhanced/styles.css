@@ -1,12 +1,21 @@
-/* We draw no selection layer of our own. The only goal here is to stop the 划词
-   highlight from *stacking*.
+/* We draw no selection layer of our own; these rules only reshape Claudian's own
+   .claudian-selection-highlight so it matches the native selection instead of
+   diverging from it. Native Obsidian selection is left untouched. */
 
-   While the editor is focused, Obsidian's native selection is already painted, so
-   suppress Claudian's overlay — otherwise the two semi-transparent layers stack and
-   the selection looks darker / higher-contrast than native. Once focus leaves the
-   editor (⌘L into Claudian) the native selection is gone, so Claudian's overlay is
-   what keeps the selection visible; we leave it alone there. Net: exactly one layer
-   at any time, and native selection is untouched. */
+/* While the editor is focused, the browser's native ::selection is already painted,
+   so hide Claudian's overlay — otherwise the two layers stack. */
 .cm-editor.cm-focused .claudian-selection-highlight {
 	background: transparent;
+}
+
+/* While unfocused (⌘L into Claudian) the native selection is gone and Claudian's
+   overlay is what stays visible. Claudian styles it with --text-selection (a very
+   light alpha-gray), but the editor's native selection actually uses the theme's
+   ::selection vars — a solid tan bg + its own text color. Mirror those so the
+   carried selection looks identical to the native one, and square the corners
+   (Claudian ships a 2px radius; native has none). */
+.cm-editor:not(.cm-focused) .claudian-selection-highlight {
+	background: var(--text-selection-theme-bg);
+	color: var(--text-selection-theme-text-color);
+	border-radius: 0;
 }
