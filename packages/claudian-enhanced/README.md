@@ -18,7 +18,7 @@ So the hotkey flips the sidebar between Claudian and outline without ever closin
 - **Never closes the dock** — uses `revealLeaf` to switch tabs and calls `WorkspaceSidedock.expand()` as a guard; it never detaches the leaf or collapses the sidebar.
 - **Focus** — polls for the *visible* `textarea.claudian-input` (Claudian keeps hidden composers for background tabs) and re-asserts focus until it sticks, beating Claudian's own post-render `rootEl.focus()`.
 - **Generation guard** — every press bumps a counter so a stale focus loop from a previous press bails, preventing rapid `⌘L` from stacking loops (which caused selection jitter).
-- **Selection carry-over** — handled natively by Claudian's continuous selection poll; this plugin only injects a small CSS rule so the editor selection stays highlighted while the editor is unfocused.
+- **Selection carry-over** — Claudian snapshots the selected *text* itself, but the editor's live selection is fragile: moving focus to the composer clears the contenteditable's DOM selection, and when the editor later refocuses CM6 syncs its state to that collapsed range, wiping the selection (state, not just the highlight). Repeated `⌘L` made this near-certain. So the plugin snapshots the real selection range on every toggle and, for a short window, restores it (a focus-free, scroll-free `dispatch`) whenever it collapses. A small CSS rule keeps that selection highlighted while the editor is unfocused.
 
 ## Notes
 

@@ -30,7 +30,9 @@
         "dev:dev-draggable-settings": "pnpm --filter @obsidian-plugin-toolkit/dev-draggable-settings dev",
         "build:dev-draggable-settings": "pnpm --filter @obsidian-plugin-toolkit/dev-draggable-settings build",
         "dev:auto-link-title-enhanced": "pnpm --filter @obsidian-plugin-toolkit/auto-link-title-enhanced dev",
-        "build:auto-link-title-enhanced": "pnpm --filter @obsidian-plugin-toolkit/auto-link-title-enhanced build"
+        "build:auto-link-title-enhanced": "pnpm --filter @obsidian-plugin-toolkit/auto-link-title-enhanced build",
+        "dev:blockier-enhanced": "pnpm --filter @obsidian-plugin-toolkit/blockier-enhanced dev",
+        "build:blockier-enhanced": "pnpm --filter @obsidian-plugin-toolkit/blockier-enhanced build"
     },
     "keywords": [
         "obsidian",

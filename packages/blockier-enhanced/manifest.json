@@ -1,0 +1,10 @@
+{
+	"id": "blockier-enhanced",
+	"name": "Blockier (Enhanced)",
+	"version": "1.2.1",
+	"minAppVersion": "0.15.0",
+	"description": "Extra block editing utilities (callout/checkbox suggestions, block selection and replacement). Enhanced fork.",
+	"author": "blorbb (forked & modified by yeyan1996)",
+	"authorUrl": "https://github.com/blorbb/obsidian-blockier",
+	"isDesktopOnly": false
+}

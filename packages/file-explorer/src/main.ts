@@ -7,8 +7,10 @@ import {
 	Menu,
 	TAbstractFile,
 	TFolder,
+	TFile,
 } from "obsidian";
 import { MyPluginSettings, DEFAULT_SETTINGS } from "./settings";
+import { getFolderFromNote } from "./utils";
 import { PinnedItemsManager } from "./pinned-items";
 import { FolderNoteManager } from "./folder-note";
 import { FileCountManager } from "./file-count";
@@ -193,6 +195,23 @@ export default class MyPlugin extends Plugin {
 					this.folderNoteManager.createFolderWithNote(targetParent),
 				);
 		});
+
+		// Convert an existing markdown note into a folder note (moves the file
+		// into a same-named sibling folder). Only offered for markdown files
+		// that aren't already a folder note.
+		if (
+			file instanceof TFile &&
+			file.extension === "md" &&
+			!getFolderFromNote(file, this.app)
+		) {
+			menu.addItem((item) => {
+				item.setTitle("Convert to folder note")
+					.setSection("action-primary")
+					.onClick(() =>
+						this.folderNoteManager.convertToFolderNote(file),
+					);
+			});
+		}
 
 		// Hide / Unhide the item from the file explorer
 		const isFolder = file instanceof TFolder;

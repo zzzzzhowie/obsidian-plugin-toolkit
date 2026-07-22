@@ -1,0 +1,10 @@
+{
+	"extends": "../../build-tools/tsconfig.base.json",
+	"compilerOptions": {
+		"baseUrl": "src",
+		"noUncheckedIndexedAccess": false
+	},
+	"include": [
+		"src/**/*.ts"
+	]
+}

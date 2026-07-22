@@ -1,4 +1,4 @@
-import { App, TFolder, TFile } from "obsidian";
+import { App, TFolder, TFile, Notice } from "obsidian";
 import { getFolderNote, escapeCSSSelector, getFolderFromNote } from "./utils";
 import type MyPlugin from "./main";
 
@@ -52,6 +52,10 @@ export class FolderNoteManager {
 		this.plugin.registerEvent(
 			this.app.vault.on("rename", (file, oldPath) => {
 				if (file instanceof TFile && file.extension === "md") {
+					// When a folder note itself is renamed, rename its parent
+					// folder to match so the merge stays intact (the reverse of
+					// syncFolderNoteName).
+					this.syncFolderFromNote(file, oldPath);
 					this.updateFolderNoteStyles();
 					setTimeout(() => {
 						this.updateFolderNoteForFile(file);
@@ -677,6 +681,48 @@ export class FolderNoteManager {
 	}
 
 	/**
+	 * Rename a folder to match its folder note after the note itself is renamed,
+	 * keeping the folder-note merge intact. This is the reverse of
+	 * syncFolderNoteName: the user renamed the (hidden) note, so the folder must
+	 * follow.
+	 */
+	private syncFolderFromNote(note: TFile, oldPath: string) {
+		const parent = note.parent;
+		// Root notes have no owning folder to sync.
+		if (!parent || parent === this.app.vault.getRoot()) return;
+
+		const oldBasename = oldPath.split("/").pop()?.replace(/\.md$/, "");
+		if (!oldBasename) return;
+
+		// Only act if the note WAS this folder's note (old basename matched the
+		// folder name) and its name actually changed. This also skips pure moves
+		// into a same-named folder (basename unchanged), which are already merged.
+		if (oldBasename !== parent.name) return;
+		if (note.basename === parent.name) return;
+
+		const grand = parent.parent;
+		const prefix =
+			grand && grand.path !== "/" && grand.path !== ""
+				? `${grand.path}/`
+				: "";
+		const newFolderPath = `${prefix}${note.basename}`;
+		// Don't clobber an existing sibling folder/file.
+		if (this.app.vault.getAbstractFileByPath(newFolderPath)) return;
+
+		// Defer a tick so paths settle, then rename the folder. Renaming the
+		// folder fires syncFolderNoteName, but that no-ops here because the note
+		// already carries the new basename — so there's no rename loop.
+		setTimeout(() => {
+			this.app.fileManager
+				.renameFile(parent, newFolderPath)
+				.then(() => this.updateFolderNoteStyles())
+				.catch((error) =>
+					console.error("Failed to sync folder name from note:", error),
+				);
+		}, 50);
+	}
+
+	/**
 	 * Find an available "<base>", "<base> 1", "<base> 2"… name inside `parent`.
 	 */
 	private getAvailableName(parent: TFolder, base: string): string {
@@ -717,6 +763,64 @@ export class FolderNoteManager {
 			setTimeout(() => this.startInlineRename(folder, note), 150);
 		} catch (error) {
 			console.error("Failed to create folder with note:", error);
+		}
+	}
+
+	/**
+	 * Convert an existing markdown note into a folder note: create (or reuse) a
+	 * same-named sibling folder and move the note inside it so it merges as the
+	 * folder's note. Uses `fileManager.renameFile` so backlinks are preserved.
+	 */
+	async convertToFolderNote(file: TFile) {
+		// Only markdown notes can be folder notes.
+		if (file.extension !== "md") {
+			new Notice("Only markdown notes can be converted to a folder note.");
+			return;
+		}
+
+		// Already a folder note (matches its parent's name) — nothing to do.
+		if (getFolderFromNote(file, this.app)) {
+			new Notice("This note is already a folder note.");
+			return;
+		}
+
+		const parent = file.parent ?? this.app.vault.getRoot();
+		const base = file.basename;
+		const parentPrefix =
+			parent.path === "/" || parent.path === "" ? "" : `${parent.path}/`;
+		const folderPath = `${parentPrefix}${base}`;
+		const newNotePath = `${folderPath}/${file.name}`;
+
+		try {
+			// Reuse an existing same-named folder if present, otherwise create one.
+			const existing = this.app.vault.getAbstractFileByPath(folderPath);
+			let folder: TFolder;
+			if (existing instanceof TFolder) {
+				folder = existing;
+				// Don't clobber a folder that already has its own folder note.
+				if (getFolderNote(folder, this.app)) {
+					new Notice(`"${base}" already has a folder note.`);
+					return;
+				}
+			} else if (existing) {
+				new Notice(`Cannot create folder "${base}": path already in use.`);
+				return;
+			} else {
+				folder = await this.app.vault.createFolder(folderPath);
+			}
+
+			// Move the note into the folder, keeping the basename so it merges.
+			await this.app.fileManager.renameFile(file, newNotePath);
+
+			// Refresh hide rules so the note merges immediately, then reveal.
+			this.updateFolderNoteStyles();
+			setTimeout(() => {
+				this.expandFolder(folder);
+				this.highlightFolder(folder);
+			}, 150);
+		} catch (error) {
+			console.error("Failed to convert note to folder note:", error);
+			new Notice("Failed to convert note to folder note.");
 		}
 	}
 

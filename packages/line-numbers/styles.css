@@ -60,9 +60,27 @@
 }
 
 .line-numbers-overlay .cm-gutter.cm-lineNumbers {
+	/*
+	 * `width: 0` is the critical bit here — NOT just `min-width: 0`. CM's base
+	 * theme sets `.cm-gutter { flex-shrink: 0 }`, so zeroing only the min-width
+	 * leaves this column at its natural content width (~2em for the widest
+	 * number). Because the parent `.cm-gutters` is collapsed to width 0 with
+	 * `overflow: visible`, that un-shrunk column spills OUT over the first ~2em
+	 * of every text line — and since `.cm-gutters` carries `z-index: 200`, it
+	 * paints on top of the text and swallows clicks/drags there, so you can't
+	 * select that part of the line. The number glyphs float away in the margin
+	 * (transform + pointer-events:none), so the culprit is an *invisible*
+	 * full-width column. Forcing `width: 0` removes the overlap; the numbers
+	 * still right-align correctly because their transform lands them at -0.6em
+	 * either way.
+	 */
+	width: 0 !important;
 	min-width: 0;
 	margin-inline-end: 0 !important;
 	overflow: visible;
+	/* Belt-and-suspenders: in overlay mode the column is purely decorative, so
+	   never let it (or any stray hit area) intercept selection. */
+	pointer-events: none;
 }
 
 .line-numbers-overlay .cm-lineNumbers .cm-gutterElement {

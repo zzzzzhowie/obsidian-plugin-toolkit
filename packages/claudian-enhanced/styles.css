@@ -1,5 +1,8 @@
-/* Keep the editor selection visible after focus moves to the Claudian composer,
-   so a 划词 selection stays highlighted while Claudian carries it over as context. */
-.cm-editor:not(.cm-focused) .cm-selectionBackground {
-	background-color: var(--text-selection) !important;
+/* Highlight injected by the unfocused-selection ViewPlugin (see src/main.ts).
+   Obsidian only draws its own selection (.cm-selectionBackground) while the
+   editor is focused, so once ⌘L moves focus to the Claudian composer there is
+   nothing left to color. This mark decoration keeps a 划词 selection visibly
+   highlighted while the editor is unfocused and Claudian carries it over. */
+.claudian-enhanced-selection {
+	background-color: var(--text-selection);
 }
