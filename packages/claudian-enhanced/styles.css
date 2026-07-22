@@ -1,8 +1,12 @@
-/* Highlight injected by the unfocused-selection ViewPlugin (see src/main.ts).
-   Obsidian only draws its own selection (.cm-selectionBackground) while the
-   editor is focused, so once ⌘L moves focus to the Claudian composer there is
-   nothing left to color. This mark decoration keeps a 划词 selection visibly
-   highlighted while the editor is unfocused and Claudian carries it over. */
-.claudian-enhanced-selection {
-	background-color: var(--text-selection);
+/* We draw no selection layer of our own. The only goal here is to stop the 划词
+   highlight from *stacking*.
+
+   While the editor is focused, Obsidian's native selection is already painted, so
+   suppress Claudian's overlay — otherwise the two semi-transparent layers stack and
+   the selection looks darker / higher-contrast than native. Once focus leaves the
+   editor (⌘L into Claudian) the native selection is gone, so Claudian's overlay is
+   what keeps the selection visible; we leave it alone there. Net: exactly one layer
+   at any time, and native selection is untouched. */
+.cm-editor.cm-focused .claudian-selection-highlight {
+	background: transparent;
 }

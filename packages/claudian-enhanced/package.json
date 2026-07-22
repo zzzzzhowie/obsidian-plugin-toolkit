@@ -1,6 +1,6 @@
 {
 	"name": "@obsidian-plugin-toolkit/claudian-enhanced",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Toggle the Claudian chat view, auto-focus its input, keep the editor selection, and restore the sidebar outline on close.",
 	"main": "main.js",
 	"type": "module",
