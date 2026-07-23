@@ -1,0 +1,44 @@
+/* Fit-size slider parked at the block's top-right, just left of the edit
+   button. Position (right/top) is set inline by the plugin (measured against
+   the real edit button). Revealed on block hover, like the edit button. */
+.mermaid-fit-slider {
+	position: absolute;
+	z-index: 1;
+	width: 110px;
+	height: 18px;
+	margin: 0;
+	cursor: ew-resize;
+	accent-color: var(--interactive-accent);
+	opacity: 0;
+	transition: opacity 100ms ease-in-out;
+}
+
+.cm-preview-code-block:hover > .mermaid-fit-slider,
+.mermaid-fit-slider:hover,
+.mermaid-fit-slider:active,
+.mermaid-fit-slider:focus-visible {
+	opacity: 1;
+}
+
+/* Value tooltip that tracks the thumb, shown only while dragging. */
+.mermaid-fit-slider-tip {
+	position: absolute;
+	z-index: 2;
+	transform: translateX(-50%);
+	padding: 2px 6px;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.2;
+	white-space: nowrap;
+	color: var(--text-normal);
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	box-shadow: var(--shadow-s);
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 80ms ease-in-out;
+}
+
+.mermaid-fit-slider-tip.is-visible {
+	opacity: 1;
+}
