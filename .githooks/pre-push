@@ -1,0 +1,15 @@
+#!/bin/sh
+# Distribute the built plugins to every Obsidian vault before pushing, so the
+# vaults never lag behind what's on the remote (see scripts/sync-vaults.mjs).
+#
+# Enabled via `git config core.hooksPath .githooks` (the repo's `prepare` npm
+# script sets this on install). Note: this syncs the CURRENT build output —
+# run `pnpm build` first if you changed source and haven't rebuilt.
+#
+# To push without syncing (e.g. a docs-only change): `git push --no-verify`.
+
+echo "pre-push: syncing built plugins to vaults…"
+pnpm sync || {
+	echo "pre-push: sync failed — aborting push (use --no-verify to skip)." >&2
+	exit 1
+}
