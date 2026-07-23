@@ -70,6 +70,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	private openClaudian(gen: number): void {
+		// Capture the note before opening Claudian steals "active leaf" status.
+		const noteLeaf = this.getNoteLeaf();
 		// Reveal the existing tab if present (keeps a single Claudian tab); only let
 		// Claudian create one on the very first open. Revealing an in-sidebar leaf
 		// just switches the active tab — the dock stays open.
@@ -82,7 +84,40 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				OPEN_COMMAND,
 			);
 		}
+		if (noteLeaf) this.keepNoteActive(noteLeaf, Date.now() + 900, gen);
 		this.stickyFocusInput(Date.now() + 1500, gen);
+	}
+
+	/**
+	 * Keep the note as the active leaf (without stealing DOM focus) for a short
+	 * window after opening Claudian.
+	 *
+	 * Claudian's selection poll only *stores* a selection while the note is the
+	 * active MarkdownView. On a cold start its poll starts only once its view
+	 * mounts — and the mount repeatedly grabs "active leaf" while we pull focus
+	 * into the composer — so a one-shot restore loses the race and the very first
+	 * 划词 is never captured. Re-asserting through the mount gives the poll a tick
+	 * with the note active + selection intact; once stored, focus sitting in the
+	 * sidebar keeps it alive (that's Claudian's isFocusWithinChatSidebar guard).
+	 * Focus (DOM) and active-leaf are independent, so this never fights
+	 * stickyFocusInput.
+	 */
+	private keepNoteActive(
+		noteLeaf: WorkspaceLeaf,
+		deadline: number,
+		gen: number,
+	): void {
+		const tick = (): void => {
+			if (gen !== this.gen) return; // superseded by a newer ⌘L
+			const active = (
+				this.app.workspace as unknown as { activeLeaf: WorkspaceLeaf | null }
+			).activeLeaf;
+			if (active !== noteLeaf) {
+				this.app.workspace.setActiveLeaf(noteLeaf, { focus: false });
+			}
+			if (Date.now() < deadline) window.setTimeout(tick, 90);
+		};
+		tick();
 	}
 
 	private revealSidebarDefault(claudianLeaf: WorkspaceLeaf): void {
