@@ -1,3 +1,9 @@
+/* Center every rendered Mermaid diagram. */
+.mermaid > svg {
+	display: block;
+	margin-inline: auto;
+}
+
 /* Fit-size slider parked at the block's top-right, just left of the edit
    button. Position (right/top) is set inline by the plugin (measured against
    the real edit button). Revealed on block hover, like the edit button. */
