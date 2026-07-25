@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Distribute this monorepo's BUILT plugins to Obsidian vaults.
+// Distribute this monorepo's BUILT plugins to Obsidian vaults, and fan the
+// primary vault's CSS snippets (Obsidian Appearance) out to the others.
 //
 // `pnpm build` only installs into the single vault named by OBSIDIAN_PLUGINS_DIR
 // in .env. This script fans the built output out to every vault (or specific
@@ -9,6 +10,12 @@
 //
 // Plugins are matched to a vault's existing folder by manifest `id` (folder
 // names differ across vaults); if absent, the monorepo's distDir name is used.
+//
+// CSS snippets: the vault that OBSIDIAN_PLUGINS_DIR points to (the "default"
+// vault) is the source of truth for `.obsidian/snippets/*.css`. Its snippets are
+// mirrored (rsync --delete) into every other target vault, so appearance CSS
+// stays identical everywhere. `appearance.json` is NOT touched — each vault keeps
+// its own enabled-snippets list and theme.
 //
 // Usage (run AFTER `pnpm build`):
 //   node scripts/sync-vaults.mjs                 # all vaults in obsidian.json
@@ -22,8 +29,21 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PACKAGES_DIR = join(__dirname, "..", "packages");
+const REPO_ROOT = join(__dirname, "..");
+const PACKAGES_DIR = join(REPO_ROOT, "packages");
 const EXCLUDES = ["data.json"]; // per-vault personal config — never touched
+
+// The vault OBSIDIAN_PLUGINS_DIR points to is the CSS-snippets source of truth.
+// OBSIDIAN_PLUGINS_DIR = <vault>/.obsidian/plugins, so the source snippets dir is
+// the sibling <vault>/.obsidian/snippets.
+function sourceSnippetsDir() {
+	const envPath = join(REPO_ROOT, ".env");
+	if (!existsSync(envPath)) return null;
+	const m = readFileSync(envPath, "utf8").match(/^\s*OBSIDIAN_PLUGINS_DIR\s*=\s*(.+?)\s*$/m);
+	if (!m) return null;
+	const pluginsDir = m[1].replace(/^["']|["']$/g, "");
+	return join(dirname(pluginsDir), "snippets");
+}
 
 const filters = process.argv.slice(2).filter((a) => !a.startsWith("--"));
 
@@ -119,6 +139,31 @@ for (const vault of targets) {
 		execFileSync("rsync", rsyncArgs, {
 			stdio: ["ignore", "ignore", "inherit"],
 		});
+	}
+	console.log("");
+}
+
+// ---- CSS snippets (Obsidian Appearance) -------------------------------------
+// Mirror the source vault's snippets/ into every other target vault. The source
+// vault itself is skipped (it's the truth). appearance.json is left untouched.
+const srcSnippets = sourceSnippetsDir();
+if (!srcSnippets) {
+	console.warn("⚠️  OBSIDIAN_PLUGINS_DIR not found in .env — CSS snippets not synced.");
+} else if (!existsSync(srcSnippets)) {
+	console.warn(`⚠️  source snippets dir missing (${srcSnippets}) — CSS snippets not synced.`);
+} else {
+	const srcVault = dirname(dirname(srcSnippets)); // <vault>/.obsidian/snippets -> <vault>
+	const cssTargets = targets.filter((v) => v !== srcVault);
+	console.log(`CSS snippets from ${basename(srcVault)} -> ${cssTargets.length} vault(s)\n`);
+	for (const vault of cssTargets) {
+		const dest = join(vault, ".obsidian/snippets");
+		mkdirSync(dest, { recursive: true });
+		console.log(`==> ${basename(vault)}: snippets/`);
+		execFileSync(
+			"rsync",
+			["-a", "--delete", "--exclude", ".DS_Store", `${srcSnippets}/`, `${dest}/`],
+			{ stdio: ["ignore", "ignore", "inherit"] }
+		);
 	}
 	console.log("");
 }
