@@ -44,8 +44,6 @@ export function setLiveSettings(settings: ImageCaptionSettings): void {
 const SIZE_SUFFIX_RE = /\s*\|\s*\d+(?:x\d+)?\s*$/;
 // 尾部裸管道，形如 "caption|" 或 "caption | "。
 const TRAILING_PIPE_RE = /\s*\|\s*$/;
-// 常见图片扩展名，用于过滤把默认 alt（文件名）误当说明的情况。
-const IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp|avif)$/i;
 
 // 自定义正则的编译缓存：避免逐图 new RegExp，并优雅吞掉非法 pattern。
 let cachedPattern: string | null = null;
@@ -117,13 +115,14 @@ export function parseCaption(
 		return showFileName ? getCleanFileName(srcText) : null;
 	}
 
-	// 3. 关闭「文件名兜底」时，过滤掉纯文件名 / 图片扩展名的默认 alt
+	// 3. 唯一的兜底过滤：当 alt 恰好等于图片自身文件名时，它是空 alt（![](url)）时
+	//    Obsidian 依据 src 自动回填的文件名，而非用户书写的说明 —— 不显示。
+	//    其余任何非空 alt（含用户手写的 "image.png"，因其 ≠ src 上的时间戳文件名）
+	//    一律原样展示。至于自动生成的默认 image.png 占位，由上游
+	//    image-auto-upload-enhanced 的 imageDesc="removeDefault" 在粘贴时清空。
 	if (!showFileName) {
 		const cleanSrcName = getCleanFileName(srcText);
 		if (cleanSrcName && cleanSrcName === caption) {
-			return null;
-		}
-		if (IMAGE_EXT_RE.test(caption)) {
 			return null;
 		}
 	}
