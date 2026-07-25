@@ -1,0 +1,72 @@
+/* =========================================================================
+   Caption (enhanced) — stylesheet
+   ========================================================================= */
+
+/* 核心说明文字样式 */
+.image-caption {
+	display: block;
+	width: 100%;
+	font-size: 0.85em;
+	color: var(--text-muted);
+	margin-top: 6px;
+	margin-bottom: 8px;
+	line-height: 1.4;
+	clear: both;
+}
+
+/* 动态对齐类 */
+.image-caption.align-left {
+	text-align: left;
+}
+
+.image-caption.align-center {
+	text-align: center;
+}
+
+.image-caption.align-right {
+	text-align: right;
+}
+
+/* 动态样式类 */
+.image-caption.style-italic {
+	font-style: italic;
+}
+
+.image-caption.style-normal {
+	font-style: normal;
+}
+
+/* =========================================================================
+   Live Preview 模式适配
+   ========================================================================= */
+
+/*
+ * 核心修复：.image-embed 在 Live Preview 中默认为 flex-direction: row，
+ * 当容器被标记为 .has-caption 时，强制切换为 column 布局，
+ * 使 caption 垂直排列在图片正下方而非被挤到右侧。
+ */
+.image-embed.has-caption {
+	flex-direction: column;
+	align-items: center;
+}
+
+/* 确保 .image-wrapper（缩放容器）在 column 布局下占满宽度 */
+.image-embed.has-caption > .image-wrapper {
+	width: 100%;
+}
+
+/* =========================================================================
+   Reading Mode 适配
+   ========================================================================= */
+
+/* 针对 Wiki Embed 外部容器内的布局兼容 */
+.internal-embed.image-embed {
+	display: inline-flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+/* 保证 Reading Mode 居中对齐时，图片本身也与说明保持一致 */
+.internal-embed.image-embed img {
+	display: block;
+}

@@ -1,0 +1,10 @@
+{
+	"id": "caption-enhanced",
+	"name": "Caption (enhanced)",
+	"version": "1.0.0",
+	"minAppVersion": "1.4.0",
+	"description": "Show elegant captions under images in both Live Preview and Reading Mode.",
+	"author": "",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}

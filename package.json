@@ -33,7 +33,9 @@
         "dev:auto-link-title-enhanced": "pnpm --filter @obsidian-plugin-toolkit/auto-link-title-enhanced dev",
         "build:auto-link-title-enhanced": "pnpm --filter @obsidian-plugin-toolkit/auto-link-title-enhanced build",
         "dev:blockier-enhanced": "pnpm --filter @obsidian-plugin-toolkit/blockier-enhanced dev",
-        "build:blockier-enhanced": "pnpm --filter @obsidian-plugin-toolkit/blockier-enhanced build"
+        "build:blockier-enhanced": "pnpm --filter @obsidian-plugin-toolkit/blockier-enhanced build",
+        "dev:caption-enhanced": "pnpm --filter @obsidian-plugin-toolkit/caption-enhanced dev",
+        "build:caption-enhanced": "pnpm --filter @obsidian-plugin-toolkit/caption-enhanced build"
     },
     "keywords": [
         "obsidian",
