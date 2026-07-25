@@ -19,3 +19,36 @@
 	color: var(--text-selection-theme-text-color);
 	border-radius: 0;
 }
+
+/* Hide the permission-mode chip (Safe / YOLO / PLAN) from the composer footer.
+   Claudian renders the whole control as .claudian-permission-toggle and the "YOLO"
+   text lives inside its .claudian-permission-label, so hiding the element removes the
+   chip entirely. This is display-only — the permission mode still applies; switch it
+   from Claudian's settings or its own command instead of from the footer. */
+.claudian-permission-toggle {
+	display: none;
+}
+
+/* Make the composer toolbar adapt to the panel width instead of overflowing.
+   Two independent causes of the horizontal overflow, both handled here:
+
+   1. The visible controls (model / effort / context meter / …) sit in a single-line
+      flex row (Claudian sets no flex-wrap), so at narrow widths they run off the edge.
+      flex-wrap:wrap + min-width:0 lets them reflow onto extra lines and follow the
+      panel width. row-gap keeps the wrapped lines apart; horizontal spacing still comes
+      from Claudian's own per-control margins, so we don't add a column gap.
+
+   2. The pop-up menus (.claudian-model-dropdown, .claudian-external-context-dropdown —
+      that one is min-width:260px, etc.) are position:absolute but hidden with
+      opacity/visibility, NOT display:none — so they stay in the layout and jut past a
+      narrow panel, forcing a scrollbar even while invisible. overflow-x:clip caps the
+      row's horizontal box so they can't extend it; overflow-y stays visible so the
+      menus still pop upward (bottom:100%) as normal. */
+.claudian-input-toolbar {
+	flex-wrap: wrap;
+	row-gap: 4px;
+	min-width: 0;
+	max-width: 100%;
+	overflow-x: clip;
+	overflow-y: visible;
+}

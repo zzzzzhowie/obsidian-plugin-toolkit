@@ -20,6 +20,10 @@ interface AppWithCommands {
 export default class ClaudianEnhancedPlugin extends Plugin {
 	/** Bumped on every toggle; a stale focus loop compares against it and bails. */
 	private gen = 0;
+	/** Last note path we re-asserted for the chip; guards the sync loop from re-firing. */
+	private lastSyncedPath: string | null = null;
+	/** Debounce handle for the active-note → chip sync. */
+	private syncTimer: number | null = null;
 
 	async onload(): Promise<void> {
 		this.addCommand({
@@ -34,6 +38,21 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerDomEvent(window, "keydown", this.onEscapeCapture, {
 			capture: true,
 		});
+		// Keep Claudian's "current note" chip fresh without a manual ⌘L. Claudian only
+		// refreshes that chip off the `file-open` event; when the active leaf has been
+		// sitting on Claudian's sidebar, Obsidian's active *file* stays frozen and no
+		// file-open fires, so switching notes leaves the chip stale. Re-asserting the
+		// note as the active leaf reproduces the exact transition ⌘L relies on and
+		// re-fires file-open. See syncCurrentNoteChip.
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", () =>
+				this.scheduleChipSync(),
+			),
+		);
+	}
+
+	onunload(): void {
+		if (this.syncTimer !== null) window.clearTimeout(this.syncTimer);
 	}
 
 	private onEscapeCapture = (e: KeyboardEvent): void => {
@@ -195,6 +214,46 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		};
 
 		tick();
+	}
+
+	/**
+	 * Debounce active-leaf churn (reveals, focus hops, our own re-assert) into a single
+	 * chip sync so a burst of events collapses to one setActiveLeaf.
+	 */
+	private scheduleChipSync(): void {
+		if (this.syncTimer !== null) window.clearTimeout(this.syncTimer);
+		this.syncTimer = window.setTimeout(() => {
+			this.syncTimer = null;
+			this.syncCurrentNoteChip();
+		}, 150);
+	}
+
+	/**
+	 * Re-assert the current note as the active leaf so Claudian re-fires `file-open`
+	 * and refreshes its current-note chip. Only nudges when Claudian is visible and the
+	 * active note actually changed from the one we last synced — `lastSyncedPath` also
+	 * breaks the loop our own setActiveLeaf would otherwise create. `focus: false` keeps
+	 * DOM focus in the composer, so this never interrupts typing (same trick as
+	 * keepNoteActive). If a Claudian session is in progress it gates file-open on its
+	 * side and this degrades to a harmless no-op — Claudian intentionally freezes the
+	 * attached note mid-conversation, which we don't try to override.
+	 */
+	private syncCurrentNoteChip(): void {
+		const claudianLeaf = this.getClaudianLeaf();
+		if (!claudianLeaf || !this.isLeafVisible(claudianLeaf)) {
+			// Hidden/absent → the ⌘L reveal path refreshes on next open; forget state so
+			// the next real switch is treated as a change.
+			this.lastSyncedPath = null;
+			return;
+		}
+		const noteLeaf = this.getNoteLeaf();
+		const path = noteLeaf
+			? ((noteLeaf.view as unknown as { file?: { path?: string } }).file?.path ??
+				null)
+			: null;
+		if (!noteLeaf || !path || path === this.lastSyncedPath) return;
+		this.lastSyncedPath = path;
+		this.app.workspace.setActiveLeaf(noteLeaf, { focus: false });
 	}
 
 	private getClaudianLeaf(): WorkspaceLeaf | null {
