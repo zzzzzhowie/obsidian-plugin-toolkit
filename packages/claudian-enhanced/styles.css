@@ -52,3 +52,59 @@
 	overflow-x: clip;
 	overflow-y: visible;
 }
+
+/* Root cause of wide tables / code blocks stretching the whole conversation:
+   .claudian-message is a flex item in the .claudian-messages column, so it keeps
+   the flex default min-width:auto and REFUSES to shrink below its content's
+   min-content width. One long code line or wide table makes that min-content huge,
+   the message grows past the panel, and .claudian-messages-wrapper (overflow:hidden)
+   clips it — no inner scroller ever engages. min-width:0 lets the message shrink to
+   the panel, which finally lets the width cap propagate down to the inner scrollers
+   below. This single rule is what actually fixes it; the per-element rules after it
+   just define *how* each block absorbs its own overflow once the cap reaches it. */
+.claudian-message {
+	min-width: 0;
+}
+
+/* Not a flex item itself, but it's the block that must hand the capped width down
+   to tables/pre; without min-width:0 it would still resolve to its content width. */
+.claudian-message-content,
+.claudian-text-block {
+	min-width: 0;
+	max-width: 100%;
+}
+
+/* A <table> is shrink-to-fit (intrinsic width = content), so even inside a capped
+   parent it overflows. display:block drops that sizing and, with overflow-x:auto,
+   turns the table into its own horizontal scroller capped at the parent width. The
+   inner table layout is unaffected. */
+.claudian-message-content table {
+	display: block;
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+/* Make every fenced code block scroll horizontally instead of overflowing/wrapping.
+   Cap the wrapper first so the width limit reaches the <pre>. */
+.claudian-code-wrapper {
+	min-width: 0;
+	max-width: 100%;
+}
+
+/* has-language blocks: Claudian already sets overflow-x:auto; just re-cap width. */
+.claudian-code-wrapper.has-language pre {
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+/* no-language blocks: Claudian forces white-space:pre-wrap + overflow-x:hidden to
+   wrap them. The user wants these to scroll too. Claudian's rule is
+   .claudian-code-wrapper:not(.has-language) pre = (0,2,1); to win regardless of
+   plugin load order we out-specify it by repeating the wrapper class → (0,3,1).
+   pre (not pre-wrap) keeps long lines on one line; overflow-x:auto gives the
+   local scrollbar. */
+.claudian-code-wrapper.claudian-code-wrapper:not(.has-language) pre {
+	white-space: pre;
+	overflow-x: auto;
+	max-width: 100%;
+}
