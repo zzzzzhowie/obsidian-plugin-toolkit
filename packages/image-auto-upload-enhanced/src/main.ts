@@ -587,7 +587,7 @@ export default class imageAutoUploadPlugin extends Plugin {
       return "";
     } else if (this.settings.imageDesc === "removeDefault") {
       if (name === "image.png") {
-        return "";
+        return imageSizeSuffix;
       } else {
         return `${name}${imageSizeSuffix}`;
       }
