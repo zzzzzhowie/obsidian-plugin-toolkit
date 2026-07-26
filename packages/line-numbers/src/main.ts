@@ -1,4 +1,4 @@
-import { Plugin } from "obsidian";
+import { Platform, Plugin } from "obsidian";
 import { Extension } from "@codemirror/state";
 import { highlightActiveLineGutter, lineNumbers } from "@codemirror/view";
 import {
@@ -69,8 +69,13 @@ export default class LineNumbersPlugin extends Plugin {
 
 	/** Rebuilds the editor extension from current settings and applies it live. */
 	refreshExtensions(): void {
+		// Off on mobile regardless of the (Sync-shared) setting: the gutter eats
+		// scarce horizontal space and peek mode needs a ⌘/Ctrl key that phones
+		// don't have. The setting still drives desktop; this just forces mobile.
+		const active = this.settings.enabled && !Platform.isMobile;
+
 		this.editorExtensions.length = 0;
-		if (this.settings.enabled) {
+		if (active) {
 			this.editorExtensions.push(lineNumbers());
 			if (this.settings.highlightActiveLine) {
 				this.editorExtensions.push(highlightActiveLineGutter());
@@ -81,14 +86,11 @@ export default class LineNumbersPlugin extends Plugin {
 		// The overlay layout (numbers float in the left margin, gutter reserves
 		// no width) is now the default whenever the plugin is enabled. Pure CSS,
 		// gated by a body class.
-		document.body.classList.toggle(
-			"line-numbers-overlay",
-			this.settings.enabled
-		);
+		document.body.classList.toggle("line-numbers-overlay", active);
 
 		// Peek mode is also pure CSS: `line-numbers-peek` hides the numbers, and
 		// the key handlers add `line-numbers-peek-active` to reveal them.
-		const peek = this.settings.enabled && this.settings.revealOnModifier;
+		const peek = active && this.settings.revealOnModifier;
 		document.body.classList.toggle("line-numbers-peek", peek);
 		if (!peek) document.body.classList.remove("line-numbers-peek-active");
 	}

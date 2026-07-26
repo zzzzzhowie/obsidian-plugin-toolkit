@@ -17,6 +17,9 @@
 	accent-color: var(--interactive-accent);
 	opacity: 0;
 	transition: opacity 100ms ease-in-out;
+	/* Mobile: claim the touch so the browser doesn't read the drag as a scroll
+	   or an Obsidian edge-swipe (which would draw out the left/right sidebar). */
+	touch-action: none;
 }
 
 .cm-preview-code-block:hover > .mermaid-fit-slider,

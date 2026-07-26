@@ -291,6 +291,16 @@ export default class MermaidFitPlugin extends Plugin {
 			showTip();
 		});
 		slider.addEventListener("click", (e) => e.stopPropagation());
+		// Mobile: Obsidian's edge-swipe gesture (open the left/right sidebar) and
+		// the page scroll both listen on touch events higher up the tree. Without
+		// this, dragging the thumb flings a sidebar out and the tap leaks through
+		// to the note behind it. stopPropagation keeps the drag local; we do NOT
+		// preventDefault, so the native range thumb still tracks the finger (the
+		// browser's own pan is already suppressed by `touch-action: none` in CSS).
+		const stopTouch = (e: TouchEvent) => e.stopPropagation();
+		slider.addEventListener("touchstart", stopTouch, { passive: true });
+		slider.addEventListener("touchmove", stopTouch, { passive: true });
+		slider.addEventListener("touchend", stopTouch, { passive: true });
 		// Live preview while dragging — style the SVG only, don't touch source.
 		slider.addEventListener("input", () => {
 			this.applyLiveSize(svg, Number(slider.value));

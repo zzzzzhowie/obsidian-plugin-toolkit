@@ -17,6 +17,12 @@ export default class ImageZoomPlugin extends Plugin {
   private toolbar: HTMLElement | null = null;
 
   async onload() {
+    // Hard-off on mobile: the zoom overlay is a desktop pointer/trackpad
+    // experience (Cmd-click to enter, drag/wheel to pan-zoom, click backdrop to
+    // close), and plain-tap-to-zoom got in the way of normal reading. Do nothing
+    // on phones/tablets — leave taps to Obsidian's native image handling.
+    if (this.isMobile) return;
+
     // Create zoom overlay container
     this.createZoomOverlay();
 
@@ -24,9 +30,8 @@ export default class ImageZoomPlugin extends Plugin {
     this.registerDomEvent(document, "click", (event: MouseEvent) => {
       const target = event.target as HTMLElement;
 
-      // On desktop: require Cmd (Mac) or Ctrl (Windows/Linux) to trigger zoom
-      // On mobile: allow plain tap to trigger zoom (no keyboard available)
-      if (!this.isMobile && !event.metaKey && !event.ctrlKey) {
+      // Desktop: require Cmd (Mac) or Ctrl (Windows/Linux) to trigger zoom.
+      if (!event.metaKey && !event.ctrlKey) {
         return;
       }
 
@@ -72,10 +77,8 @@ export default class ImageZoomPlugin extends Plugin {
       }
     });
 
-    // Handle cursor change on hover when Cmd is pressed
-    // Cursor hover hint is only relevant on desktop (mobile has no hover/cursor)
-    if (this.isMobile) return;
-
+    // Handle cursor change on hover when Cmd is pressed (desktop only; we
+    // already returned above on mobile).
     this.registerDomEvent(document, "mousemove", (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       const isCmdPressed = event.metaKey || event.ctrlKey;
