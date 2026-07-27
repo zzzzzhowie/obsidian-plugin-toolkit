@@ -347,6 +347,17 @@ function htmlToPlainText(html: string): string {
 }
 
 /**
+ * Whether `text` is exactly one Obsidian image embed and nothing else.
+ * Matches both external images — `![alt](url)`, where alt may carry a `|WxH`
+ * size suffix — and wikilink embeds `![[path]]` (path may also carry `|size`).
+ */
+function isSingleImageEmbed(text: string): boolean {
+	const external = /^!\[[^\]\n]*\]\([^)\n]+\)$/;
+	const wikilink = /^!\[\[[^\]\n]+\]\]$/;
+	return external.test(text) || wikilink.test(text);
+}
+
+/**
  * Process paste content
  */
 export function processPasteContent(
@@ -368,6 +379,20 @@ export function processPasteContent(
 		// Remove newlines at top and bottom
 		return clipboardText.replace(/^\n+/, "").replace(/\n+$/, "");
 	} else {
+		// A copied Obsidian image embed round-trips badly through Turndown: the
+		// rendered <img> encodes the `|WxH` display size as width/height attributes
+		// (or a style), none of which Turndown's img rule keeps, so `![|300](url)`
+		// comes back as `![](url)` — the size is silently dropped. But CM6 also puts
+		// the original source markdown on the clipboard as text/plain, which is
+		// exactly the embed we want. When the plaintext is a lone image embed, use it
+		// verbatim instead of rebuilding it (lossily) from the HTML. Gating on the
+		// plaintext shape keeps web-page image pastes — whose plaintext isn't image
+		// markdown — on the normal HTML→markdown path.
+		const trimmedText = clipboardText.trim();
+		if (trimmedText && isSingleImageEmbed(trimmedText)) {
+			return trimmedText;
+		}
+
 		// Not in code block: if copied content is HTML, convert it to markdown
 		// Only code blocks convert to plain text, all other cases convert to markdown
 		if (clipboardHtml) {
