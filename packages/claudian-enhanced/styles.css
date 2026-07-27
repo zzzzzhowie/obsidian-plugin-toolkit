@@ -108,3 +108,20 @@
 	overflow-x: auto;
 	max-width: 100%;
 }
+
+/* Block math (\[ … \]) renders as a MathJax mjx-container[display="true"], which is a
+   block that MathJax centers. A formula wider than the chat panel then overflows — and
+   because it's centered, the overflow spills off BOTH sides, leaving the left half at a
+   negative scroll offset that scrolling can never reach. So we can't just add overflow:
+   we make it a left-origin scroller (text-align:left) so all the overflow is on the
+   right and the whole formula is reachable by scrolling. Scoping through .math-block
+   gives (0,3,1) to out-specify MathJax's own (0,2,1) mjx-container[jax][display] rule.
+   Trade-off: block math is left-aligned instead of centered — acceptable in a narrow
+   panel, and the price of full scrollability. */
+.claudian-message-content .math-block mjx-container[display="true"] {
+	display: block;
+	max-width: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	text-align: left;
+}
