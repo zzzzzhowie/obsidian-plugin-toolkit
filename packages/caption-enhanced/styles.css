@@ -45,14 +45,19 @@
  * 当容器被标记为 .has-caption 时，强制切换为 column 布局，
  * 使 caption 垂直排列在图片正下方而非被挤到右侧。
  */
-.image-embed.has-caption {
+/*
+ * .image-embed / .cm-embed-block 在 Live Preview 里默认 flex-direction: row。
+ * 只要容器内直接挂着 caption，就强制纵向排列，让 caption 始终位于图片正下方，
+ * 而不是被当作 flex item 挤到图片右侧。
+ *
+ * 这里用 :has() 按「结构」匹配，而非依赖 has-caption 类：编辑态下图片经
+ * .image-wrapper 分支注入 caption 时并不会带 has-caption 类（该类只在 embedParent
+ * 分支添加），所以基于类的选择器命中不到，caption 就跳到了右边。
+ */
+.image-embed:has(> .image-caption),
+.cm-embed-block:has(> .image-caption) {
 	flex-direction: column;
 	align-items: center;
-}
-
-/* 确保 .image-wrapper（缩放容器）在 column 布局下占满宽度 */
-.image-embed.has-caption > .image-wrapper {
-	width: 100%;
 }
 
 /* =========================================================================

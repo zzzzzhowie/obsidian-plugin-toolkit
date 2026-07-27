@@ -130,6 +130,26 @@ export function parseCaption(
 	return caption;
 }
 
+/**
+ * 让 caption 的宽度与图片一致。
+ * caption 是块级元素（CSS 默认 width:100%），当它所在的容器比图片宽
+ * （如表格单元格 .table-cell-wrapper 是 100% 单元格宽，而图片只有 300px）时，
+ * align-center/left/right 会相对「整个容器」而非「图片」对齐，导致 caption 偏移。
+ * 把 caption 显式设成图片的渲染宽度即可复刻 figure/figcaption 语义：
+ * 对齐相对图片，超长文本也在图片宽度内换行。
+ */
+export function syncCaptionWidth(img: HTMLImageElement, captionEl: HTMLElement): void {
+	const sync = () => {
+		const w = img.getBoundingClientRect().width;
+		captionEl.style.width = w ? `${w}px` : '';
+	};
+	sync();
+	// 外链图片首次渲染时可能尚未加载完、渲染宽度为 0，加载完成后再同步一次
+	if (!img.complete) {
+		img.addEventListener('load', sync, { once: true });
+	}
+}
+
 // ============================================================
 // CodeMirror 6 实时预览静态视图插件
 // ============================================================
@@ -235,6 +255,7 @@ class ImageCaptionLPPlugin implements PluginValue {
 					}
 					// 响应式更新样式类
 					this.applyStyleClasses(existingCaption, settings);
+					syncCaptionWidth(img, existingCaption);
 					if (embedParent) {
 						embedParent.classList.add('has-caption');
 					}
@@ -270,6 +291,8 @@ class ImageCaptionLPPlugin implements PluginValue {
 				} else {
 					img.after(captionEl);
 				}
+
+				syncCaptionWidth(img, captionEl);
 
 				if (embedParent) {
 					embedParent.classList.add('has-caption');

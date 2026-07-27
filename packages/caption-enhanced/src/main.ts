@@ -5,6 +5,7 @@ import {
 	DEFAULT_SETTINGS,
 	parseCaption,
 	setLiveSettings,
+	syncCaptionWidth,
 } from './extension';
 
 // ============================================================
@@ -99,6 +100,7 @@ export default class CaptionEnhancedPlugin extends Plugin {
 				existingCaption.className = 'image-caption';
 				existingCaption.classList.add(`align-${this.settings.captionAlign}`);
 				existingCaption.classList.add(`style-${this.settings.captionStyle}`);
+				syncCaptionWidth(img, existingCaption);
 				if (embedParent) {
 					embedParent.classList.add('has-caption');
 				}
@@ -137,6 +139,8 @@ export default class CaptionEnhancedPlugin extends Plugin {
 			} else {
 				img.after(captionEl);
 			}
+
+			syncCaptionWidth(img, captionEl);
 
 			if (embedParent) {
 				embedParent.classList.add('has-caption');
