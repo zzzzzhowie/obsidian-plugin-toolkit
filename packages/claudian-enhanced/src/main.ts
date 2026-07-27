@@ -7,6 +7,13 @@ const CLAUDIAN_VIEW = "claudian-view";
 const CLAUDIAN_INPUT = "textarea.claudian-input";
 /** Claudian's own command that opens/reveals its view. */
 const OPEN_COMMAND = "realclaudian:open-view";
+/**
+ * Claudian's own command that starts a fresh session in the active tab. Its
+ * createNew() re-attaches the currently active file (autoAttachActiveFile), so it's
+ * how we dislodge a stale note frozen by a restored session. checkCallback refuses
+ * while streaming, so it can never interrupt a live response.
+ */
+const NEW_SESSION_COMMAND = "realclaudian:new-session";
 /** View to switch to when Claudian is toggled away inside a sidebar (the sidebar's default). */
 const SIDEBAR_DEFAULT_VIEW = "outline";
 /** Core Outline plugin's command — used to recreate the outline leaf if its tab was closed. */
@@ -48,6 +55,19 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			this.app.workspace.on("active-leaf-change", () =>
 				this.scheduleChipSync(),
 			),
+		);
+		// Cold-start fix. Claudian restores its last conversation together with *that
+		// conversation's* saved note. When that was a started/interrupted session,
+		// Claudian deliberately freezes the note (handleFileOpen's isSessionStarted
+		// gate), so it stays stuck on the old note even though a different note is open
+		// now — no file-open can dislodge it, and the active-leaf sync above is a no-op
+		// (the open note is already active, so no file-open fires). When the restored
+		// note genuinely mismatches the open note, start a fresh session: its createNew
+		// re-attaches the note we actually have open and the chip finally matches. We
+		// fire only on a real mismatch so a restart never discards a conversation whose
+		// note already matches. See reconcileChipOnStartup.
+		this.app.workspace.onLayoutReady(() =>
+			this.reconcileChipOnStartup(Date.now() + 8000),
 		);
 	}
 
@@ -254,6 +274,83 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (!noteLeaf || !path || path === this.lastSyncedPath) return;
 		this.lastSyncedPath = path;
 		this.app.workspace.setActiveLeaf(noteLeaf, { focus: false });
+	}
+
+	/**
+	 * After a cold start, if Claudian's restored note doesn't match the note we actually
+	 * have open, start a fresh session so it re-attaches the open note.
+	 *
+	 * We poll until Claudian's view has mounted (composer present) *and* its restore has
+	 * populated a note — the restore is async and lands around mount, so reading too early
+	 * would see no note and wrongly bail. Once a note is attached we decide exactly once:
+	 * reset on a genuine mismatch, otherwise leave the conversation untouched. If no note
+	 * ever gets attached within the window (a conversation that genuinely carries none),
+	 * we give up — there's no wrong note to correct.
+	 */
+	private reconcileChipOnStartup(deadline: number): void {
+		const tick = (): void => {
+			if (this.claudianMounted()) {
+				const attached = this.attachedNotePath();
+				if (attached !== null) {
+					const notePath = this.activeNotePath();
+					if (notePath && attached !== notePath) {
+						this.startFreshSessionForActiveNote();
+					}
+					return; // restore settled (matched or reset) — done
+				}
+			}
+			if (Date.now() < deadline) window.setTimeout(tick, 150);
+		};
+		tick();
+	}
+
+	/**
+	 * Discard the stale restored session and open a fresh one so Claudian re-attaches the
+	 * open note. `new-session`'s createNew() attaches `getActiveFile()`, so we first assert
+	 * the note as the active file (focus untouched — same trick as keepNoteActive) to
+	 * guarantee it grabs the right one.
+	 */
+	private startFreshSessionForActiveNote(): void {
+		const noteLeaf = this.getNoteLeaf();
+		if (noteLeaf) this.app.workspace.setActiveLeaf(noteLeaf, { focus: false });
+		(this.app as unknown as AppWithCommands).commands.executeCommandById(
+			NEW_SESSION_COMMAND,
+		);
+	}
+
+	/**
+	 * The note Claudian currently has attached (vault-relative, forward slashes — same
+	 * shape as TFile.path, so it compares directly), or null when none is attached or the
+	 * internal shape has drifted. Read-only reach into Claudian's active tab; degrades to
+	 * null (→ no reset) rather than throwing if a future build renames these.
+	 */
+	private attachedNotePath(): string | null {
+		const view = this.getClaudianLeaf()?.view as unknown as {
+			getTabManager?: () => {
+				getActiveTab?: () => {
+					ui?: { fileContextManager?: { currentNotePath?: string | null } };
+				} | null;
+			} | null;
+		};
+		return (
+			view?.getTabManager?.()?.getActiveTab?.()?.ui?.fileContextManager
+				?.currentNotePath ?? null
+		);
+	}
+
+	/** The vault path of the note we're protecting, or null. */
+	private activeNotePath(): string | null {
+		const noteLeaf = this.getNoteLeaf();
+		return noteLeaf
+			? ((noteLeaf.view as unknown as { file?: { path?: string } }).file?.path ??
+					null)
+			: null;
+	}
+
+	/** Claudian's view has built its composer → its tab/context manager exists. */
+	private claudianMounted(): boolean {
+		const container = this.getClaudianLeaf()?.view.containerEl;
+		return !!container?.querySelector(CLAUDIAN_INPUT);
 	}
 
 	private getClaudianLeaf(): WorkspaceLeaf | null {
