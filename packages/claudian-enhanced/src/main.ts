@@ -5,6 +5,10 @@ import { EditorView } from "@codemirror/view";
 const CLAUDIAN_VIEW = "claudian-view";
 /** The main chat composer inside that leaf (placeholder "How can i help you today?"). */
 const CLAUDIAN_INPUT = "textarea.claudian-input";
+/** The scrollable message list (overflow-y:auto); one per conversation tab. */
+const CLAUDIAN_MESSAGES = ".claudian-messages";
+/** A user's own message bubble — appears the moment a prompt is submitted. */
+const CLAUDIAN_USER_MESSAGE = ".claudian-message-user";
 /** Claudian's own command that opens/reveals its view. */
 const OPEN_COMMAND = "realclaudian:open-view";
 /**
@@ -31,6 +35,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private lastSyncedPath: string | null = null;
 	/** Debounce handle for the active-note → chip sync. */
 	private syncTimer: number | null = null;
+	/** Watches for submitted messages to scroll them into view; see setupSubmitScroll. */
+	private submitScrollObserver: MutationObserver | null = null;
+	/** The view container the observer is bound to; guards against re-binding. */
+	private observedContainer: HTMLElement | null = null;
 
 	async onload(): Promise<void> {
 		this.addCommand({
@@ -52,10 +60,24 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// note as the active leaf reproduces the exact transition ⌘L relies on and
 		// re-fires file-open. See syncCurrentNoteChip.
 		this.registerEvent(
-			this.app.workspace.on("active-leaf-change", () =>
-				this.scheduleChipSync(),
-			),
+			this.app.workspace.on("active-leaf-change", () => {
+				this.scheduleChipSync();
+				// A deferred/collapsed Claudian leaf can swap in a new view (new
+				// containerEl) when revealed — re-bind the submit-scroll observer to it.
+				this.ensureSubmitScrollObserver();
+			}),
 		);
+		// Scroll a submitted message into view. Claudian only forces the list to the
+		// bottom on a new conversation or when you're already near the bottom; its lone
+		// related setting ("Auto-scroll during streaming") doesn't cover submitting. So
+		// if you scroll up to read history, its autoscroll pauses and sending a new
+		// prompt leaves your message + the reply off-screen. We watch for the user's
+		// message bubble appearing and pin the list to the bottom — which also lands us
+		// near the bottom, tripping Claudian's own check to re-enable streaming
+		// autoscroll. See setupSubmitScroll / ensureSubmitScrollObserver.
+		this.setupSubmitScroll(Date.now() + 8000);
+		// MutationObserver isn't auto-cleaned by Obsidian's register* helpers.
+		this.register(() => this.submitScrollObserver?.disconnect());
 		// Cold-start fix. Claudian restores its last conversation together with *that
 		// conversation's* saved note. When that was a started/interrupted session,
 		// Claudian deliberately freezes the note (handleFileOpen's isSessionStarted
@@ -351,6 +373,67 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private claudianMounted(): boolean {
 		const container = this.getClaudianLeaf()?.view.containerEl;
 		return !!container?.querySelector(CLAUDIAN_INPUT);
+	}
+
+	/** Wait out the async view mount, then bind the submit-scroll observer. */
+	private setupSubmitScroll(deadline: number): void {
+		const tick = (): void => {
+			if (this.claudianMounted()) {
+				this.ensureSubmitScrollObserver();
+				return;
+			}
+			if (Date.now() < deadline) window.setTimeout(tick, 150);
+		};
+		tick();
+	}
+
+	/**
+	 * Bind (once per view container) a MutationObserver that scrolls a submitted prompt
+	 * into view. Watching the view's containerEl with subtree covers every conversation
+	 * tab without re-binding on internal tab switches. We react only to a `.claudian-
+	 * message-user` node being added — assistant streaming updates its own bubble in
+	 * place and never adds one, so this never fights Claudian's scroll-up-to-pause.
+	 */
+	private ensureSubmitScrollObserver(): void {
+		const container = this.getClaudianLeaf()?.view.containerEl ?? null;
+		if (!container || container === this.observedContainer) return;
+		this.submitScrollObserver?.disconnect();
+		this.observedContainer = container;
+		this.submitScrollObserver = new MutationObserver((records) => {
+			for (const record of records) {
+				for (const node of Array.from(record.addedNodes)) {
+					if (node.nodeType !== Node.ELEMENT_NODE) continue;
+					const el = node as HTMLElement;
+					const userMsg = el.matches(CLAUDIAN_USER_MESSAGE)
+						? el
+						: el.querySelector<HTMLElement>(CLAUDIAN_USER_MESSAGE);
+					if (userMsg) {
+						// Scroll the exact list this message landed in (there's one per tab).
+						this.scrollToBottom(userMsg.closest<HTMLElement>(CLAUDIAN_MESSAGES));
+						return;
+					}
+				}
+			}
+		});
+		this.submitScrollObserver.observe(container, {
+			childList: true,
+			subtree: true,
+		});
+	}
+
+	/**
+	 * Pin a message list to the bottom. rAF lets the just-added node lay out first; the
+	 * delayed re-assert catches late height (images, rendered code) so we don't stop a
+	 * few pixels short. Programmatic scroll fires a `scroll` event, which is what nudges
+	 * Claudian to re-enable its streaming autoscroll.
+	 */
+	private scrollToBottom(scroller: HTMLElement | null): void {
+		if (!scroller) return;
+		const run = (): void => {
+			scroller.scrollTop = scroller.scrollHeight;
+		};
+		requestAnimationFrame(run);
+		window.setTimeout(run, 150);
 	}
 
 	private getClaudianLeaf(): WorkspaceLeaf | null {
