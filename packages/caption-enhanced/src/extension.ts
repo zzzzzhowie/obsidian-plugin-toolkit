@@ -144,9 +144,21 @@ class ImageCaptionLPPlugin implements PluginValue {
 		// 首次挂载时扫描
 		this.scanAndInject(view.dom);
 
-		// 使用 MutationObserver 监听 DOM 树的增减变化，确保在滚动或折叠动作后即时发现新图片
+		// 使用 MutationObserver 监听 DOM 树的增减变化，确保在滚动或折叠动作后即时发现新图片。
+		// 注意：scanAndInject 会向被监听的 view.dom 增删 .image-caption 节点，这些写入会以
+		// 微任务再次触发本回调 —— 若不加防护即形成自反馈死循环（100% CPU 自旋）。
+		// 修法：回调里先 disconnect（同时丢弃已排队的记录），扫描完再 observe，
+		// 使扫描期间自身产生的 DOM 变更不被记录、不再递归。
 		this.observer = new MutationObserver(() => {
-			this.scanAndInject(this.view.dom);
+			this.observer.disconnect();
+			try {
+				this.scanAndInject(this.view.dom);
+			} finally {
+				this.observer.observe(this.view.dom, {
+					childList: true,
+					subtree: true,
+				});
+			}
 		});
 
 		this.observer.observe(view.dom, {
@@ -180,8 +192,13 @@ class ImageCaptionLPPlugin implements PluginValue {
 		imgs.forEach((img: HTMLImageElement) => {
 			// 获取相关的容器
 			const wrapper = img.closest('.image-wrapper');
-			const embedParent = (img.closest('.image-embed') ||
-				img.closest('.cm-embed-block'));
+			// 表格单元格内的图片不能把外层 .cm-embed-block（整张 .cm-table-widget）
+			// 当作自己的 embed 容器 —— 否则 caption 会被 appendChild 到表格外，且同表
+			// 多张图共用同一节点、互相覆盖文本。此时强制走「紧跟图片」的行内路径。
+			const inTableCell = !!img.closest('td, th, .table-cell-wrapper');
+			const embedParent = inTableCell
+				? null
+				: (img.closest('.image-embed') || img.closest('.cm-embed-block'));
 
 			// 1. 解析当前的 alt 和 src 元数据并计算最新的说明文字
 			const altText = img.getAttribute('alt');
