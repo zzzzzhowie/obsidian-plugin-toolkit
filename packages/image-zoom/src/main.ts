@@ -1,8 +1,11 @@
-import { Plugin } from "obsidian";
+import { Platform, Plugin } from "obsidian";
 
 export default class ImageZoomPlugin extends Plugin {
   private get isMobile(): boolean {
-    return "ontouchstart" in window || navigator.maxTouchPoints > 0;
+    // Platform.isMobile is true only in the actual Obsidian mobile app; the old
+    // touch heuristic also fired on touchscreen laptops and wrongly disabled the
+    // desktop Cmd-click flow there.
+    return Platform.isMobile;
   }
   private zoomOverlay: HTMLElement | null = null;
   private currentImage: HTMLImageElement | null = null;
@@ -17,107 +20,99 @@ export default class ImageZoomPlugin extends Plugin {
   private toolbar: HTMLElement | null = null;
 
   async onload() {
-    // Hard-off on mobile: the zoom overlay is a desktop pointer/trackpad
-    // experience (Cmd-click to enter, drag/wheel to pan-zoom, click backdrop to
-    // close), and plain-tap-to-zoom got in the way of normal reading. Do nothing
-    // on phones/tablets — leave taps to Obsidian's native image handling.
-    if (this.isMobile) return;
-
-    // Create zoom overlay container
+    // The zoom overlay is used on every platform now.
     this.createZoomOverlay();
 
-    // Register click handler for images and SVGs
-    this.registerDomEvent(document, "click", (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
+    if (this.isMobile) {
+      // Mobile: a plain tap opens our overlay in place of Obsidian's native
+      // image viewer (see registerMobileZoom). Pinch/pan already work via the
+      // touch handlers in setupZoomAndDrag.
+      this.registerMobileZoom();
+      return;
+    }
 
-      // Desktop: require Cmd (Mac) or Ctrl (Windows/Linux) to trigger zoom.
-      if (!event.metaKey && !event.ctrlKey) {
-        return;
-      }
+    // Desktop: Cmd/Ctrl-click to zoom, plus a zoom-in cursor hint on hover.
+    this.registerDesktopZoom();
+    this.registerDesktopCursor();
+  }
 
-      // Check for IMG elements
-      if (target.tagName === "IMG") {
-        // Check if it's an Excalidraw image
-        const isExcalidraw =
-          target.classList.contains("excalidraw-svg") ||
-          target.classList.contains("excalidraw-embedded-img");
+  /**
+   * The element a click/tap over `target` should zoom, or null if none.
+   * Handles Excalidraw images, regular embedded images (inside a markdown/image
+   * leaf), and Mermaid SVGs — the shared rule for both platforms.
+   */
+  private zoomTargetFor(
+    target: HTMLElement,
+  ): HTMLImageElement | SVGElement | null {
+    if (target.tagName === "IMG") {
+      const isExcalidraw =
+        target.classList.contains("excalidraw-svg") ||
+        target.classList.contains("excalidraw-embedded-img");
+      if (isExcalidraw) return target as HTMLImageElement;
 
-        if (isExcalidraw) {
-          this.showZoomedImage(target as HTMLImageElement);
-          event.preventDefault();
-          event.stopPropagation();
-          return;
-        }
+      const parent = target.closest(
+        '.workspace-leaf-content[data-type="markdown"], .workspace-leaf-content[data-type="image"]',
+      );
+      if (parent) return target as HTMLImageElement;
+    }
 
-        // For regular images, check parent container
-        const parent = target.closest(
-          '.workspace-leaf-content[data-type="markdown"], .workspace-leaf-content[data-type="image"]',
+    const svgElement = target.closest("svg");
+    if (svgElement) {
+      const mermaidContainer = svgElement.closest(".mermaid");
+      if (mermaidContainer) {
+        const parent = mermaidContainer.closest(
+          '.workspace-leaf-content[data-type="markdown"]',
         );
-        if (parent) {
-          this.showZoomedImage(target as HTMLImageElement);
-          event.preventDefault();
-          event.stopPropagation();
-        }
+        if (parent) return svgElement as SVGElement;
       }
+    }
 
-      // Check for SVG elements (Mermaid diagrams)
-      const svgElement = target.closest("svg");
-      if (svgElement) {
-        const mermaidContainer = svgElement.closest(".mermaid");
-        if (mermaidContainer) {
-          const parent = mermaidContainer.closest(
-            '.workspace-leaf-content[data-type="markdown"]',
-          );
-          if (parent) {
-            this.showZoomedSVG(svgElement as SVGElement);
-            event.preventDefault();
-            event.stopPropagation();
-          }
-        }
-      }
+    return null;
+  }
+
+  private openZoom(el: HTMLImageElement | SVGElement) {
+    if (el instanceof SVGElement) this.showZoomedSVG(el);
+    else this.showZoomedImage(el);
+  }
+
+  private registerDesktopZoom() {
+    this.registerDomEvent(document, "click", (event: MouseEvent) => {
+      // Desktop: require Cmd (Mac) or Ctrl (Windows/Linux) to trigger zoom.
+      if (!event.metaKey && !event.ctrlKey) return;
+      const el = this.zoomTargetFor(event.target as HTMLElement);
+      if (!el) return;
+      this.openZoom(el);
+      event.preventDefault();
+      event.stopPropagation();
     });
+  }
 
-    // Handle cursor change on hover when Cmd is pressed (desktop only; we
-    // already returned above on mobile).
+  private registerDesktopCursor() {
+    // Show a zoom-in cursor while Cmd/Ctrl is held over a zoomable target.
     this.registerDomEvent(document, "mousemove", (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      const isCmdPressed = event.metaKey || event.ctrlKey;
-
-      // Check if hovering over an image
-      if (target.tagName === "IMG") {
-        // Check if it's an Excalidraw image
-        const isExcalidraw =
-          target.classList.contains("excalidraw-svg") ||
-          target.classList.contains("excalidraw-embedded-img");
-
-        if (isExcalidraw) {
-          (target as HTMLElement).style.cursor = isCmdPressed ? "zoom-in" : "";
-        } else {
-          // For regular images, check parent container
-          const parent = target.closest(
-            '.workspace-leaf-content[data-type="markdown"], .workspace-leaf-content[data-type="image"]',
-          );
-          if (parent) {
-            (target as HTMLElement).style.cursor = isCmdPressed
-              ? "zoom-in"
-              : "";
-          }
-        }
-      }
-
-      // Check if hovering over SVG
-      const svgElement = target.closest("svg");
-      if (svgElement && svgElement instanceof SVGElement) {
-        const mermaidContainer = svgElement.closest(".mermaid");
-        if (mermaidContainer) {
-          if (isCmdPressed) {
-            svgElement.style.cursor = "zoom-in";
-          } else {
-            svgElement.style.cursor = "";
-          }
-        }
-      }
+      const el = this.zoomTargetFor(event.target as HTMLElement);
+      if (!el) return;
+      el.style.cursor = event.metaKey || event.ctrlKey ? "zoom-in" : "";
     });
+  }
+
+  private registerMobileZoom() {
+    // Capture phase + stopImmediatePropagation: run before, and suppress,
+    // Obsidian's built-in mobile image viewer so a tap opens our overlay
+    // instead. Non-image taps fall through untouched.
+    this.registerDomEvent(
+      document,
+      "click",
+      (event: MouseEvent) => {
+        const el = this.zoomTargetFor(event.target as HTMLElement);
+        if (!el) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        this.openZoom(el);
+      },
+      { capture: true },
+    );
   }
 
   onunload() {
@@ -138,12 +133,55 @@ export default class ImageZoomPlugin extends Plugin {
       }
     });
 
-    // Close on overlay tap (mobile) — only when tapping the backdrop directly
-    this.zoomOverlay.addEventListener("touchend", (e) => {
-      if (e.target === this.zoomOverlay) {
-        this.closeZoom();
-      }
-    });
+    // Close on backdrop tap (mobile). The image container is flex:1/90vw and
+    // fills most of the screen, so a tap in the black area around the image
+    // lands on the container, not the overlay — checking only the overlay never
+    // closed it. Treat a tap (negligible movement) on either the overlay or the
+    // container's empty area as a backdrop tap. Movement means a pan/pinch on
+    // the image, not a dismiss, so we skip those; taps on the image itself and
+    // the toolbar are left to their own handlers.
+    let tapX = 0;
+    let tapY = 0;
+    let tapMoved = false;
+    this.zoomOverlay.addEventListener(
+      "touchstart",
+      (e) => {
+        const t = e.touches[0];
+        if (t) {
+          tapX = t.clientX;
+          tapY = t.clientY;
+          tapMoved = false;
+        }
+      },
+      { passive: true, capture: true },
+    );
+    this.zoomOverlay.addEventListener(
+      "touchmove",
+      (e) => {
+        const t = e.touches[0];
+        if (
+          t &&
+          (Math.abs(t.clientX - tapX) > 10 || Math.abs(t.clientY - tapY) > 10)
+        ) {
+          tapMoved = true;
+        }
+      },
+      { passive: true, capture: true },
+    );
+    this.zoomOverlay.addEventListener(
+      "touchend",
+      (e) => {
+        if (tapMoved) return;
+        const target = e.target as HTMLElement;
+        if (
+          target === this.zoomOverlay ||
+          target.classList.contains("image-zoom-container")
+        ) {
+          this.closeZoom();
+        }
+      },
+      { capture: true },
+    );
 
     // Prevent click-through by stopping propagation
     this.zoomOverlay.addEventListener("mousedown", (e) => {
@@ -366,6 +404,17 @@ export default class ImageZoomPlugin extends Plugin {
       // pinch starts cleanly (avoids a jump if one finger lifts first)
       if (e.touches.length < 2) {
         lastTouchDist = 0;
+      }
+      // Lifting one finger of a pinch leaves one finger down. The single-finger
+      // pan reads lastTouchX/Y, which are stale from before the pinch, so its
+      // first delta would be huge and jump the image. Re-anchor the pan origin
+      // to the remaining finger so panning resumes from where it actually is.
+      if (e.touches.length === 1) {
+        const t0 = e.touches[0];
+        if (t0) {
+          lastTouchX = t0.clientX;
+          lastTouchY = t0.clientY;
+        }
       }
     });
   }

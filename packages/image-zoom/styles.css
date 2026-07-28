@@ -15,6 +15,12 @@
   pointer-events: auto; /* Prevent click-through */
 }
 
+/* Mobile: a semi-transparent black mask over the surrounding note while an image
+   is open (Obsidian sets .is-mobile on <body> in the mobile app). */
+.is-mobile .image-zoom-overlay {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
 .image-zoom-container {
   position: relative;
   max-width: 90vw;
