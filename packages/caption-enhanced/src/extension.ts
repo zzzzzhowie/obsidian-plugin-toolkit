@@ -140,8 +140,15 @@ export function parseCaption(
  */
 export function syncCaptionWidth(img: HTMLImageElement, captionEl: HTMLElement): void {
 	const sync = () => {
-		const w = img.getBoundingClientRect().width;
-		captionEl.style.width = w ? `${w}px` : '';
+		// 取整消除亚像素抖动；仅在宽度真正变化时写入。
+		// caption 注入后 :has() 会把容器翻成 flex-column，图片渲染宽度随之微调，
+		// 若每次都无条件回写 style.width，就会「读宽度→写宽度→重排→再读」形成永不收敛
+		// 的布局反馈环（MutationObserver / CM6 update 反复触发，主线程 100% CPU 自旋）。
+		const w = Math.round(img.getBoundingClientRect().width);
+		const next = w ? `${w}px` : '';
+		if (captionEl.style.width !== next) {
+			captionEl.style.width = next;
+		}
 	};
 	sync();
 	// 外链图片首次渲染时可能尚未加载完、渲染宽度为 0，加载完成后再同步一次
