@@ -1,0 +1,9 @@
+{
+	"id": "sticky-find",
+	"name": "Sticky Find",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Find in the current file without collapsing rendered tables. Replaces the built-in find, which moves the editor selection into the match and forces Live Preview to fall back to Markdown source.",
+	"author": "",
+	"isDesktopOnly": false
+}
