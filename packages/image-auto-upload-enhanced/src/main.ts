@@ -271,18 +271,24 @@ export default class imageAutoUploadPlugin extends Plugin {
    * 替换上传的图片
    */
   replaceImage(imageList: Image[], uploadUrlList: string[]) {
-    let content = this.helper.getValue();
+    // Rebuild per line so we can tell whether each occurrence sits in a table
+    // row and escape the size-suffix pipe there (never split on `|`).
+    let lines = this.helper.getValue().split("\n");
 
     imageList.map(item => {
       const uploadImage = uploadUrlList.shift();
 
-      let name = this.handleName(item.name);
-      content = content
-        .split(item.source)
-        .join(`![${name}](${uploadImage})`);
+      lines = lines.map(line => {
+        if (!line.includes(item.source)) return line;
+        let name = this.handleName(item.name);
+        if (this.lineIsTableRow(line, item.source)) {
+          name = this.escapeAltPipes(name);
+        }
+        return line.split(item.source).join(`![${name}](${uploadImage})`);
+      });
     });
 
-    this.helper.setValue(content);
+    this.helper.setValue(lines.join("\n"));
 
     if (this.settings.deleteSource) {
       imageList.map(image => {
@@ -558,6 +564,13 @@ export default class imageAutoUploadPlugin extends Plugin {
     let progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
     name = this.handleName(name);
 
+    // If the placeholder sits in a table row, escape the size-suffix pipe so
+    // `![|500]` isn't read as a cell separator and split/break the table.
+    const line = imageAutoUploadPlugin.lineContaining(editor, progressText);
+    if (line !== null && this.lineIsTableRow(line, progressText)) {
+      name = this.escapeAltPipes(name);
+    }
+
     let markDownImage = `![${name}](${imageUrl})`;
 
     imageAutoUploadPlugin.replaceFirstOccurrence(
@@ -565,6 +578,32 @@ export default class imageAutoUploadPlugin extends Plugin {
       progressText,
       markDownImage
     );
+  }
+
+  /**
+   * Escape literal pipes (leaving any already escaped) so image markdown is safe
+   * inside a table cell: `![|500](url)` -> `![\|500](url)`.
+   */
+  escapeAltPipes(alt: string): string {
+    return alt.replace(/(?<!\\)\|/g, "\\|");
+  }
+
+  /**
+   * Whether `line` is a Markdown table row. The image markdown itself carries a
+   * pipe (its size suffix), so strip that occurrence first; a remaining pipe
+   * means real cell separators are present.
+   */
+  lineIsTableRow(line: string, imageMarkup: string): boolean {
+    const rest = imageMarkup ? line.replace(imageMarkup, "") : line;
+    return rest.includes("|");
+  }
+
+  /** The first document line containing `target`, or null. */
+  static lineContaining(editor: Editor, target: string): string | null {
+    for (const line of editor.getValue().split("\n")) {
+      if (line.includes(target)) return line;
+    }
+    return null;
   }
 
   handleFailedUpload(editor: Editor, pasteId: string, reason: any) {
