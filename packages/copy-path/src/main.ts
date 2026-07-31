@@ -158,7 +158,15 @@ export default class CopyPathPlugin extends Plugin {
 
 				// @ts-ignore - getFullPath exists on adapter but not in public types
 				const absolutePath: string = vault.adapter.getFullPath(activeView.file.path);
-				const headerAnchor = this.getCurrentHeaderAnchor(activeView);
+				// The inline title (the filename shown atop the note) is a separate
+				// element from the CM editor, so clicking it never moves the editor
+				// cursor — the last heading the cursor sat on would otherwise leak
+				// through as a stale anchor. Clicking the title means "the file itself",
+				// so emit the bare path with no header anchor.
+				const onInlineTitle = activeElement?.closest('.inline-title') != null;
+				const headerAnchor = onInlineTitle
+					? null
+					: this.getCurrentHeaderAnchor(activeView);
 				const pathWithAnchor = headerAnchor ? `${absolutePath}#${headerAnchor}` : absolutePath;
 
 				await navigator.clipboard.writeText(`"${pathWithAnchor}"`);
