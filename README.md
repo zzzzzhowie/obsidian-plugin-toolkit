@@ -17,7 +17,7 @@ obsidian-plugin-toolkit/
 │   ├── hide-ui-elements/                   # @obsidian-plugin-toolkit/hide-ui-elements
 │   ├── image-zoom/                         # @obsidian-plugin-toolkit/image-zoom
 │   ├── image-auto-upload-enhanced/         # @obsidian-plugin-toolkit/image-auto-upload-enhanced
-│   ├── mermaid-fit/                        # @obsidian-plugin-toolkit/mermaid-fit
+│   ├── mermaid-enhanced/                   # @obsidian-plugin-toolkit/mermaid-enhanced
 │   └── line-numbers/                        # @obsidian-plugin-toolkit/line-numbers
 ├── package.json
 ├── pnpm-workspace.yaml
@@ -47,7 +47,7 @@ pnpm dev:paste-enhanced             # Paste Enhanced
 pnpm dev:hide-ui-elements           # Hide UI Elements
 pnpm dev:image-zoom                 # Image Zoom
 pnpm dev:image-auto-upload-enhanced # Image Auto Upload Enhanced
-pnpm dev:mermaid-fit                # Mermaid Fit
+pnpm dev:mermaid-enhanced           # Mermaid Enhanced
 pnpm dev:line-numbers               # Line Numbers
 ```
 
@@ -76,7 +76,7 @@ pnpm build:paste-enhanced
 pnpm build:hide-ui-elements
 pnpm build:image-zoom
 pnpm build:image-auto-upload-enhanced
-pnpm build:mermaid-fit
+pnpm build:mermaid-enhanced
 pnpm build:line-numbers
 ```
 
@@ -108,8 +108,8 @@ Click to zoom images (and Mermaid diagrams) in Obsidian.
 ### @obsidian-plugin-toolkit/image-auto-upload-enhanced
 Upload images from your clipboard via PicGo.
 
-### @obsidian-plugin-toolkit/mermaid-fit
-Constrain tall Mermaid diagrams so they fit within one screen (preserves aspect ratio, works with full-width themes).
+### @obsidian-plugin-toolkit/mermaid-enhanced
+Enhance Mermaid diagrams: fit tall diagrams to one screen (with a per-diagram size slider) and click to open a zoomable, pannable overlay.
 
 ### @obsidian-plugin-toolkit/line-numbers
 Show whole-document line numbers in the editor gutter (every line, not just fenced code blocks). Absolute / relative / hybrid (vim-style) numbering.

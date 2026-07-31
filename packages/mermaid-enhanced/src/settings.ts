@@ -1,22 +1,22 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
-import MermaidFitPlugin from "./main";
+import MermaidEnhancedPlugin from "./main";
 
-export interface MermaidFitSettings {
+export interface MermaidEnhancedSettings {
 	/** Master on/off switch. When off, all applied constraints are removed. */
 	enabled: boolean;
 	/** Max diagram height as a percentage of the viewport height (e.g. 85 = 85vh). */
 	maxHeightVh: number;
 }
 
-export const DEFAULT_SETTINGS: MermaidFitSettings = {
+export const DEFAULT_SETTINGS: MermaidEnhancedSettings = {
 	enabled: true,
 	maxHeightVh: 85,
 };
 
-export class MermaidFitSettingTab extends PluginSettingTab {
-	plugin: MermaidFitPlugin;
+export class MermaidEnhancedSettingTab extends PluginSettingTab {
+	plugin: MermaidEnhancedPlugin;
 
-	constructor(app: App, plugin: MermaidFitPlugin) {
+	constructor(app: App, plugin: MermaidEnhancedPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}

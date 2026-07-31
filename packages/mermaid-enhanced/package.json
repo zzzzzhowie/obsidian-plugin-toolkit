@@ -1,7 +1,7 @@
 {
-	"name": "@obsidian-plugin-toolkit/mermaid-fit",
+	"name": "@obsidian-plugin-toolkit/mermaid-enhanced",
 	"version": "1.0.0",
-	"description": "Constrain tall Mermaid diagrams so they fit within one screen (preserves aspect ratio, works with full-width themes).",
+	"description": "Enhance Mermaid diagrams: fit tall diagrams to one screen (with a per-diagram size slider) and click to open a zoomable, pannable overlay.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

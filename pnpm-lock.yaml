@@ -411,7 +411,7 @@ importers:
         specifier: 8.35.1
         version: 8.35.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.8.3)
 
-  packages/mermaid-fit:
+  packages/mermaid-enhanced:
     dependencies:
       obsidian:
         specifier: latest

@@ -1,9 +1,10 @@
 import { MarkdownView, Notice, Plugin } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
-	MermaidFitSettings,
-	MermaidFitSettingTab,
+	MermaidEnhancedSettings,
+	MermaidEnhancedSettingTab,
 } from "./settings";
+import { MermaidZoom } from "./zoom";
 
 /** Attribute stamped on a block container carrying its `%% fit: ... %%` value. */
 const FIT_ATTR = "data-mermaid-fit-override";
@@ -21,8 +22,8 @@ interface EditorViewLike {
 	posAtDOM(node: Node): number;
 }
 
-export default class MermaidFitPlugin extends Plugin {
-	settings: MermaidFitSettings;
+export default class MermaidEnhancedPlugin extends Plugin {
+	settings: MermaidEnhancedSettings;
 
 	/** Watches the workspace for newly rendered Mermaid SVGs. */
 	private observer: MutationObserver | null = null;
@@ -35,7 +36,11 @@ export default class MermaidFitPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
-		this.addSettingTab(new MermaidFitSettingTab(this.app, this));
+		this.addSettingTab(new MermaidEnhancedSettingTab(this.app, this));
+
+		// Click a diagram to open a zoomable/pannable overlay (ported from
+		// image-zoom): Cmd/Ctrl-click on desktop, plain tap on mobile.
+		new MermaidZoom(this).register();
 
 		// Read per-diagram directives (`%% fit: ... %%`) from the block source and
 		// stamp them onto the rendered container so fitSvg can honor them.
@@ -104,7 +109,7 @@ export default class MermaidFitPlugin extends Plugin {
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MermaidFitSettings>
+			(await this.loadData()) as Partial<MermaidEnhancedSettings>
 		);
 	}
 

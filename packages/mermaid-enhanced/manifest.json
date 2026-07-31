@@ -1,0 +1,9 @@
+{
+	"id": "mermaid-enhanced",
+	"name": "Mermaid Enhanced",
+	"version": "1.0.0",
+	"minAppVersion": "0.15.0",
+	"description": "Enhance Mermaid diagrams: fit tall diagrams to one screen (with a per-diagram size slider) and click to open a zoomable, pannable overlay.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}
