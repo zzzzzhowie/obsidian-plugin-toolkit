@@ -15,7 +15,6 @@ obsidian-plugin-toolkit/
 │   ├── copy-path/                          # @obsidian-plugin-toolkit/copy-path
 │   ├── paste-enhanced/                     # @obsidian-plugin-toolkit/paste-enhanced
 │   ├── hide-ui-elements/                   # @obsidian-plugin-toolkit/hide-ui-elements
-│   ├── image-zoom/                         # @obsidian-plugin-toolkit/image-zoom
 │   ├── image-auto-upload-enhanced/         # @obsidian-plugin-toolkit/image-auto-upload-enhanced
 │   ├── mermaid-enhanced/                   # @obsidian-plugin-toolkit/mermaid-enhanced
 │   └── line-numbers/                        # @obsidian-plugin-toolkit/line-numbers
@@ -45,7 +44,6 @@ pnpm dev:file-explorer              # File Explorer Enhancements
 pnpm dev:copy-path                  # Copy Path
 pnpm dev:paste-enhanced             # Paste Enhanced
 pnpm dev:hide-ui-elements           # Hide UI Elements
-pnpm dev:image-zoom                 # Image Zoom
 pnpm dev:image-auto-upload-enhanced # Image Auto Upload Enhanced
 pnpm dev:mermaid-enhanced           # Mermaid Enhanced
 pnpm dev:line-numbers               # Line Numbers
@@ -74,7 +72,6 @@ pnpm build:file-explorer
 pnpm build:copy-path
 pnpm build:paste-enhanced
 pnpm build:hide-ui-elements
-pnpm build:image-zoom
 pnpm build:image-auto-upload-enhanced
 pnpm build:mermaid-enhanced
 pnpm build:line-numbers
@@ -101,9 +98,6 @@ Enhanced paste functionality that automatically detects code blocks and pastes c
 
 ### @obsidian-plugin-toolkit/hide-ui-elements
 Toggle visibility of sidebar tabs and status bar items.
-
-### @obsidian-plugin-toolkit/image-zoom
-Click to zoom images (and Mermaid diagrams) in Obsidian.
 
 ### @obsidian-plugin-toolkit/image-auto-upload-enhanced
 Upload images from your clipboard via PicGo.

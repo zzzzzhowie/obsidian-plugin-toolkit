@@ -18,7 +18,6 @@ pnpm lint         # Lint all packages
 pnpm dev:file-explorer
 pnpm dev:copy-path
 pnpm dev:paste-enhanced
-pnpm dev:image-zoom
 
 pnpm build:file-explorer   # (and similar for each)
 ```
