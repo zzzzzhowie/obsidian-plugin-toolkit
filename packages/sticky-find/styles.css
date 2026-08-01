@@ -1,0 +1,96 @@
+.sticky-find-bar {
+	position: absolute;
+	top: 6px;
+	right: 16px;
+	z-index: var(--layer-popover);
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 3px 4px;
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+}
+
+.sticky-find-input {
+	width: 180px;
+	height: 24px;
+	padding: 0 6px;
+	font-size: var(--font-ui-smaller);
+	border-radius: var(--radius-s);
+}
+
+.sticky-find-bar.is-empty .sticky-find-input {
+	color: var(--text-error);
+}
+
+.sticky-find-counter {
+	min-width: 48px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+}
+
+/*
+ * `clickable-icon` supplies the hover treatment; these rules pin the size and the
+ * stroke colour, which otherwise depend on --icon-size / --icon-stroke being set by
+ * whatever container the button happens to sit in.
+ */
+.sticky-find-bar .sticky-find-button {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	box-shadow: none;
+	color: var(--text-muted);
+}
+
+.sticky-find-bar .sticky-find-button:hover {
+	color: var(--text-normal);
+}
+
+.sticky-find-bar .svg-icon {
+	width: 16px;
+	height: 16px;
+	stroke: currentColor;
+	stroke-width: 2px;
+}
+
+.sticky-find-bar .sticky-find-case {
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-medium);
+}
+
+.sticky-find-bar .sticky-find-case.is-active {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+/*
+ * Custom Highlight API paint targets. Only a small set of properties is honoured inside
+ * ::highlight() — background-color and color are the ones that matter here.
+ *
+ * Deliberately literal colours rather than Obsidian's theme variables: highlight pseudo
+ * elements inherit through the highlight chain rather than the element tree, so a
+ * var(--…) lookup in here is not reliably resolvable.
+ */
+::highlight(sticky-find-match) {
+	background-color: rgba(255, 199, 0, 0.4);
+	color: #202020;
+}
+
+::highlight(sticky-find-current) {
+	background-color: #f5a623;
+	color: #1a1a1a;
+}
+
+.theme-dark ::highlight(sticky-find-match) {
+	background-color: rgba(255, 199, 0, 0.3);
+	color: #ededed;
+}
+
+.theme-dark ::highlight(sticky-find-current) {
+	background-color: #d98a00;
+	color: #ffffff;
+}

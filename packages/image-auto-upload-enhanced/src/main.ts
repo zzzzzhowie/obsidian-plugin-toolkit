@@ -2,6 +2,7 @@ import {
   MarkdownView,
   Plugin,
   Editor,
+  EditorPosition,
   Menu,
   MenuItem,
   TFile,
@@ -492,14 +493,14 @@ export default class imageAutoUploadPlugin extends Plugin {
             const data = await this.upload(sendFiles);
 
             if (data.success) {
-              data.result.map((value: string) => {
+              data.result.map((value: string, index: number) => {
                 let pasteId = (Math.random() + 1).toString(36).substr(2, 5);
                 this.insertTemporaryText(editor, pasteId);
                 this.embedMarkDownImage(
                   editor,
                   pasteId,
                   value,
-                  files[0]?.name ?? ""
+                  files[index]?.name ?? ""
                 );
               });
             } else {
@@ -548,11 +549,19 @@ export default class imageAutoUploadPlugin extends Plugin {
 
   insertTemporaryText(editor: Editor, pasteId: string) {
     let progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
-    editor.replaceSelection(progressText + "\n");
+    // No trailing newline: inside a table row it splits the row in two, and
+    // Obsidian's table editor then rewrites the whole table — padding header and
+    // every row out to the widest one, which permanently adds a column. The
+    // line break for normal paragraphs is added when the image replaces this.
+    editor.replaceSelection(progressText);
   }
 
+  /**
+   * Plain text, not image markdown: `![...]()` has no src to render, so Live
+   * Preview and table cells both fall back to showing the raw syntax.
+   */
   private static progressTextFor(id: string) {
-    return `![Uploading file...${id}]()`;
+    return `Uploading image... (${id})`;
   }
 
   embedMarkDownImage(
@@ -562,22 +571,33 @@ export default class imageAutoUploadPlugin extends Plugin {
     name: string = ""
   ) {
     let progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
-    name = this.handleName(name);
-
-    // If the placeholder sits in a table row, escape the size-suffix pipe so
-    // `![|500]` isn't read as a cell separator and split/break the table.
-    const line = imageAutoUploadPlugin.lineContaining(editor, progressText);
-    if (line !== null && this.lineIsTableRow(line, progressText)) {
-      name = this.escapeAltPipes(name);
+    const at = imageAutoUploadPlugin.findText(editor, progressText);
+    if (at === null) {
+      return; // placeholder is gone — paste undone or file closed
     }
 
-    let markDownImage = `![${name}](${imageUrl})`;
+    const line = editor.getLine(at.line);
+    const inTable = this.lineIsTableRow(line, progressText);
+    name = this.handleName(name);
 
-    imageAutoUploadPlugin.replaceFirstOccurrence(
-      editor,
-      progressText,
-      markDownImage
-    );
+    // In a table row the size-suffix pipe would be read as a cell separator, and
+    // a newline would split the row, so images in one cell are joined with
+    // `<br>`. Everywhere else each image still gets its own line.
+    const markDownImage = inTable
+      ? `${imageAutoUploadPlugin.cellSeparator(line, at.ch)}![${this.escapeAltPipes(name)}](${imageUrl})`
+      : `![${name}](${imageUrl})\n`;
+
+    editor.replaceRange(markDownImage, at, {
+      line: at.line,
+      ch: at.ch + progressText.length,
+    });
+  }
+
+  /** `<br>` when the table cell already holds content right before `ch`. */
+  private static cellSeparator(line: string, ch: number): string {
+    const cellStart = line.lastIndexOf("|", Math.max(ch - 1, 0)) + 1;
+    const before = line.slice(cellStart, ch).trim();
+    return before === "" || before.endsWith("<br>") ? "" : "<br>";
   }
 
   /**
@@ -598,10 +618,18 @@ export default class imageAutoUploadPlugin extends Plugin {
     return rest.includes("|");
   }
 
-  /** The first document line containing `target`, or null. */
-  static lineContaining(editor: Editor, target: string): string | null {
-    for (const line of editor.getValue().split("\n")) {
-      if (line.includes(target)) return line;
+  /**
+   * Position of the first occurrence of `target`, or null.
+   *
+   * The placeholder is located by text, never by a position remembered from
+   * before the upload: while the request is in flight Obsidian's table editor can
+   * re-serialize the table under us, which invalidates any stored coordinate.
+   */
+  static findText(editor: Editor, target: string): EditorPosition | null {
+    const lines = editor.getValue().split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const ch = lines[i]!.indexOf(target);
+      if (ch !== -1) return { line: i, ch };
     }
     return null;
   }
@@ -640,15 +668,13 @@ export default class imageAutoUploadPlugin extends Plugin {
     target: string,
     replacement: string
   ) {
-    let lines = editor.getValue().split("\n");
-    for (let i = 0; i < lines.length; i++) {
-      let ch = lines[i]!.indexOf(target);
-      if (ch != -1) {
-        let from = { line: i, ch: ch };
-        let to = { line: i, ch: ch + target.length };
-        editor.replaceRange(replacement, from, to);
-        break;
-      }
+    const at = imageAutoUploadPlugin.findText(editor, target);
+    if (at === null) {
+      return;
     }
+    editor.replaceRange(replacement, at, {
+      line: at.line,
+      ch: at.ch + target.length,
+    });
   }
 }
