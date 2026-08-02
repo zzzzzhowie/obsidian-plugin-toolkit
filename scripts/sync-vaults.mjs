@@ -19,7 +19,7 @@
 //
 // Usage (run AFTER `pnpm build`):
 //   node scripts/sync-vaults.mjs                 # all vaults in obsidian.json
-//   node scripts/sync-vaults.mjs MyVault        # only vaults matching name/path
+//   node scripts/sync-vaults.mjs MyVault         # only vaults matching name/path
 //   node scripts/sync-vaults.mjs /path/to/vault  # an explicit vault path
 
 import { readFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
