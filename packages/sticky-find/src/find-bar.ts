@@ -215,6 +215,7 @@ export class FindBar {
 		}
 
 		this.updateCounter();
+		this.freeCursorFromTable(cm);
 		this.pendingCenter = true;
 		this.centerPasses = 0;
 
@@ -223,6 +224,38 @@ export class FindBar {
 		// scroll assignment finishes the job. Nothing jumps to an estimated position and then
 		// corrects itself, which is what made the view flicker.
 		this.centerOnRange(cm, this.computeAndPaint(cm));
+	}
+
+	/**
+	 * Park the cursor just above the table it is sitting in, if any.
+	 *
+	 * Without this there is a hole in the premise: a table whose range already contains the
+	 * selection is showing Markdown source before the bar ever opens, and never touching the
+	 * selection afterwards cannot bring it back.
+	 *
+	 * Two details matter. It runs on navigation rather than on open, so that opening the bar
+	 * and typing nothing leaves the document exactly where it was. And it moves the cursor
+	 * through CodeMirror rather than `Editor.setCursor`, which scrolls its new position into
+	 * view — that scroll was the jump.
+	 */
+	private freeCursorFromTable(cm: EditorView): void {
+		const file = this.view.file;
+		if (!file) return;
+
+		const sections = this.view.app.metadataCache.getFileCache(file)?.sections;
+		if (!sections) return;
+
+		const line = cm.state.doc.lineAt(cm.state.selection.main.head).number - 1;
+		const table = sections.find(
+			(section) =>
+				section.type === "table" &&
+				line >= section.position.start.line &&
+				line <= section.position.end.line,
+		);
+		if (!table) return;
+
+		const above = Math.max(0, table.position.start.line - 1);
+		cm.dispatch({ selection: { anchor: cm.state.doc.line(above + 1).from } });
 	}
 
 	/**
