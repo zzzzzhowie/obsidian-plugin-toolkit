@@ -97,40 +97,12 @@ export default class StickyFindPlugin extends Plugin {
 
 	private openFind(view: MarkdownView): void {
 		const seed = this.seedFrom(view);
-		this.nudgeCursorOutOfTable(view);
 
 		if (this.bar && this.bar.view !== view) this.bar.close();
 		if (!this.bar) {
 			this.bar = new FindBar(view, this.settings.matchCase, (bar) => this.onBarClosed(bar));
 		}
 		this.bar.focus(seed);
-	}
-
-	/**
-	 * Park the cursor just above the table it is sitting in, if any.
-	 *
-	 * Not doing this leaves a hole in the whole premise: a table whose range already
-	 * contains the selection is already showing Markdown source before we open, and
-	 * never touching the selection afterwards cannot bring it back. The built-in find
-	 * moves the cursor too, so this is no more intrusive than what it replaces.
-	 */
-	private nudgeCursorOutOfTable(view: MarkdownView): void {
-		const file = view.file;
-		if (!file) return;
-
-		const sections = this.app.metadataCache.getFileCache(file)?.sections;
-		if (!sections) return;
-
-		const line = view.editor.getCursor().line;
-		const table = sections.find(
-			(section) =>
-				section.type === "table" &&
-				line >= section.position.start.line &&
-				line <= section.position.end.line,
-		);
-		if (!table) return;
-
-		view.editor.setCursor({ line: Math.max(0, table.position.start.line - 1), ch: 0 });
 	}
 
 	/** Prefill with the current selection, the way the built-in find does. */
