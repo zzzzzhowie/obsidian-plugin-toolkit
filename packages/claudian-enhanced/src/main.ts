@@ -9,6 +9,18 @@ const CLAUDIAN_INPUT = "textarea.claudian-input";
 const CLAUDIAN_MESSAGES = ".claudian-messages";
 /** A user's own message bubble — appears the moment a prompt is submitted. */
 const CLAUDIAN_USER_MESSAGE = ".claudian-message-user";
+/**
+ * How far above the bottom still counts as "following the stream" (px). Claudian's own
+ * autoscroll uses 20px, which is tighter than the height a single render step adds — we
+ * measure *after* the mutation, so that would read as detached almost every time. This
+ * is loose enough to survive a thinking block appearing, tight enough that scrolling up
+ * to read anything real detaches.
+ */
+const FOLLOW_THRESHOLD_PX = 200;
+/** Row above the composer; shows "⌐ Queued: …" for a prompt submitted mid-stream. */
+const CLAUDIAN_QUEUE_ROW = ".claudian-input-queue-row";
+/** The summary label inside that row (Claudian rebuilds it on every queue update). */
+const CLAUDIAN_QUEUE_TEXT = ".claudian-queue-indicator-text";
 /** Claudian's own command that opens/reveals its view. */
 const OPEN_COMMAND = "realclaudian:open-view";
 /** View to switch to when Claudian is toggled away inside a sidebar (the sidebar's default). */
@@ -53,6 +65,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private submitScrollObserver: MutationObserver | null = null;
 	/** The view container the observer is bound to; guards against re-binding. */
 	private observedContainer: HTMLElement | null = null;
+	/** Last queued-message summary we scrolled for; see handleQueueChange. */
+	private lastQueueText = "";
 
 	async onload(): Promise<void> {
 		this.addCommand({
@@ -81,14 +95,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				this.ensureSubmitScrollObserver();
 			}),
 		);
-		// Scroll a submitted message into view. Claudian only forces the list to the
-		// bottom on a new conversation or when you're already near the bottom; its lone
-		// related setting ("Auto-scroll during streaming") doesn't cover submitting. So
-		// if you scroll up to read history, its autoscroll pauses and sending a new
-		// prompt leaves your message + the reply off-screen. We watch for the user's
-		// message bubble appearing and pin the list to the bottom — which also lands us
-		// near the bottom, tripping Claudian's own check to re-enable streaming
-		// autoscroll. See setupSubmitScroll / ensureSubmitScrollObserver.
+		// Keep the conversation pinned to the bottom. Claudian's own autoscroll is too
+		// brittle to rely on: it only forces the list down on a new conversation, its
+		// submit path doesn't scroll at all, and its streaming follow re-arms only if you
+		// are within 20px of the bottom 150ms after a scroll event — which the reply's
+		// own first block reliably breaks, stranding the rest of the turn off-screen. We
+		// watch the view for submits, replies rendering, and queued prompts instead.
+		// See setupSubmitScroll / ensureSubmitScrollObserver.
 		this.setupSubmitScroll(Date.now() + 8000);
 		// MutationObserver isn't auto-cleaned by Obsidian's register* helpers.
 		this.register(() => this.submitScrollObserver?.disconnect());
@@ -411,11 +424,19 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * Bind (once per view container) a MutationObserver that scrolls a submitted prompt
-	 * into view. Watching the view's containerEl with subtree covers every conversation
-	 * tab without re-binding on internal tab switches. We react only to a `.claudian-
-	 * message-user` node being added — assistant streaming updates its own bubble in
-	 * place and never adds one, so this never fights Claudian's scroll-up-to-pause.
+	 * Bind (once per view container) a MutationObserver that keeps the conversation
+	 * pinned to the bottom. Watching the view's containerEl with subtree covers every
+	 * conversation tab without re-binding on internal tab switches.
+	 *
+	 * One batch of mutations can carry all three signals, so each is collected and then
+	 * acted on in priority order rather than returning from the loop:
+	 *
+	 *   submit  — a `.claudian-message-user` bubble appeared: an explicit "show me my
+	 *             message", so it always wins and always scrolls.
+	 *   stream  — anything else changed inside a message list: the reply rendering. Only
+	 *             follows while the reader is still near the bottom (see followToBottom).
+	 *   queue   — the queue row changed: a prompt parked mid-stream, which adds no bubble
+	 *             at all (see handleQueueChange).
 	 */
 	private ensureSubmitScrollObserver(): void {
 		const container = this.getClaudianLeaf()?.view.containerEl ?? null;
@@ -423,25 +444,101 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.submitScrollObserver?.disconnect();
 		this.observedContainer = container;
 		this.submitScrollObserver = new MutationObserver((records) => {
+			let submitted: HTMLElement | null = null;
+			let streamed: HTMLElement | null = null;
+			let queued = false;
 			for (const record of records) {
-				for (const node of Array.from(record.addedNodes)) {
-					if (node.nodeType !== Node.ELEMENT_NODE) continue;
-					const el = node as HTMLElement;
-					const userMsg = el.matches(CLAUDIAN_USER_MESSAGE)
-						? el
-						: el.querySelector<HTMLElement>(CLAUDIAN_USER_MESSAGE);
-					if (userMsg) {
-						// Scroll the exact list this message landed in (there's one per tab).
-						this.scrollToBottom(userMsg.closest<HTMLElement>(CLAUDIAN_MESSAGES));
-						return;
-					}
-				}
+				submitted ??= this.addedUserMessage(record);
+				streamed ??= this.messagesListOf(record.target);
+				queued ||= this.isInQueueRow(record.target);
 			}
+			// Both scroll "the list this landed in" — there's one per conversation tab.
+			if (submitted) this.scrollToBottom(submitted.closest(CLAUDIAN_MESSAGES));
+			else if (streamed) this.followToBottom(streamed);
+			if (queued) this.handleQueueChange();
 		});
 		this.submitScrollObserver.observe(container, {
 			childList: true,
 			subtree: true,
+			// Discarding/dispatching a queued message only toggles the row's visibility
+			// class (Claudian leaves the stale summary in the DOM), so childList alone
+			// would never tell us the queue emptied. See handleQueueChange.
+			attributes: true,
+			attributeFilter: ["class"],
 		});
+	}
+
+	/** The user bubble this mutation added, if any (it can arrive nested in a re-render). */
+	private addedUserMessage(record: MutationRecord): HTMLElement | null {
+		for (const node of Array.from(record.addedNodes)) {
+			if (node.nodeType !== Node.ELEMENT_NODE) continue;
+			const el = node as HTMLElement;
+			const userMsg = el.matches(CLAUDIAN_USER_MESSAGE)
+				? el
+				: el.querySelector<HTMLElement>(CLAUDIAN_USER_MESSAGE);
+			if (userMsg) return userMsg;
+		}
+		return null;
+	}
+
+	/** The message list a mutation happened in, or null when it happened elsewhere. */
+	private messagesListOf(target: Node): HTMLElement | null {
+		const el = target instanceof HTMLElement ? target : target.parentElement;
+		return el?.closest<HTMLElement>(CLAUDIAN_MESSAGES) ?? null;
+	}
+
+	/**
+	 * Follow a reply as it renders. Claudian's own autoscroll gives up here: it only
+	 * re-arms `autoScrollEnabled` 150ms after a scroll event *and* only if you're still
+	 * within 20px of the bottom — the thinking block appearing inside that window pushes
+	 * you past 20px, the re-check fails, and since growing content fires no scroll event
+	 * nothing ever re-arms it. The rest of the turn then renders off-screen.
+	 *
+	 * Unlike a submit (an explicit "take me to my message"), this is us following someone
+	 * else's output, so it defers to the reader: scrolled up beyond FOLLOW_THRESHOLD_PX
+	 * means they detached on purpose and we leave them there.
+	 *
+	 * Pinned synchronously: measuring the distance already forced layout, so the nodes
+	 * this batch added are included and there is nothing for a rAF to wait for — it would
+	 * only add a frame of lag, plus a starved frame would strand the pin.
+	 */
+	private followToBottom(scroller: HTMLElement): void {
+		const distance =
+			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+		if (distance > FOLLOW_THRESHOLD_PX) return;
+		scroller.scrollTop = scroller.scrollHeight;
+	}
+
+	/** Did this mutation land inside the queue row (childList targets the row itself)? */
+	private isInQueueRow(target: Node): boolean {
+		return target instanceof HTMLElement && !!target.closest(CLAUDIAN_QUEUE_ROW);
+	}
+
+	/**
+	 * Treat "prompt got queued" as a submit and pin the list to the bottom.
+	 *
+	 * Sending while Claudian is streaming doesn't append a bubble — the prompt is parked
+	 * and only the "⌐ Queued: …" row is repainted — so the bubble branch above never
+	 * fires and the list stays wherever you had scrolled to, which is exactly the
+	 * off-screen case the observer exists to prevent.
+	 *
+	 * Keyed on the row's summary text because Claudian rebuilds that row on every queue
+	 * state change (steer-button state, stream end, …); only a *changed*, currently
+	 * visible summary scrolls, so the repaints don't keep yanking you down. A hidden row
+	 * reads as empty, which resets the key — re-queueing the same text still counts as a
+	 * new submit.
+	 */
+	private handleQueueChange(): void {
+		const row = this.visibleEl<HTMLElement>(CLAUDIAN_QUEUE_ROW);
+		const text =
+			row && row.offsetParent !== null
+				? (row.querySelector(CLAUDIAN_QUEUE_TEXT)?.textContent?.trim() ?? "")
+				: "";
+		if (text === this.lastQueueText) return;
+		this.lastQueueText = text;
+		// The queued prompt belongs to the tab on screen, and its composer can be hosted
+		// outside that tab's DOM (the view re-parents it), so pin the visible list.
+		if (text) this.scrollToBottom(this.visibleEl<HTMLElement>(CLAUDIAN_MESSAGES));
 	}
 
 	/**
@@ -486,12 +583,20 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 
 	/** The visible composer textarea — Claudian keeps hidden ones for background tabs. */
 	private visibleInput(): HTMLTextAreaElement | null {
+		return this.visibleEl<HTMLTextAreaElement>(CLAUDIAN_INPUT);
+	}
+
+	/**
+	 * The laid-out instance of `selector` inside Claudian's view. Claudian keeps one copy
+	 * per conversation tab and hides the inactive ones, so we pick the element that is
+	 * actually rendered; the first match is a last resort when nothing is laid out (a
+	 * collapsed dock), which callers that care about visibility re-check themselves.
+	 */
+	private visibleEl<T extends HTMLElement>(selector: string): T | null {
 		const container = this.getClaudianLeaf()?.view.containerEl;
 		if (!container) return null;
-		const inputs = Array.from(
-			container.querySelectorAll<HTMLTextAreaElement>(CLAUDIAN_INPUT),
-		);
-		return inputs.find((el) => el.offsetParent !== null) ?? inputs[0] ?? null;
+		const els = Array.from(container.querySelectorAll<T>(selector));
+		return els.find((el) => el.offsetParent !== null) ?? els[0] ?? null;
 	}
 
 	/** A sidebar leaf is showing only when its container is laid out (not a hidden tab / collapsed dock). */
