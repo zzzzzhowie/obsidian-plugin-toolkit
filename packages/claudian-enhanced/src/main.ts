@@ -21,8 +21,21 @@ const FOLLOW_THRESHOLD_PX = 200;
 const CLAUDIAN_QUEUE_ROW = ".claudian-input-queue-row";
 /** The summary label inside that row (Claudian rebuilds it on every queue update). */
 const CLAUDIAN_QUEUE_TEXT = ".claudian-queue-indicator-text";
+/**
+ * Links inside a Claudian response. It renders vault links as `.internal-link` and
+ * stamps its own file mentions with `.claudian-file-link`; both go through the same
+ * click handler, which always opens a new tab (see interceptLinkClicks).
+ */
+const CLAUDIAN_LINK = ".claudian-file-link, .internal-link";
 /** Claudian's own command that opens/reveals its view. */
 const OPEN_COMMAND = "realclaudian:open-view";
+/**
+ * Claudian's own command that starts a fresh conversation *in the current tab* (no tab is
+ * created or destroyed). Its createNew() resets the conversation, saves the old one to
+ * history, and calls autoAttachActiveFile() — so the note we just switched to is attached
+ * for us. Used to clear context on a note change; see resetSessionForNoteChange.
+ */
+const NEW_SESSION_COMMAND = "realclaudian:new-session";
 /** View to switch to when Claudian is toggled away inside a sidebar (the sidebar's default). */
 const SIDEBAR_DEFAULT_VIEW = "outline";
 /** Core Outline plugin's command — used to recreate the outline leaf if its tab was closed. */
@@ -31,6 +44,16 @@ const OUTLINE_OPEN_COMMAND = "outline:open";
 /** `app.commands` is a stable but undocumented Obsidian API (not in the public typings). */
 interface AppWithCommands {
 	commands: { executeCommandById(id: string): boolean };
+}
+
+/**
+ * The bits of Claudian's active *conversation tab* state we read before clearing context.
+ * `isStreaming` guards a reply in flight; `messages` tells us whether there's anything worth
+ * clearing. Optional all the way down, same contract as {@link ClaudianFileContext}.
+ */
+interface ClaudianTabState {
+	isStreaming?: boolean;
+	messages?: unknown[];
 }
 
 /**
@@ -59,6 +82,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private gen = 0;
 	/** Last note path we re-asserted for the chip; guards the sync loop from re-firing. */
 	private lastSyncedPath: string | null = null;
+	/**
+	 * The note the current conversation belongs to — the "last opened file" that decides
+	 * whether context should be cleared. Deliberately separate from `lastSyncedPath`, which
+	 * is cleared whenever Claudian is hidden: keying off that would wipe the conversation
+	 * just for toggling the panel with ⌘L. Only a real note change moves this.
+	 */
+	private lastOpenedPath: string | null = null;
 	/** Debounce handle for the active-note → chip sync. */
 	private syncTimer: number | null = null;
 	/** Watches for submitted messages to scroll them into view; see setupSubmitScroll. */
@@ -105,6 +135,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.setupSubmitScroll(Date.now() + 8000);
 		// MutationObserver isn't auto-cleaned by Obsidian's register* helpers.
 		this.register(() => this.submitScrollObserver?.disconnect());
+		// Reuse a tab instead of stacking a new one per clicked link. See
+		// interceptLinkClicks.
+		this.interceptLinkClicks();
 		// Cold-start fix. Claudian restores its last conversation together with *that
 		// conversation's* saved note. When that was a started/interrupted session,
 		// Claudian deliberately freezes the note (handleFileOpen's isSessionStarted
@@ -322,7 +355,57 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const path = this.activeNotePath();
 		if (!path || path === this.lastSyncedPath) return;
 		this.lastSyncedPath = path;
+		this.handleNoteChange(path);
+	}
+
+	/**
+	 * React to the open note changing. Switching notes means the conversation is about
+	 * something else now, so clear the context: start a fresh session in the current tab
+	 * (the old one is saved to Claudian's history). When that's declined — a reply is
+	 * streaming, or the conversation is empty so there's nothing to clear — fall back to
+	 * re-pointing the attached note in place, which is the old behavior.
+	 */
+	private handleNoteChange(path: string): void {
+		const previous = this.lastOpenedPath;
+		this.lastOpenedPath = path;
+		// First note we've seen (fresh load, or Claudian just appeared): there is no
+		// previous conversation to clear, so only attach.
+		if (previous !== null && previous !== path && this.resetSessionForNoteChange()) {
+			// The fresh session attaches a note itself, but createNew() is async and picks
+			// `getActiveFile()` — normally this note, though that isn't guaranteed to agree
+			// with the leaf we measured. Re-assert once it settles; attachNoteToClaudian is
+			// idempotent and null-safe, so this is a no-op whenever it already matches.
+			window.setTimeout(() => this.attachNoteToClaudian(path), 300);
+			return;
+		}
 		this.attachNoteToClaudian(path);
+	}
+
+	/**
+	 * Clear the conversation context by starting a fresh session in the current tab.
+	 * Returns whether it actually happened, so the caller can fall back.
+	 *
+	 * Declines while a reply is streaming (never cut off a running response) and when the
+	 * conversation has no messages (nothing to clear — resetting would only churn the tab
+	 * and drop an attached note the user just set up).
+	 */
+	private resetSessionForNoteChange(): boolean {
+		const state = this.getActiveTabState();
+		if (!state || state.isStreaming) return false;
+		if (!state.messages?.length) return false;
+		return (this.app as unknown as AppWithCommands).commands.executeCommandById(
+			NEW_SESSION_COMMAND,
+		);
+	}
+
+	/** Claudian's active conversation-tab state, or null if absent / internals renamed. */
+	private getActiveTabState(): ClaudianTabState | null {
+		const view = this.getClaudianLeaf()?.view as unknown as {
+			getTabManager?: () => {
+				getActiveTab?: () => { state?: ClaudianTabState } | null;
+			} | null;
+		};
+		return view?.getTabManager?.()?.getActiveTab?.()?.state ?? null;
 	}
 
 	/**
@@ -364,7 +447,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				const attached = this.attachedNotePath();
 				if (attached !== null) {
 					const notePath = this.activeNotePath();
-					if (notePath) this.attachNoteToClaudian(notePath);
+					if (notePath) {
+						// Seed the note-change tracker: the restored conversation belongs to
+						// whatever is open now, so a *later* switch is the first thing that
+						// clears context — a cold start never wipes the restored session.
+						this.lastOpenedPath = notePath;
+						this.attachNoteToClaudian(notePath);
+					}
 					return; // restore settled — done
 				}
 			}
@@ -554,6 +643,90 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		};
 		requestAnimationFrame(run);
 		window.setTimeout(run, 150);
+	}
+
+	/**
+	 * Open links from a Claudian response in an existing tab instead of a new one.
+	 *
+	 * Claudian's own handler is hardcoded to `openLinkText(href, "", "tab")`, so every
+	 * click stacks another tab — click the same note three times and you get three
+	 * identical tabs. It can't simply pass `false`: Claudian lives in a sidebar, so the
+	 * active leaf is its own, and Obsidian would load the note *into the chat panel*.
+	 * That's what we fix here — pick a main-area leaf ourselves (the one already showing
+	 * the file, else the most recent one), make it active, and only then let Obsidian
+	 * resolve the link with `newLeaf: false`, which reuses that leaf and still honors a
+	 * `#heading` subpath.
+	 *
+	 * Capture phase + stopImmediatePropagation so Claudian's own bubble-phase handler
+	 * never runs. Cmd/Ctrl-click and middle-click keep their standard "new tab" meaning.
+	 */
+	private interceptLinkClicks(): void {
+		this.registerDomEvent(
+			document,
+			"click",
+			(event: MouseEvent) => {
+				const container = this.getClaudianLeaf()?.view.containerEl;
+				if (!container) return;
+				const target = event.target as HTMLElement | null;
+				const link = target?.closest<HTMLElement>(CLAUDIAN_LINK);
+				// Only links rendered inside the chat panel; notes keep native behavior.
+				if (!link || !container.contains(link)) return;
+				const href = link.dataset.href ?? link.getAttribute("href");
+				if (!href) return;
+
+				event.preventDefault();
+				event.stopPropagation();
+				event.stopImmediatePropagation();
+
+				// Honor the platform convention for an explicit "open elsewhere" click.
+				if (event.metaKey || event.ctrlKey || event.button === 1) {
+					void this.app.workspace.openLinkText(href, "", "tab");
+					return;
+				}
+
+				const reuse = this.leafForLink(href);
+				if (!reuse) {
+					// Nothing in the main area to reuse (e.g. only the sidebar is open).
+					void this.app.workspace.openLinkText(href, "", "tab");
+					return;
+				}
+				// Hand "active" to the main-area leaf so newLeaf:false lands there and not
+				// in Claudian's sidebar, then let Obsidian do the resolving + anchor jump.
+				this.app.workspace.setActiveLeaf(reuse, { focus: true });
+				void this.app.workspace.openLinkText(href, "", false);
+			},
+			{ capture: true },
+		);
+	}
+
+	/**
+	 * The main-area leaf a clicked link should land in: prefer one already showing that
+	 * file (so clicking it again just focuses it), otherwise the most recent main-area
+	 * markdown leaf. Sidebar leaves are never eligible — loading a note into one would
+	 * replace Claudian itself.
+	 */
+	private leafForLink(href: string): WorkspaceLeaf | null {
+		const linkpath = href.split("#")[0] ?? "";
+		const file = linkpath
+			? this.app.metadataCache.getFirstLinkpathDest(linkpath, "")
+			: null;
+
+		const mainLeaves = this.app.workspace
+			.getLeavesOfType("markdown")
+			.filter((leaf) => this.sidebarOf(leaf) === null);
+
+		if (file) {
+			const open = mainLeaves.find(
+				(leaf) =>
+					(leaf.view as unknown as { file?: { path?: string } }).file?.path ===
+					file.path,
+			);
+			if (open) return open;
+		}
+
+		const recent = this.app.workspace.getMostRecentLeaf();
+		if (recent && this.sidebarOf(recent) === null) return recent;
+		return mainLeaves[0] ?? null;
 	}
 
 	private getClaudianLeaf(): WorkspaceLeaf | null {

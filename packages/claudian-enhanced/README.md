@@ -1,6 +1,6 @@
 # Claudian Enhanced
 
-Quality-of-life wrapper around the [Claudian](https://github.com/YishenTu/claudian) plugin (`realclaudian`). Adds a single command, **Toggle Claudian chat (focus input, keep selection)**, meant to be bound to a hotkey (e.g. `⌘L`).
+Quality-of-life wrapper around the [Claudian](https://github.com/YishenTu/claudian) plugin (`realclaudian`). Adds a single command, **Toggle Claudian chat**, meant to be bound to a hotkey (e.g. `⌘L`) — it focuses the composer and keeps the editor selection. Everything else it does needs no command and is always on (see Behavior).
 
 ## Behavior
 
