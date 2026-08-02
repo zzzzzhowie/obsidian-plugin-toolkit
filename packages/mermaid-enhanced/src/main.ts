@@ -38,8 +38,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new MermaidEnhancedSettingTab(this.app, this));
 
-		// Click a diagram to open a zoomable/pannable overlay (ported from
-		// image-zoom): Cmd/Ctrl-click on desktop, plain tap on mobile.
+		// Click a diagram to open a zoomable/pannable overlay: Cmd/Ctrl-click on
+		// desktop, plain tap on mobile.
 		new MermaidZoom(this).register();
 
 		// Read per-diagram directives (`%% fit: ... %%`) from the block source and
@@ -386,7 +386,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			? this.locateFirstContentLine(view, block)
 			: null;
 		if (!view || firstLine === null) {
-			new Notice("Mermaid Fit: 滑块只在实时预览下可用");
+			new Notice("Mermaid Enhanced: 滑块只在实时预览下可用");
 			return;
 		}
 		const editor = view.editor;

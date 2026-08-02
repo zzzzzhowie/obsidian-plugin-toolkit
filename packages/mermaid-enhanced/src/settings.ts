@@ -26,7 +26,7 @@ export class MermaidEnhancedSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName("Enable Mermaid Fit")
+			.setName("Fit tall diagrams to the screen")
 			.setDesc(
 				"Constrain tall Mermaid diagrams so they fit within one screen. " +
 					"Turn off to restore the theme's original sizing."

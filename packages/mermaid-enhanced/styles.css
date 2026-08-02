@@ -52,7 +52,7 @@
 	opacity: 1;
 }
 
-/* ── Click-to-zoom overlay (ported from image-zoom, namespaced) ─────────── */
+/* ── Click-to-zoom overlay (namespaced mermaid-zoom-*) ──────────────────── */
 
 .mermaid-zoom-overlay {
 	position: fixed;

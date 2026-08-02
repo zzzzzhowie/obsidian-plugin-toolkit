@@ -1,15 +1,15 @@
 import { Platform, Plugin } from "obsidian";
 
 /**
- * Click-to-zoom for Mermaid diagrams, ported from the image-zoom plugin (SVG
- * path only). A click opens a full-screen overlay holding a clone of the diagram
- * that can be zoomed (buttons / wheel-pinch / two-finger pinch) and panned
- * (drag / two-finger). Trigger matches image-zoom: Cmd/Ctrl-click on desktop, a
- * plain tap on mobile.
+ * Click-to-zoom for Mermaid diagrams (originally the SVG half of the retired
+ * image-zoom plugin). A click opens a full-screen overlay holding a clone of the
+ * diagram that can be zoomed (buttons / wheel-pinch / two-finger pinch) and panned
+ * (drag / two-finger). Requires Cmd/Ctrl on desktop so it never swallows the plain
+ * click that positions the cursor in Live Preview; on mobile a plain tap is enough.
  *
- * image-zoom still handles Mermaid too. To avoid two overlays stacking when both
- * plugins are enabled, we listen in the capture phase and stopImmediatePropagation
- * on a hit, so our handler wins and image-zoom's (bubble on desktop) never runs.
+ * The click is claimed in the capture phase and stopped there (see register), so a
+ * diagram never also reaches Obsidian's own handling or another plugin listening on
+ * the bubble — one click can only ever produce this one overlay.
  */
 export class MermaidZoom {
 	private overlay: HTMLElement | null = null;
@@ -30,13 +30,13 @@ export class MermaidZoom {
 	register(): void {
 		this.createOverlay();
 
-		// Capture phase so we run before — and, on a hit, suppress — image-zoom's
-		// own Mermaid handler. Non-diagram clicks fall through untouched.
+		// Capture phase so a diagram click is ours alone; non-diagram clicks fall
+		// through untouched.
 		this.plugin.registerDomEvent(
 			document,
 			"click",
 			(event: MouseEvent) => {
-				// Desktop keeps image-zoom's modifier requirement; mobile is a plain tap.
+				// Desktop requires Cmd/Ctrl; mobile is a plain tap.
 				if (!this.isMobile && !event.metaKey && !event.ctrlKey) return;
 				const svg = this.mermaidTargetFor(event.target as HTMLElement);
 				if (!svg) return;
