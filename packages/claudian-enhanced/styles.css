@@ -53,6 +53,41 @@
 	overflow-y: visible;
 }
 
+/* Queued-follow-up row ("⌐ Queued: …"): its edit / discard buttons render as empty
+   theme-styled pills instead of icons. Claudian styles them as bare 22px icon boxes
+   (.claudian-queue-indicator-icon-action { padding:0; background:transparent }, (0,1,0)),
+   but two element-level rules out-specify that class:
+
+     app.css        button:not(.clickable-icon)        (0,1,1) → background-color:var(--interactive-normal)
+     Primary theme  button:not(button.clickable-icon)  (0,2,1) → padding:var(--button-padding)
+
+   The padding is what empties them: 12px of horizontal padding inside a 22px-wide
+   inline-flex button leaves a 0px content box, so the 14px <svg> — a flex item, free
+   to shrink — computes to width:0 and nothing is drawn. The background rule is what
+   turns the leftover box into a visible white pill.
+
+   Doubling the class gives (0,3,0), which beats both regardless of stylesheet order
+   (plugin CSS vs. theme CSS load order isn't guaranteed across theme switches), and
+   flex:0 0 auto keeps the icon from being shrunk again by any future padding rule.
+   The :hover rule has to be doubled too — our (0,3,0) background would otherwise also
+   win during hover and leave the button with no hover feedback at all. */
+.claudian-queue-indicator-icon-action.claudian-queue-indicator-icon-action {
+	padding: 0;
+	background: transparent;
+	box-shadow: none;
+	border-radius: 4px;
+}
+
+.claudian-queue-indicator-icon-action.claudian-queue-indicator-icon-action:hover {
+	background: var(--background-modifier-hover);
+}
+
+.claudian-queue-indicator-icon-action.claudian-queue-indicator-icon-action svg {
+	flex: 0 0 auto;
+	width: 14px;
+	height: 14px;
+}
+
 /* Root cause of wide tables / code blocks stretching the whole conversation:
    .claudian-message is a flex item in the .claudian-messages column, so it keeps
    the flex default min-width:auto and REFUSES to shrink below its content's
