@@ -160,3 +160,13 @@
 	overflow-y: hidden;
 	text-align: left;
 }
+
+/* Keep the scrollbar off the message text. Claudian sets `padding: 12px 0 0` on the
+   scroller, so content runs flush to the right edge where its 6px overlay scrollbar
+   is painted, clipping the last sliver of text while scrolling. Doubling the class
+   gives (0,2,0) so we beat Claudian's own (0,1,0) shorthand regardless of stylesheet
+   load order — a plain single-class rule would lose whenever theirs loads last and
+   resets padding-right to 0. */
+.claudian-messages.claudian-messages {
+	padding-right: 10px;
+}
