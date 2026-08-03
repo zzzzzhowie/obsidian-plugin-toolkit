@@ -44,6 +44,15 @@ export class PinnedItemsManager {
 			})
 		);
 
+		// Pins are stored by path, so a rename or move would strand them — the entry
+		// keeps pointing at a path that no longer exists and its label stays stale.
+		// Follow the file instead. See syncPinnedPaths.
+		this.plugin.registerEvent(
+			this.app.vault.on("rename", (file, oldPath) => {
+				void this.syncPinnedPaths(file, oldPath);
+			})
+		);
+
 		// Watch for workspace changes that might affect the file explorer
 		this.plugin.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => {
@@ -152,6 +161,40 @@ export class PinnedItemsManager {
 				item.order = order;
 			}
 		});
+		await this.plugin.saveSettings();
+		this.refreshPinnedItems();
+	}
+
+	/**
+	 * Keep pins pointing at the right file after a rename or move.
+	 *
+	 * Two cases, and a renamed folder is the one that's easy to miss:
+	 * - the renamed item is itself pinned → take its new path and label.
+	 * - the renamed item is a *folder* containing pinned items → every descendant's
+	 *   stored path still carries the old folder prefix, so rewrite the prefix. Their
+	 *   own names don't change.
+	 *
+	 * Only writes when something actually changed, so unrelated renames don't churn
+	 * settings or rebuild the list. Prefix-rewriting first also makes this idempotent:
+	 * if Obsidian additionally reports the children individually, their paths already
+	 * match by then and the direct branch finds nothing to do.
+	 */
+	private async syncPinnedPaths(file: TAbstractFile, oldPath: string) {
+		const oldPrefix = `${oldPath}/`;
+		let changed = false;
+
+		for (const pin of this.plugin.settings.pinnedItems) {
+			if (pin.path === oldPath) {
+				pin.path = file.path;
+				pin.name = file.name;
+				changed = true;
+			} else if (pin.path.startsWith(oldPrefix)) {
+				pin.path = `${file.path}/${pin.path.slice(oldPrefix.length)}`;
+				changed = true;
+			}
+		}
+
+		if (!changed) return;
 		await this.plugin.saveSettings();
 		this.refreshPinnedItems();
 	}
