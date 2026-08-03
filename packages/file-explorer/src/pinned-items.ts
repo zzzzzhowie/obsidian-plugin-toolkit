@@ -53,6 +53,13 @@ export class PinnedItemsManager {
 			})
 		);
 
+		// A pin to a deleted file points at nothing, so drop it. See dropPinnedPaths.
+		this.plugin.registerEvent(
+			this.app.vault.on("delete", (file) => {
+				void this.dropPinnedPaths(file);
+			})
+		);
+
 		// Watch for workspace changes that might affect the file explorer
 		this.plugin.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => {
@@ -195,6 +202,25 @@ export class PinnedItemsManager {
 		}
 
 		if (!changed) return;
+		await this.plugin.saveSettings();
+		this.refreshPinnedItems();
+	}
+
+	/**
+	 * Drop pins for a deleted item — and, when a folder is deleted, for everything that
+	 * was pinned inside it (same prefix reasoning as syncPinnedPaths).
+	 *
+	 * Silent on purpose: the user deleted the file, so removing its pin is the expected
+	 * consequence, and `unpinItem`'s "Unpinned: …" notice is reserved for an explicit
+	 * unpin. Only writes when something was actually removed.
+	 */
+	private async dropPinnedPaths(file: TAbstractFile) {
+		const prefix = `${file.path}/`;
+		const remaining = this.plugin.settings.pinnedItems.filter(
+			(pin) => pin.path !== file.path && !pin.path.startsWith(prefix)
+		);
+		if (remaining.length === this.plugin.settings.pinnedItems.length) return;
+		this.plugin.settings.pinnedItems = remaining;
 		await this.plugin.saveSettings();
 		this.refreshPinnedItems();
 	}
