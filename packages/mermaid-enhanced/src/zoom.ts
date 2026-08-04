@@ -1,4 +1,4 @@
-import { Platform, Plugin } from "obsidian";
+import { Platform, Plugin, setIcon } from "obsidian";
 
 /**
  * Click-to-zoom for Mermaid diagrams (originally the SVG half of the retired
@@ -16,6 +16,8 @@ export class MermaidZoom {
 	private current: SVGElement | null = null;
 	private toolbar: HTMLElement | null = null;
 	private scale = 1;
+	/** The fit-to-screen scale the overlay opened at; what "reset" returns to. */
+	private initialScale = 1;
 	private translateX = 0;
 	private translateY = 0;
 	private isDragging = false;
@@ -47,6 +49,21 @@ export class MermaidZoom {
 			},
 			{ capture: true },
 		);
+
+		// Desktop needs Cmd/Ctrl to zoom, which is undiscoverable on its own — so hint
+		// it: while the modifier is held, a zoomable diagram gets the zoom-in cursor.
+		// Pointless on mobile, where there's no hover and a plain tap works.
+		if (!this.isMobile) {
+			this.plugin.registerDomEvent(document, "mousemove", (event: MouseEvent) => {
+				const svg = this.mermaidTargetFor(event.target as HTMLElement);
+				if (!svg) return;
+				// Cleared (not left set) as soon as the modifier comes back up. The fit
+				// feature writes width/height on this same element but never cursor, so
+				// the two don't collide.
+				svg.style.cursor =
+					event.metaKey || event.ctrlKey ? "zoom-in" : "";
+			});
+		}
 	}
 
 	/** The Mermaid SVG a click over `target` should zoom, or null. */
@@ -134,27 +151,67 @@ export class MermaidZoom {
 
 	private showZoomed(svg: SVGElement): void {
 		if (!this.overlay) return;
-		this.scale = 1;
 		this.translateX = 0;
 		this.translateY = 0;
 		this.overlay.empty();
 
 		const container = this.overlay.createDiv("mermaid-zoom-container");
 
-		// Clone so we never mutate the diagram in the note. Drop the fit plugin's
-		// inline sizing so the overlay copy renders at its natural size.
+		// Clone so we never mutate the diagram in the note, and drop the fit feature's
+		// inline sizing (a px max-width) that came with it.
 		const clone = svg.cloneNode(true) as SVGElement;
-		clone.style.maxWidth = "100%";
-		clone.style.maxHeight = "100%";
-		clone.style.width = "auto";
-		clone.style.height = "auto";
+		const { width, height } = this.naturalSizeOf(svg);
+		// Size the clone in px. `width/height: auto` collapses a Mermaid SVG — it ships
+		// `width="100%"` plus a viewBox and no intrinsic size, so in this flex container
+		// it resolved to a near-empty box, which with the white backing rendered as a
+		// small white square instead of the diagram. Explicit px also gives
+		// `transform: scale()` a real reference point, so maxWidth/maxHeight must be
+		// none or they would fight the transform.
+		clone.style.width = `${width}px`;
+		clone.style.height = `${height}px`;
+		clone.style.maxWidth = "none";
+		clone.style.maxHeight = "none";
 		container.appendChild(clone);
 		this.current = clone;
 
+		this.initialScale = this.initialScaleFor(width, height);
+		this.scale = this.initialScale;
 		this.setupZoomAndDrag(container);
 		this.createToolbar();
 
 		this.overlay.style.display = "flex";
+	}
+
+	/**
+	 * The diagram's own dimensions. The viewBox is the reliable source for a Mermaid SVG
+	 * (it always has one — the fit feature reads it too); fall back to the rendered box,
+	 * then to a sane default so we can never end up with a zero-sized clone.
+	 */
+	private naturalSizeOf(svg: SVGElement): { width: number; height: number } {
+		const vb = (svg as SVGSVGElement).viewBox?.baseVal;
+		if (vb && vb.width > 0 && vb.height > 0) {
+			return { width: vb.width, height: vb.height };
+		}
+		const rect = svg.getBoundingClientRect();
+		if (rect.width > 0 && rect.height > 0) {
+			return { width: rect.width, height: rect.height };
+		}
+		return { width: 800, height: 600 };
+	}
+
+	/**
+	 * Open at the scale that fits the diagram inside the overlay, matching the container's
+	 * 90vw / 90vh-minus-toolbar box and the SVG's own padding. This both shrinks a large
+	 * diagram to fit and grows a small one to fill the screen — the point of zooming, and
+	 * lossless since it's vector. (image-zoom computed `max(fit, fit * 0.85)` here, which
+	 * is just `fit`; stating the rule directly avoids implying the 0.85 did something.)
+	 */
+	private initialScaleFor(width: number, height: number): number {
+		const padding = 40; // the svg's 20px padding, both sides
+		const availWidth = window.innerWidth * 0.9 - padding;
+		const availHeight = window.innerHeight * 0.9 - 60 - padding; // 60 = toolbar
+		if (availWidth <= 0 || availHeight <= 0) return 1;
+		return Math.min(availWidth / width, availHeight / height);
 	}
 
 	private setupZoomAndDrag(container: HTMLElement): void {
@@ -278,8 +335,8 @@ export class MermaidZoom {
 		out.addEventListener("click", () => this.zoomBy(0.9));
 
 		const reset = this.toolbar.createEl("button", { cls: "zoom-reset-btn" });
-		reset.setAttribute("aria-label", "Reset to 100%");
-		reset.textContent = "⟲";
+		reset.setAttribute("aria-label", "Fit to screen");
+		setIcon(reset, "rotate-ccw");
 		reset.addEventListener("click", () => this.resetZoom());
 
 		const info = this.toolbar.createEl("span", { cls: "zoom-info" });
@@ -305,7 +362,7 @@ export class MermaidZoom {
 	}
 
 	private resetZoom(): void {
-		this.scale = 1;
+		this.scale = this.initialScale;
 		this.translateX = 0;
 		this.translateY = 0;
 		this.updateTransform();

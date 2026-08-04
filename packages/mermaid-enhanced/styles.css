@@ -83,11 +83,9 @@
 	pointer-events: auto;
 }
 
+/* Width/height are set inline from the viewBox (see showZoomed) — an auto size
+   collapses a Mermaid SVG, so don't reintroduce one here. */
 .mermaid-zoom-container svg {
-	max-width: 100%;
-	max-height: 100%;
-	width: auto;
-	height: auto;
 	transition: transform 0.1s ease-out;
 	transform-origin: center center;
 	/* Light backing so dark-mode diagrams stay legible in the overlay. */
@@ -95,6 +93,14 @@
 	padding: 20px;
 	border-radius: 8px;
 	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+	/* A Mermaid diagram's nodes and edge labels carry their own cursors, which would
+	   otherwise show through and hide the container's grab/grabbing cursor while
+	   panning. Inherit instead, on the root and every node inside it. */
+	cursor: inherit !important;
+}
+
+.mermaid-zoom-container svg * {
+	cursor: inherit !important;
 }
 
 .mermaid-zoom-toolbar {
