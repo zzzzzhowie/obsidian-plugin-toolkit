@@ -136,8 +136,20 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		svgs.forEach((svg) => {
 			// Don't stomp the diagram currently being dragged with its slider.
 			if (svg === this.draggingSvg) return;
-			this.fitSvg(svg);
-			this.injectSlider(svg);
+			// Both steps reach into Obsidian's rendered DOM, so an Obsidian change can
+			// make one throw. Contain it per diagram: previously an exception here
+			// aborted the entire pass, so one unexpected structure silently killed both
+			// fitting and the slider everywhere.
+			try {
+				this.fitSvg(svg);
+			} catch (e) {
+				console.error("mermaid-enhanced: failed to fit a diagram", e);
+			}
+			try {
+				this.injectSlider(svg);
+			} catch (e) {
+				console.error("mermaid-enhanced: failed to add the size slider", e);
+			}
 		});
 	}
 
@@ -269,7 +281,14 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		slider.step = String(SLIDER_STEP);
 		slider.value = String(this.initialSliderValue(svg));
 		slider.classList.add(SLIDER_CLS);
-		block.insertBefore(slider, editBtn ?? null);
+		// Append rather than insert before the edit button. Obsidian 1.13 moved that
+		// button into an `.embed-actions` wrapper, so it is no longer a direct child of
+		// the block — `insertBefore` then threw NotFoundError, which aborted the whole
+		// processAll pass and took the slider (and fitting) down with it. DOM order
+		// doesn't matter here anyway: the slider is positioned absolutely by
+		// positionControl, which measures the button wherever it now lives. Appending
+		// also keeps it a direct child, which the `:hover >` reveal rule needs.
+		block.appendChild(slider);
 		this.positionControl(slider, block, editBtn);
 
 		// Value tooltip, shown only while actively dragging (no aria-label, so no
