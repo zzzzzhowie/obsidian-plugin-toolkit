@@ -47,22 +47,16 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		this.registerMarkdownPostProcessor((el, ctx) => {
 			const info = ctx.getSectionInfo(el);
 			if (!info) return;
-			const src = info.text
-				.split("\n")
-				.slice(info.lineStart, info.lineEnd + 1)
-				.join("\n");
+			const lines = info.text.split("\n");
+			const src = lines.slice(info.lineStart, info.lineEnd + 1).join("\n");
 			// Only mermaid blocks; cheap guard before the regex.
 			if (!/```+\s*mermaid/i.test(src)) return;
-			// Closing `%%` is optional (mermaid single-line comments don't need
-			// it); grab to end of line, then strip a trailing `%%` if present.
-			const m = src.match(/%%\s*fit\s*[:=]?\s*(.+)/i);
-			if (m) {
-				const value = m[1]!
-					.replace(/%%\s*$/, "")
-					.trim()
-					.toLowerCase();
-				if (value) el.setAttribute(FIT_ATTR, value);
-			}
+			// The directive lives inside the block; also accept one just above it, which
+			// an earlier build wrote there.
+			const above =
+				info.lineStart > 0 ? (lines[info.lineStart - 1] ?? "") : "";
+			const value = this.parseFitLine(src) ?? this.parseFitLine(above);
+			if (value) el.setAttribute(FIT_ATTR, value);
 		});
 
 		// Process diagrams that already exist once the layout is ready.
@@ -401,29 +395,56 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	/** Write a `%% fit: <value> %%` directive to a block's first line. */
 	private persistFit(block: HTMLElement, value: string) {
 		const view = this.findMarkdownView(block);
-		const firstLine = view
-			? this.locateFirstContentLine(view, block)
-			: null;
-		if (!view || firstLine === null) {
+		const fence = view ? this.locateFenceLine(view, block) : null;
+		if (!view || fence === null) {
 			new Notice("Mermaid Enhanced: 滑块只在实时预览下可用");
 			return;
 		}
 		const editor = view.editor;
-		const cur = editor.getLine(firstLine) ?? "";
 		const text = `%% fit: ${value} %%`;
+		// The directive belongs on the first line inside the block, where Mermaid treats
+		// it as a comment and it travels with the diagram's own source.
+		const insideLine = fence + 1;
+		const inside = editor.getLine(insideLine) ?? "";
+		// An earlier build briefly wrote it above the fence; clean that up when we see it
+		// so a note doesn't end up carrying the value in two places.
+		const aboveLine = fence - 1;
+		const above = fence > 0 ? (editor.getLine(aboveLine) ?? "") : "";
+		const stray = fence > 0 && this.parseFitLine(above) !== null;
+
+		// Already at this value with nothing to tidy: skip the write entirely.
+		if (this.parseFitLine(inside) === value && !stray) return;
+
+		// Editing the block's source means Obsidian cannot reuse the rendered widget
+		// (`eq: e.lang === this.lang && e.code === this.code`), so it tears the block down
+		// and re-renders Mermaid asynchronously. That single re-render is visible and
+		// can't be avoided while the directive lives in the block. Masking it was worse:
+		// each cover-up (pinned height, floating snapshot, hidden source) is its own
+		// appear/disappear, so they stacked into several jumps instead of the one.
+
 		// The edit moves the (unseen) cursor and CodeMirror scrolls it into view,
 		// jerking the page to the top. Capture the scroll and restore it — now and
 		// again next frame, after the block re-renders.
 		const scroll = editor.getScrollInfo();
-		if (this.parseFitLine(cur) !== null) {
+
+		// Bottom-up, so the earlier edit doesn't shift the line the later one targets.
+		if (this.parseFitLine(inside) !== null) {
 			editor.replaceRange(
 				text,
-				{ line: firstLine, ch: 0 },
-				{ line: firstLine, ch: cur.length }
+				{ line: insideLine, ch: 0 },
+				{ line: insideLine, ch: inside.length }
 			);
 		} else {
-			editor.replaceRange(text + "\n", { line: firstLine, ch: 0 });
+			editor.replaceRange(text + "\n", { line: insideLine, ch: 0 });
 		}
+		if (stray) {
+			editor.replaceRange(
+				"",
+				{ line: aboveLine, ch: 0 },
+				{ line: aboveLine + 1, ch: 0 }
+			);
+		}
+
 		const restore = () => editor.scrollTo(scroll.left, scroll.top);
 		restore();
 		requestAnimationFrame(restore);
@@ -477,21 +498,28 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		);
 	}
 
-	/** Read the `%% fit %%` value from the source of a Live Preview block. */
+	/**
+	 * Read the `%% fit %%` value for a Live Preview block: the first line inside the block,
+	 * where persistFit writes it, falling back to the line above the fence in case a note
+	 * still carries one there from an earlier build.
+	 */
 	private readDirectiveFromEditor(block: HTMLElement): string | null {
 		const view = this.findMarkdownView(block);
 		if (!view) return null;
-		const line = this.locateFirstContentLine(view, block);
-		if (line === null) return null;
-		return this.parseFitLine(view.editor.getLine(line) ?? "");
+		const fence = this.locateFenceLine(view, block);
+		if (fence === null) return null;
+		const editor = view.editor;
+		const inside = this.parseFitLine(editor.getLine(fence + 1) ?? "");
+		if (inside !== null) return inside;
+		return fence > 0 ? this.parseFitLine(editor.getLine(fence - 1) ?? "") : null;
 	}
 
 	/**
-	 * Find the document line index of the first line *inside* the mermaid block
-	 * rendered at `block` (the line right after the ```mermaid fence), using CM6's
-	 * `posAtDOM` to map the rendered widget back to a source position.
+	 * Find the document line index of the ```mermaid fence that opens the block rendered
+	 * at `block`, using CM6's `posAtDOM` to map the rendered widget back to a source
+	 * position. The directive lives on `fence - 1`; older notes have it on `fence + 1`.
 	 */
-	private locateFirstContentLine(
+	private locateFenceLine(
 		view: MarkdownView,
 		block: HTMLElement
 	): number | null {
@@ -502,7 +530,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			const start = editor.offsetToPos(cm.posAtDOM(block)).line;
 			const last = editor.lastLine();
 			for (let i = Math.max(0, start - 1); i <= last; i++) {
-				if (/^\s*`{3,}\s*mermaid\b/i.test(editor.getLine(i))) return i + 1;
+				if (/^\s*`{3,}\s*mermaid\b/i.test(editor.getLine(i))) return i;
 			}
 		} catch {
 			/* posAtDOM can throw if the node isn't in the editor; ignore. */
