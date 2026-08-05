@@ -47,5 +47,7 @@ export default {
   "File has been changedd, download failure": "当前文件已变更，下载失败",
   "Warning: upload files is different of reciver files from api":
     "警告：上传的文件与接口返回的文件数量不一致",
+  "Could not write to the note, paste again": "无法写入笔记，请重新粘贴",
+  "Uploaded, but the note is gone": "已上传，但笔记已不在前台",
   upload: "上传",
 };

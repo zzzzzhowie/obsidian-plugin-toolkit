@@ -1,7 +1,11 @@
 import { join, extname } from "path-browserify";
 import { requestUrl, normalizePath, FileSystemAdapter } from "obsidian";
 
-import { bufferToArrayBuffer } from "../utils";
+import {
+  bufferToArrayBuffer,
+  removeTempFiles,
+  writeImagesToTemp,
+} from "../utils";
 import { payloadGenerator } from "../payloadGenerator";
 
 import type imageAutoUploadPlugin from "../main";
@@ -115,9 +119,7 @@ export default class PicGoUploader implements Uploader {
     return response;
   }
 
-  private async uploadFileByClipboard(fileList?: FileList): Promise<any> {
-    let res: Awaited<ReturnType<typeof requestUrl>>;
-
+  private async uploadFileByClipboard(fileList?: FileList): Promise<Response> {
     if (this.settings.remoteServerMode) {
       const files = [];
       for (let i = 0; i < (fileList?.length ?? 0); i++) {
@@ -130,14 +132,33 @@ export default class PicGoUploader implements Uploader {
         const arrayBuffer = await file.arrayBuffer();
         files.push(new File([arrayBuffer], timestamp + ".png"));
       }
-      res = await this.uploadFileByData(files);
-    } else {
-      res = await requestUrl({
-        url: this.settings.uploadServer,
-        method: "POST",
-      });
+      return this.handleResponse(await this.uploadFileByData(files));
     }
-    return this.handleResponse(res);
+
+    // Hand PicGo the bytes the paste already carries, as a temp file, instead of
+    // posting an empty body — that tells PicGo to read the system clipboard
+    // itself, which on macOS takes ~4s and fails outright ("image not found in
+    // clipboard") for every paste that arrives while an earlier read is running.
+    const paths = await writeImagesToTemp(fileList);
+    if (paths.length === 0) {
+      // Nothing attached to the event: let PicGo read the clipboard after all.
+      return this.handleResponse(
+        await requestUrl({ url: this.settings.uploadServer, method: "POST" })
+      );
+    }
+
+    try {
+      return this.handleResponse(
+        await requestUrl({
+          url: this.settings.uploadServer,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ list: paths }),
+        })
+      );
+    } finally {
+      await removeTempFiles(paths);
+    }
   }
 
   /**

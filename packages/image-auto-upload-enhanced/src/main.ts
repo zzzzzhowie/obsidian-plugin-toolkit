@@ -423,7 +423,7 @@ export default class imageAutoUploadPlugin extends Plugin {
                 return url;
               },
               clipboardData
-            ).catch();
+            ).catch(e => console.error("Paste upload failed: ", e));
             return;
           }
 
@@ -536,7 +536,10 @@ export default class imageAutoUploadPlugin extends Plugin {
     clipboardData: DataTransfer
   ) {
     let pasteId = (Math.random() + 1).toString(36).substr(2, 5);
-    this.insertTemporaryText(editor, pasteId);
+    if (!this.insertTemporaryText(editor, pasteId)) {
+      new Notice(t("Could not write to the note, paste again"));
+      return;
+    }
     const name = clipboardData.files[0]?.name ?? "";
 
     try {
@@ -547,13 +550,49 @@ export default class imageAutoUploadPlugin extends Plugin {
     }
   }
 
-  insertTemporaryText(editor: Editor, pasteId: string) {
-    let progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
+  /**
+   * Acknowledge the paste right away, before any upload work: the placeholder is
+   * the only feedback the user gets while the request is in flight.
+   *
+   * Returns false when the text never made it into the document, so the caller
+   * can skip an upload whose result would have nowhere to land.
+   */
+  insertTemporaryText(editor: Editor, pasteId: string): boolean {
+    const progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
+    const cursor = editor.getCursor("to");
+
     // No trailing newline: inside a table row it splits the row in two, and
     // Obsidian's table editor then rewrites the whole table — padding header and
     // every row out to the widest one, which permanently adds a column. The
     // line break for normal paragraphs is added when the image replaces this.
-    editor.replaceSelection(progressText);
+    try {
+      editor.replaceSelection(progressText);
+    } catch (e) {
+      console.error("Could not insert the upload placeholder: ", e);
+    }
+    if (imageAutoUploadPlugin.findText(editor, progressText)) {
+      return true;
+    }
+    // The insert was dropped — inside a table Obsidian re-serializes rows on its
+    // own schedule and rejects a transaction built against the pre-rewrite
+    // document ("change set … wrong length"). Splice the text in by offset, in a
+    // single whole-document transaction that cannot go stale.
+    return this.spliceText(editor, cursor, progressText);
+  }
+
+  private spliceText(
+    editor: Editor,
+    at: EditorPosition,
+    text: string
+  ): boolean {
+    if (this.helper.getEditor() !== editor) {
+      return false; // a different note is in front now
+    }
+    const value = editor.getValue();
+    const offset = editor.posToOffset(at);
+    this.helper.setValue(value.slice(0, offset) + text + value.slice(offset));
+
+    return imageAutoUploadPlugin.findText(editor, text) !== null;
   }
 
   /**
@@ -573,24 +612,60 @@ export default class imageAutoUploadPlugin extends Plugin {
     let progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
     const at = imageAutoUploadPlugin.findText(editor, progressText);
     if (at === null) {
-      return; // placeholder is gone — paste undone or file closed
+      this.embedAtCursor(editor, imageUrl, name);
+      return;
     }
 
-    const line = editor.getLine(at.line);
-    const inTable = this.lineIsTableRow(line, progressText);
-    name = this.handleName(name);
+    this.replaceText(
+      editor,
+      progressText,
+      this.imageMarkdown(editor.getLine(at.line), at.ch, progressText, {
+        imageUrl,
+        name,
+      })
+    );
+  }
 
-    // In a table row the size-suffix pipe would be read as a cell separator, and
-    // a newline would split the row, so images in one cell are joined with
-    // `<br>`. Everywhere else each image still gets its own line.
-    const markDownImage = inTable
-      ? `${imageAutoUploadPlugin.cellSeparator(line, at.ch)}![${this.escapeAltPipes(name)}](${imageUrl})`
-      : `![${name}](${imageUrl})\n`;
+  /**
+   * The placeholder is gone — the paste was undone, the note was closed, or the
+   * insert got rolled back. An upload that already finished shouldn't be thrown
+   * away, so place the image at the cursor while the note is still in front.
+   */
+  private embedAtCursor(editor: Editor, imageUrl: any, name: string) {
+    if (this.helper.getEditor() !== editor) {
+      new Notice(`${t("Uploaded, but the note is gone")}: ${imageUrl}`);
+      console.warn("Uploaded image had nowhere to go: ", imageUrl);
+      return;
+    }
 
-    editor.replaceRange(markDownImage, at, {
-      line: at.line,
-      ch: at.ch + progressText.length,
-    });
+    const cursor = editor.getCursor("to");
+    editor.replaceSelection(
+      this.imageMarkdown(editor.getLine(cursor.line), cursor.ch, "", {
+        imageUrl,
+        name,
+      })
+    );
+  }
+
+  /**
+   * In a table row the size-suffix pipe would be read as a cell separator, and a
+   * newline would split the row, so images in one cell are joined with `<br>`.
+   * Everywhere else each image still gets its own line.
+   *
+   * `placeholder` is the text about to be replaced at `ch`, excluded from the
+   * table check because it may itself carry a pipe.
+   */
+  private imageMarkdown(
+    line: string,
+    ch: number,
+    placeholder: string,
+    image: { imageUrl: any; name: string }
+  ) {
+    const name = this.handleName(image.name);
+
+    return this.lineIsTableRow(line, placeholder)
+      ? `${imageAutoUploadPlugin.cellSeparator(line, ch)}![${this.escapeAltPipes(name)}](${image.imageUrl})`
+      : `![${name}](${image.imageUrl})\n`;
   }
 
   /** `<br>` when the table cell already holds content right before `ch`. */
@@ -635,14 +710,10 @@ export default class imageAutoUploadPlugin extends Plugin {
   }
 
   handleFailedUpload(editor: Editor, pasteId: string, reason: any) {
-    new Notice(reason);
+    new Notice(reason?.message ?? String(reason));
     console.error("Failed request: ", reason);
     let progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
-    imageAutoUploadPlugin.replaceFirstOccurrence(
-      editor,
-      progressText,
-      "⚠️upload failed, check dev console"
-    );
+    this.replaceText(editor, progressText, "⚠️upload failed, check dev console");
   }
 
   handleName(name: string) {
@@ -663,18 +734,42 @@ export default class imageAutoUploadPlugin extends Plugin {
     }
   }
 
-  static replaceFirstOccurrence(
-    editor: Editor,
-    target: string,
-    replacement: string
-  ) {
-    const at = imageAutoUploadPlugin.findText(editor, target);
-    if (at === null) {
-      return;
+  /**
+   * Swap the first occurrence of `target` for `replacement`.
+   *
+   * A write that lands inside a table can be rejected while Obsidian's table
+   * editor is re-serializing rows, so retry from a freshly located position and
+   * then, as a last resort, rewrite the whole document — one transaction built
+   * from the current value, which cannot be stale.
+   */
+  private replaceText(editor: Editor, target: string, replacement: string) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const at = imageAutoUploadPlugin.findText(editor, target);
+      if (at === null) {
+        return attempt > 0; // an earlier attempt already replaced it
+      }
+      try {
+        editor.replaceRange(replacement, at, {
+          line: at.line,
+          ch: at.ch + target.length,
+        });
+        if (imageAutoUploadPlugin.findText(editor, target) === null) {
+          return true;
+        }
+      } catch (e) {
+        console.error("Could not replace the upload placeholder: ", e);
+      }
     }
-    editor.replaceRange(replacement, at, {
-      line: at.line,
-      ch: at.ch + target.length,
-    });
+
+    if (this.helper.getEditor() !== editor) {
+      return false; // a different note is in front now
+    }
+    const value = editor.getValue();
+    if (!value.includes(target)) {
+      return false;
+    }
+    this.helper.setValue(value.replace(target, replacement));
+
+    return true;
   }
 }
