@@ -36,6 +36,12 @@ const OPEN_COMMAND = "realclaudian:open-view";
  * for us. Used to clear context on a note change; see resetSessionForNoteChange.
  */
 const NEW_SESSION_COMMAND = "realclaudian:new-session";
+/**
+ * The decoration Claudian marks a carried 划词 with, inside the note's editor. Present
+ * only while Claudian is painting the selection; the native editor highlight takes over
+ * whenever the editor itself has focus.
+ */
+const SELECTION_HIGHLIGHT = ".claudian-selection-highlight";
 /** View to switch to when Claudian is toggled away inside a sidebar (the sidebar's default). */
 const SIDEBAR_DEFAULT_VIEW = "outline";
 /** Core Outline plugin's command — used to recreate the outline leaf if its tab was closed. */
@@ -75,6 +81,24 @@ interface ClaudianFileContext {
 		detachFile?: (path: string) => void;
 		currentNoteSent?: boolean;
 	};
+}
+
+/**
+ * Claudian's per-tab controller for the editor 划词. `hasSelection()` reports the carried
+ * selection; `showHighlight()` paints it (and correctly paints *nothing* while the editor
+ * has focus, where the native highlight is the visible one). Both only read the stored
+ * selection, which is what makes re-asserting them a UI-only act. See restoreHighlight.
+ */
+interface ClaudianSelectionController {
+	hasSelection?: () => boolean;
+	showHighlight?: () => void;
+}
+
+/** One of Claudian's conversation tabs — the object every reach-in below starts from. */
+interface ClaudianTab {
+	state?: ClaudianTabState;
+	ui?: { fileContextManager?: ClaudianFileContext };
+	controllers?: { selectionController?: ClaudianSelectionController };
 }
 
 export default class ClaudianEnhancedPlugin extends Plugin {
@@ -188,6 +212,50 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		} else {
 			this.openClaudian(gen);
 		}
+		// Either direction re-parks focus, which is the only thing that makes Claudian
+		// paint the 划词 (see restoreHighlight).
+		this.restoreHighlight(Date.now() + 1500, gen);
+	}
+
+	/**
+	 * Keep the 划词 painted across a ⌘L.
+	 *
+	 * Claudian paints `.claudian-selection-highlight` from exactly one place: a focusin
+	 * handler that runs when focus enters its sidebar from outside. Flipping the sidebar
+	 * tab never satisfies that — toggling *away* hands focus to the outline (or drops it
+	 * to `body` when the hidden composer leaves the layout), and the editor's own
+	 * highlight is invisible while the editor is unfocused. The selection itself survives
+	 * (Claudian's poll still stores it, its composer still shows the "N lines selected"
+	 * chip), so the state and the UI disagree until something re-focuses the sidebar.
+	 * Asking Claudian to paint again is UI-only — showHighlight reads the stored
+	 * selection and nothing else.
+	 *
+	 * Re-asserted across the reveal window because the reveal, Claudian's post-render
+	 * focus grab and stickyFocusInput all land asynchronously, and each focus hop can
+	 * take the decoration back off.
+	 */
+	private restoreHighlight(deadline: number, gen: number): void {
+		const tick = (): void => {
+			if (gen !== this.gen) return; // superseded by a newer ⌘L
+			const controller = this.getSelectionController();
+			if (controller?.hasSelection?.() && this.highlightMissing()) {
+				controller.showHighlight?.();
+			}
+			if (Date.now() < deadline) window.setTimeout(tick, 120);
+		};
+		tick();
+	}
+
+	/**
+	 * Whether the note is showing a carried selection with nothing painting it. Focus
+	 * inside the editor doesn't count as missing: there the native highlight is the
+	 * visible one and Claudian deliberately keeps its own decoration off.
+	 */
+	private highlightMissing(): boolean {
+		const cm = this.cmOf(this.getNoteLeaf());
+		if (!cm) return false;
+		if (cm.dom.contains(cm.dom.ownerDocument.activeElement)) return false;
+		return !cm.dom.querySelector(SELECTION_HIGHLIGHT);
 	}
 
 	private openClaudian(gen: number): void {
@@ -398,14 +466,26 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		);
 	}
 
+	/**
+	 * Claudian's active conversation tab, or null when Claudian is absent or a future build
+	 * has renamed the path we reach through. Every hop is optional so this degrades to null
+	 * rather than throwing; the accessors below narrow it to the one piece they need.
+	 */
+	private getActiveTab(): ClaudianTab | null {
+		const view = this.getClaudianLeaf()?.view as unknown as {
+			getTabManager?: () => { getActiveTab?: () => ClaudianTab | null } | null;
+		};
+		return view?.getTabManager?.()?.getActiveTab?.() ?? null;
+	}
+
 	/** Claudian's active conversation-tab state, or null if absent / internals renamed. */
 	private getActiveTabState(): ClaudianTabState | null {
-		const view = this.getClaudianLeaf()?.view as unknown as {
-			getTabManager?: () => {
-				getActiveTab?: () => { state?: ClaudianTabState } | null;
-			} | null;
-		};
-		return view?.getTabManager?.()?.getActiveTab?.()?.state ?? null;
+		return this.getActiveTab()?.state ?? null;
+	}
+
+	/** Claudian's 划词 controller for the active tab, or null if absent / internals renamed. */
+	private getSelectionController(): ClaudianSelectionController | null {
+		return this.getActiveTab()?.controllers?.selectionController ?? null;
 	}
 
 	/**
@@ -463,17 +543,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * Claudian's per-tab file-context manager, or null when Claudian is absent or a future
-	 * build has renamed the path we reach through. Every hop is optional so this degrades to
-	 * null rather than throwing. Shared by the read-only chip check and the in-place switch.
+	 * Claudian's per-tab file-context manager, or null if absent / internals renamed. Shared
+	 * by the read-only chip check and the in-place switch.
 	 */
 	private getFileContextManager(): ClaudianFileContext | null {
-		const view = this.getClaudianLeaf()?.view as unknown as {
-			getTabManager?: () => {
-				getActiveTab?: () => { ui?: { fileContextManager?: ClaudianFileContext } } | null;
-			} | null;
-		};
-		return view?.getTabManager?.()?.getActiveTab?.()?.ui?.fileContextManager ?? null;
+		return this.getActiveTab()?.ui?.fileContextManager ?? null;
 	}
 
 	/**
