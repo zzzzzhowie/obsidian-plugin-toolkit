@@ -24,8 +24,15 @@
    Claudian renders the whole control as .claudian-permission-toggle and the "YOLO"
    text lives inside its .claudian-permission-label, so hiding the element removes the
    chip entirely. This is display-only — the permission mode still applies; switch it
-   from Claudian's settings or its own command instead of from the footer. */
-.claudian-permission-toggle {
+   from Claudian's settings or its own command instead of from the footer.
+
+   The class is doubled to (0,2,0) because Claudian's own stylesheet sets
+   `.claudian-permission-toggle { display: flex }` at the same (0,1,0) specificity. With
+   a single class the winner is whichever stylesheet loaded last, which is why the chip
+   kept reappearing between sessions — plugin CSS load order isn't fixed. Doubling wins
+   regardless of order. Claudian also toggles its own `.claudian-hidden` class on this
+   element, which we don't rely on either way. */
+.claudian-permission-toggle.claudian-permission-toggle {
 	display: none;
 }
 
