@@ -559,13 +559,35 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return this.getFileContextManager()?.currentNotePath ?? null;
 	}
 
-	/** The vault path of the note we're protecting, or null. */
+	/**
+	 * The vault path of the open note, or null.
+	 *
+	 * Deliberately not {@link getNoteLeaf}: that one insists on a leaf with a live
+	 * CodeMirror editor, and when the front leaf hasn't got one — reading view, a leaf
+	 * Obsidian still has deferred, the split second a leaf is swapping views as a link
+	 * opens — it scans `getLeavesOfType("markdown")`, which is in *creation* order. With
+	 * more than one tab open that hands back some unrelated tab, and the caller reads it
+	 * as "the user switched notes": the conversation gets cleared for a note change that
+	 * never happened, which is what following a link into the note you were already
+	 * reading used to do.
+	 *
+	 * So: the front leaf when it really is a note, else Obsidian's own active file, which
+	 * stays parked on the last note while Claudian's sidebar holds focus — exactly the
+	 * answer we want. Never a guess at a different tab.
+	 */
 	private activeNotePath(): string | null {
-		const noteLeaf = this.getNoteLeaf();
-		return noteLeaf
-			? ((noteLeaf.view as unknown as { file?: { path?: string } }).file?.path ??
-					null)
-			: null;
+		const recent = this.app.workspace.getMostRecentLeaf();
+		if (recent && this.isNoteLeaf(recent)) {
+			const path = (recent.view as unknown as { file?: { path?: string } }).file
+				?.path;
+			if (path) return path;
+		}
+		return this.app.workspace.getActiveFile()?.path ?? null;
+	}
+
+	/** A Markdown leaf in the main area — not a sidebar, not another view type. */
+	private isNoteLeaf(leaf: WorkspaceLeaf): boolean {
+		return leaf.view.getViewType() === "markdown" && this.sidebarOf(leaf) === null;
 	}
 
 	/** Claudian's view has built its composer → its tab/context manager exists. */
@@ -808,14 +830,21 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * The note leaf we're protecting. Prefer the most recently active leaf (still the
-	 * note while Claudian sits in a sidebar); fall back to any open Markdown leaf.
+	 * The note leaf we're protecting — the one whose *editor* we touch (collapsing a
+	 * selection, repainting the 划词). Prefer the most recently active leaf (still the
+	 * note while Claudian sits in a sidebar); fall back to an open Markdown leaf.
+	 *
+	 * The fallback skips sidebar leaves: a note opened in a dock is not the note the
+	 * user is working in, and writing to its editor would be visible in the wrong place.
+	 * For the *path* of the open note, use {@link activeNotePath} instead — the fallback
+	 * here can still land on a tab other than the front one, which is harmless for
+	 * editor work but not for deciding that the user switched notes.
 	 */
 	private getNoteLeaf(): WorkspaceLeaf | null {
 		const recent = this.app.workspace.getMostRecentLeaf();
 		if (recent && this.cmOf(recent)) return recent;
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-			if (this.cmOf(leaf)) return leaf;
+			if (this.sidebarOf(leaf) === null && this.cmOf(leaf)) return leaf;
 		}
 		return null;
 	}
