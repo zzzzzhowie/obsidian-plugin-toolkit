@@ -1,0 +1,124 @@
+/* ── Drawing size inside the note ───────────────────────────────────────── */
+
+/*
+ * A drawing embeds as an `<img>` holding an SVG that has an aspect ratio but *no
+ * intrinsic size*, so nothing about the file decides how big it lands in the note: the
+ * browser falls back to the CSS default object size and the drawing renders 305px wide,
+ * no matter how large it was drawn. Giving it an explicit width is therefore the only
+ * way to make it bigger — raising Excalidraw's own `max-width` cap does nothing, since a
+ * cap can only shrink.
+ *
+ * The width must stay a length. `width: auto` (or anything that defers to content)
+ * resolves to *zero* here and the drawing vanishes from the note: Excalidraw's own
+ * `.excalidraw-embedded-img { width: 100% }` is what gives the element a box, and the
+ * caption plugin makes the surrounding `.internal-embed` an `inline-flex` — a
+ * shrink-to-fit parent whose width in turn depends on this child. Measured, not
+ * guessed: `width:auto` → 0×0, `width:900px; max-width:100%` → 700×425 in a 700px
+ * column, at the drawing's exact ratio.
+ *
+ * `max-width: 100%` is what keeps a wide setting from overflowing a narrow note — the
+ * percentage is safe here because the element's own width is already a definite length.
+ * Height is left alone entirely: it follows from the width and the ratio, and Excalidraw
+ * still applies its own max-height as a backstop for very tall drawings.
+ *
+ * Scoped to rendered notes, so the zoom overlay's clone — same class — is left alone.
+ */
+body.excalidraw-enhanced-sizing
+	:is(.markdown-rendered, .cm-content)
+	.excalidraw-embedded-img {
+	width: var(--excalidraw-enhanced-width, 900px) !important;
+	max-width: 100% !important;
+}
+
+/* ── Click-to-zoom overlay (namespaced excalidraw-zoom-*) ───────────────── */
+
+.excalidraw-zoom-overlay {
+	position: fixed;
+	inset: 0;
+	background-color: rgba(0, 0, 0, 0.6);
+	z-index: 10000;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	pointer-events: auto;
+}
+
+/* Mobile: a darker (still semi-transparent) mask. */
+.is-mobile .excalidraw-zoom-overlay {
+	background-color: rgba(0, 0, 0, 0.8);
+}
+
+.excalidraw-zoom-container {
+	position: relative;
+	max-width: 90vw;
+	max-height: calc(90vh - 60px); /* leave room for the toolbar */
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	user-select: none;
+	flex: 1;
+	pointer-events: auto;
+}
+
+/* Width/height are set inline from the intrinsic size or the viewBox (see showZoomed) —
+   an auto size collapses an SVG that has no intrinsic size, so don't reintroduce one
+   here. */
+.excalidraw-zoom-container img,
+.excalidraw-zoom-container svg {
+	transition: transform 0.1s ease-out;
+	transform-origin: center center;
+	/* Light backing so a transparent drawing stays legible in the overlay. */
+	background-color: white;
+	padding: 20px;
+	border-radius: 8px;
+	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+	/* Elements inside a drawing can carry their own cursors, which would otherwise show
+	   through and hide the container's grab/grabbing cursor while panning. Inherit
+	   instead, on the root and everything inside it. */
+	cursor: inherit !important;
+}
+
+.excalidraw-zoom-container svg * {
+	cursor: inherit !important;
+}
+
+.excalidraw-zoom-toolbar {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 24px;
+	background-color: rgba(0, 0, 0, 0.8);
+	border-radius: 8px;
+	margin-bottom: 20px;
+	pointer-events: auto;
+	position: relative;
+	z-index: 10001;
+}
+
+.excalidraw-zoom-toolbar button {
+	background-color: rgba(255, 255, 255, 0.1);
+	border: 1px solid rgba(255, 255, 255, 0.2);
+	color: white;
+	padding: 8px 12px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 14px;
+	line-height: 1;
+	transition: background-color 0.2s;
+}
+
+.excalidraw-zoom-toolbar button:hover {
+	background-color: rgba(255, 255, 255, 0.2);
+}
+
+.excalidraw-zoom-toolbar button:active {
+	background-color: rgba(255, 255, 255, 0.3);
+}
+
+.excalidraw-zoom-toolbar .zoom-info {
+	color: rgba(255, 255, 255, 0.8);
+	font-size: 14px;
+	min-width: 60px;
+	text-align: center;
+}

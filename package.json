@@ -22,6 +22,8 @@
         "build:image-auto-upload-enhanced": "pnpm --filter @obsidian-plugin-toolkit/image-auto-upload-enhanced build",
         "dev:mermaid-enhanced": "pnpm --filter @obsidian-plugin-toolkit/mermaid-enhanced dev",
         "build:mermaid-enhanced": "pnpm --filter @obsidian-plugin-toolkit/mermaid-enhanced build",
+        "dev:excalidraw-enhanced": "pnpm --filter @obsidian-plugin-toolkit/excalidraw-enhanced dev",
+        "build:excalidraw-enhanced": "pnpm --filter @obsidian-plugin-toolkit/excalidraw-enhanced build",
         "dev:claudian-enhanced": "pnpm --filter @obsidian-plugin-toolkit/claudian-enhanced dev",
         "build:claudian-enhanced": "pnpm --filter @obsidian-plugin-toolkit/claudian-enhanced build",
         "dev:line-numbers": "pnpm --filter @obsidian-plugin-toolkit/line-numbers dev",
