@@ -4,7 +4,7 @@ import {
 	MermaidEnhancedSettings,
 	MermaidEnhancedSettingTab,
 } from "./settings";
-import { MermaidZoom } from "./zoom";
+import { ZoomOverlay } from "../../../shared/zoom-overlay";
 
 /** Attribute stamped on a block container carrying its `%% fit: ... %%` value. */
 const FIT_ATTR = "data-mermaid-fit-override";
@@ -39,8 +39,12 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		this.addSettingTab(new MermaidEnhancedSettingTab(this.app, this));
 
 		// Click a diagram to open a zoomable/pannable overlay: Cmd/Ctrl-click on
-		// desktop, plain tap on mobile.
-		new MermaidZoom(this).register();
+		// desktop, plain tap on mobile. The overlay itself is shared with Excalidraw
+		// Enhanced; only the two lines below are ours.
+		new ZoomOverlay(this, {
+			target: ".mermaid svg",
+			cssPrefix: "mermaid-zoom",
+		}).register();
 
 		// Read per-diagram directives (`%% fit: ... %%`) from the block source and
 		// stamp them onto the rendered container so fitSvg can honor them.

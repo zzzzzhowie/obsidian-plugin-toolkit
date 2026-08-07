@@ -42,6 +42,7 @@ There are no automated tests — plugins are tested manually via the Obsidian ru
 ### Monorepo structure
 
 - `build-tools/` — Shared build infrastructure (esbuild config, tsconfig base, version-bump script). Not an Obsidian plugin.
+- `shared/` — Runtime code used by more than one plugin (e.g. `zoom-overlay.ts`, the click-to-zoom overlay behind Mermaid Enhanced and Excalidraw Enhanced). Imported by relative path (`../../../shared/x`), bundled into each plugin by esbuild, and listed in the importing package's `tsconfig.json` `include`. Its own imports of `obsidian` resolve against the root `node_modules`, which is why `obsidian` is a root devDependency.
 - `packages/<name>/` — Each Obsidian plugin. Source lives in `src/`, build output in a subdirectory named after the plugin ID.
 - Root `package.json` provides convenience scripts that delegate to all packages via `pnpm --filter`.
 

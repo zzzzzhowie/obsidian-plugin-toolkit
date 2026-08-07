@@ -1,37 +1,62 @@
 import { Platform, Plugin, setIcon } from "obsidian";
 
 /**
- * What a click can open in the overlay. The Excalidraw plugin renders an embedded
- * drawing as an `<img>` (its "PNG Image" / "SVG Image" preview types) or as an inline
- * `<svg>` ("Native SVG"), so both have to be handled.
+ * What a click can open in the overlay: a Mermaid diagram's `<svg>`, or an embedded
+ * Excalidraw drawing, which is an `<svg>` or an `<img>` depending on that plugin's
+ * preview-image setting. Both element kinds are handled throughout.
  */
-type ZoomTarget = SVGElement | HTMLImageElement;
+export type ZoomTarget = SVGElement | HTMLImageElement;
 
+export interface ZoomOverlayOptions {
+	/**
+	 * Selector for the elements a click zooms — `.mermaid svg`,
+	 * `.excalidraw-embedded-img`, and so on. Matched with `closest`, so a click on
+	 * anything inside one counts.
+	 */
+	target: string;
+	/**
+	 * Prefix for the overlay's own classes (`<prefix>-overlay`, `-container`,
+	 * `-toolbar`), so each plugin styles its own copy and two enabled plugins can't
+	 * fight over the same rules.
+	 */
+	cssPrefix: string;
+}
+
+/** Zoom range, shared by every way of changing it. */
+const MIN_SCALE = 0.1;
+const MAX_SCALE = 50;
 /**
- * The embedded drawing itself. Excalidraw stamps this class on whatever element it
- * rendered — its `setStyle` does it for every preview type — so the one selector covers
- * all three.
- */
-const ZOOM_TARGET = ".excalidraw-embedded-img";
-
-/** Rendered-note containers; anything outside one is not a drawing in a note. */
-const NOTE_CONTAINER = ".workspace-leaf-content[data-type=\"markdown\"]";
-
-/**
- * Click-to-zoom for embedded Excalidraw drawings (ported from Mermaid Enhanced, which
- * got it from the retired image-zoom plugin). A click opens a full-screen overlay
- * holding a clone of the drawing that can be zoomed (buttons / wheel-pinch / two-finger
- * pinch) and panned (drag / two-finger). Requires Cmd/Ctrl on desktop so it never
- * swallows the plain click that positions the cursor in Live Preview; on mobile a plain
- * tap is enough.
+ * Zoom per unit of trackpad pinch. macOS reports a pinch as a ctrl-wheel whose `deltaY`
+ * carries how far the fingers travelled; applying a fixed step per event instead threw
+ * that away, so a wide deliberate pinch zoomed no faster than a twitch and reaching a
+ * useful magnification took a dozen gestures.
  *
- * The click is claimed in the capture phase and stopped there (see register), so a
- * drawing never also reaches Obsidian's own handling or another plugin listening on the
- * bubble — one click can only ever produce this one overlay. For Excalidraw that also
- * means a modifier-click no longer opens the drawing in a new pane; a plain click still
- * does, since we ignore clicks without the modifier.
+ * Exponential, so the step is proportional: twice the finger travel is twice the zoom in
+ * log space, and pinching back out by the same distance lands exactly where you started.
  */
-export class ExcalidrawZoom {
+const PINCH_SENSITIVITY = 0.015;
+
+/** Rendered-note containers; anything outside one is not content in a note. */
+const NOTE_CONTAINER = '.workspace-leaf-content[data-type="markdown"]';
+
+/**
+ * Click-to-zoom for a diagram or drawing in a note (originally the SVG half of the
+ * retired image-zoom plugin). A click opens a full-screen overlay holding a clone that
+ * can be zoomed (buttons / wheel-pinch / two-finger pinch) and panned (drag /
+ * two-finger). Requires Cmd/Ctrl on desktop so it never swallows the plain click that
+ * positions the cursor in Live Preview; on mobile a plain tap is enough.
+ *
+ * The click is claimed in the capture phase and stopped there (see register), so the
+ * element never also reaches Obsidian's own handling or another plugin listening on the
+ * bubble — one click can only ever produce this one overlay. Where the host plugin's
+ * content has its own click behaviour (an Excalidraw embed opens the drawing), the
+ * modifier-click is taken over and the plain click is left alone.
+ *
+ * Shared by Mermaid Enhanced and Excalidraw Enhanced: the behaviour is meant to be
+ * identical, and it used to be two copies that drifted the moment either was tuned.
+ * Everything that legitimately differs is in {@link ZoomOverlayOptions}.
+ */
+export class ZoomOverlay {
 	private overlay: HTMLElement | null = null;
 	private current: ZoomTarget | null = null;
 	private toolbar: HTMLElement | null = null;
@@ -46,14 +71,17 @@ export class ExcalidrawZoom {
 		return Platform.isMobile;
 	}
 
-	constructor(private readonly plugin: Plugin) {}
+	constructor(
+		private readonly plugin: Plugin,
+		private readonly options: ZoomOverlayOptions,
+	) {}
 
 	/** Build the overlay and wire the trigger + dismissal listeners. */
 	register(): void {
 		this.createOverlay();
 
-		// Capture phase so a drawing click is ours alone; other clicks fall through
-		// untouched.
+		// Capture phase so a click on our content is ours alone; other clicks fall
+		// through untouched.
 		this.plugin.registerDomEvent(
 			document,
 			"click",
@@ -77,17 +105,17 @@ export class ExcalidrawZoom {
 			this.plugin.registerDomEvent(document, "mousemove", (event: MouseEvent) => {
 				const target = this.zoomTargetFor(event.target as HTMLElement);
 				if (!target) return;
-				// Cleared (not left set) as soon as the modifier comes back up. Excalidraw
-				// rewrites the whole style attribute when it re-renders an embed, which
+				// Cleared (not left set) as soon as the modifier comes back up. A host that
+				// rewrites the whole style attribute when it re-renders (Excalidraw does)
 				// only means the hint is re-applied on the next move.
 				target.style.cursor = event.metaKey || event.ctrlKey ? "zoom-in" : "";
 			});
 		}
 	}
 
-	/** The drawing a click over `target` should zoom, or null. */
+	/** The element a click over `target` should zoom, or null. */
 	private zoomTargetFor(target: HTMLElement): ZoomTarget | null {
-		const el = target.closest<ZoomTarget>(ZOOM_TARGET);
+		const el = target.closest<ZoomTarget>(this.options.target);
 		if (!el) return null;
 		// Only within a Markdown leaf (reading view or live preview) — which also keeps
 		// the overlay's own clone, mounted on body, from re-triggering.
@@ -96,7 +124,7 @@ export class ExcalidrawZoom {
 	}
 
 	private createOverlay(): void {
-		const overlay = document.body.createDiv("excalidraw-zoom-overlay");
+		const overlay = document.body.createDiv(`${this.options.cssPrefix}-overlay`);
 		overlay.style.display = "none";
 		this.overlay = overlay;
 		this.plugin.register(() => overlay.remove());
@@ -107,9 +135,9 @@ export class ExcalidrawZoom {
 		});
 
 		// Mobile: the container fills most of the screen, so a tap in the black area
-		// around the drawing lands on the container, not the overlay. Treat a tap
+		// around the content lands on the container, not the overlay. Treat a tap
 		// (negligible movement) on either as a backdrop tap; movement is a pan/pinch, not
-		// a dismiss. Taps on the drawing / toolbar keep their own handlers.
+		// a dismiss. Taps on the content / toolbar keep their own handlers.
 		let tapX = 0;
 		let tapY = 0;
 		let tapMoved = false;
@@ -145,7 +173,7 @@ export class ExcalidrawZoom {
 				const target = e.target as HTMLElement;
 				if (
 					target === overlay ||
-					target.classList.contains("excalidraw-zoom-container")
+					target.classList.contains(`${this.options.cssPrefix}-container`)
 				) {
 					this.close();
 				}
@@ -170,10 +198,10 @@ export class ExcalidrawZoom {
 		this.translateY = 0;
 		this.overlay.empty();
 
-		const container = this.overlay.createDiv("excalidraw-zoom-container");
+		const container = this.overlay.createDiv(`${this.options.cssPrefix}-container`);
 
-		// Clone so we never mutate the drawing in the note, and drop the sizing that came
-		// with it (Excalidraw's own max-width, and this plugin's note-sizing rule).
+		// Clone so we never mutate what is in the note, and drop the sizing that came
+		// with it (the host's own max-width, and any note-sizing rule over it).
 		const clone = target.cloneNode(true) as ZoomTarget;
 		const { width, height } = this.naturalSizeOf(target);
 		// Size the clone in px. `width/height: auto` collapses an SVG that ships
@@ -250,8 +278,9 @@ export class ExcalidrawZoom {
 		container.addEventListener("wheel", (e: WheelEvent) => {
 			e.preventDefault();
 			if (e.ctrlKey) {
-				const delta = e.deltaY > 0 ? 0.98 : 1.02;
-				this.scale = Math.max(0.1, Math.min(this.scale * delta, 50));
+				this.scale = this.clampScale(
+					this.scale * Math.exp(-e.deltaY * PINCH_SENSITIVITY),
+				);
 				this.updateTransform(true);
 				this.updateToolbar();
 			} else {
@@ -322,7 +351,8 @@ export class ExcalidrawZoom {
 				if (e.touches.length === 2) {
 					const d = dist(e.touches);
 					if (lastDist > 0) {
-						this.scale = Math.max(0.1, Math.min(this.scale * (d / lastDist), 50));
+						// Already proportional: the ratio is how much the fingers spread.
+						this.scale = this.clampScale(this.scale * (d / lastDist));
 						this.updateTransform(true);
 						this.updateToolbar();
 					}
@@ -356,7 +386,7 @@ export class ExcalidrawZoom {
 
 	private createToolbar(): void {
 		if (!this.overlay) return;
-		this.toolbar = this.overlay.createDiv("excalidraw-zoom-toolbar");
+		this.toolbar = this.overlay.createDiv(`${this.options.cssPrefix}-toolbar`);
 
 		const out = this.toolbar.createEl("button");
 		out.textContent = "−";
@@ -393,9 +423,13 @@ export class ExcalidrawZoom {
 	}
 
 	private zoomBy(factor: number): void {
-		this.scale = Math.max(0.1, Math.min(this.scale * factor, 50));
+		this.scale = this.clampScale(this.scale * factor);
 		this.updateTransform();
 		this.updateToolbar();
+	}
+
+	private clampScale(next: number): number {
+		return Math.max(MIN_SCALE, Math.min(next, MAX_SCALE));
 	}
 
 	private resetZoom(): void {

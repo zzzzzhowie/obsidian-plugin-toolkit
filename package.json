@@ -44,7 +44,9 @@
     ],
     "author": "",
     "license": "MIT",
-    "devDependencies": {},
+    "devDependencies": {
+        "obsidian": "^1.13.1"
+    },
     "engines": {
         "node": ">=16",
         "pnpm": ">=8"

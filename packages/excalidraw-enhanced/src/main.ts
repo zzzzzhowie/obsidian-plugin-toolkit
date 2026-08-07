@@ -4,7 +4,7 @@ import {
 	ExcalidrawEnhancedSettings,
 	ExcalidrawEnhancedSettingTab,
 } from "./settings";
-import { ExcalidrawZoom } from "./zoom";
+import { ZoomOverlay } from "../../../shared/zoom-overlay";
 
 /** Body class the note-sizing rule in styles.css hangs off. */
 const SIZING_CLASS = "excalidraw-enhanced-sizing";
@@ -19,8 +19,13 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		this.addSettingTab(new ExcalidrawEnhancedSettingTab(this.app, this));
 
 		// Cmd/Ctrl-click a drawing to open a zoomable/pannable overlay; plain tap on
-		// mobile.
-		new ExcalidrawZoom(this).register();
+		// mobile. The overlay itself is shared with Mermaid Enhanced; only the two
+		// lines below are ours. `excalidraw-embedded-img` is the class Excalidraw
+		// stamps on whatever it rendered, so it covers all three preview types.
+		new ZoomOverlay(this, {
+			target: ".excalidraw-embedded-img",
+			cssPrefix: "excalidraw-zoom",
+		}).register();
 
 		this.applySizing();
 		// Leave the DOM as we found it.
