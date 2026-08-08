@@ -1,0 +1,35 @@
+.vault-backup-status-bar {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	cursor: pointer;
+}
+
+.vault-backup-status-bar .vault-backup-icon {
+	display: inline-flex;
+	align-items: center;
+}
+
+.vault-backup-status-bar .vault-backup-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+.vault-backup-status-bar.vault-backup-error {
+	color: var(--text-error);
+}
+
+.vault-backup-status {
+	margin: 0 0 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.6;
+	color: var(--text-muted);
+	white-space: pre-wrap;
+}
+
+.vault-backup-status .vault-backup-status-error {
+	color: var(--text-error);
+}

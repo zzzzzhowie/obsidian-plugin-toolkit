@@ -35,7 +35,9 @@
         "dev:caption-enhanced": "pnpm --filter @obsidian-plugin-toolkit/caption-enhanced dev",
         "build:caption-enhanced": "pnpm --filter @obsidian-plugin-toolkit/caption-enhanced build",
         "dev:sticky-find": "pnpm --filter @obsidian-plugin-toolkit/sticky-find dev",
-        "build:sticky-find": "pnpm --filter @obsidian-plugin-toolkit/sticky-find build"
+        "build:sticky-find": "pnpm --filter @obsidian-plugin-toolkit/sticky-find build",
+        "dev:vault-backup": "pnpm --filter @obsidian-plugin-toolkit/vault-backup dev",
+        "build:vault-backup": "pnpm --filter @obsidian-plugin-toolkit/vault-backup build"
     },
     "keywords": [
         "obsidian",

@@ -1,0 +1,9 @@
+{
+	"id": "vault-backup",
+	"name": "Vault Backup",
+	"version": "1.0.0",
+	"minAppVersion": "1.8.7",
+	"description": "Periodically commits and pushes the vault with git. Backup only runs on machines you explicitly opt in, so a vault shared across several computers is only ever written by one of them.",
+	"author": "",
+	"isDesktopOnly": true
+}
