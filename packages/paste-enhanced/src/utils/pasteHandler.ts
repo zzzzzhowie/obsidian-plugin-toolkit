@@ -87,6 +87,52 @@ export function isInCodeBlock(editor: Editor): boolean {
 }
 
 /**
+ * Teach Turndown to write Obsidian wikilinks back as wikilinks.
+ *
+ * Copying `[[maximal-square]]` puts the *rendered* anchor on the clipboard
+ * (`<a class="internal-link" data-href="maximal-square" href="...">maximal-square</a>`),
+ * and Turndown's built-in rule turns any anchor into `[text](href)`. That silently
+ * converted every pasted vault link into a plain Markdown link — worst of all for
+ * `[[note#heading]]`, where the resulting link no longer resolves at all because the
+ * heading anchor isn't escaped the way a Markdown link needs.
+ *
+ * `data-href` is the link exactly as it was authored (`href` may be resolved to a full
+ * path), so it round-trips faithfully. The visible text is only kept as an alias when it
+ * actually differs from the target — Obsidian renders an un-aliased `[[a#b]]` with its
+ * target as the text, so comparing them is what stops us inventing `[[a#b|a#b]]`.
+ */
+function addObsidianLinkRule(turndownService: TurndownService): void {
+	turndownService.addRule("obsidianInternalLink", {
+		filter: (node): boolean => {
+			if (node.nodeName !== "A") return false;
+			const el = node as unknown as HTMLElement;
+			// Obsidian marks vault links with `internal-link`; external ones carry
+			// `external-link` and no data-href, so they keep the normal `[text](url)`.
+			return (
+				el.classList?.contains("internal-link") ||
+				(el.hasAttribute?.("data-href") &&
+					!el.classList?.contains("external-link"))
+			);
+		},
+		replacement: (content, node): string => {
+			const el = node as unknown as HTMLElement;
+			const target = (
+				el.getAttribute("data-href") ||
+				el.getAttribute("href") ||
+				""
+			).trim();
+			// Without a target there's no wikilink to write; fall back to Turndown's
+			// already-converted inner content rather than dropping the text.
+			if (!target) return content;
+			const text = (el.textContent ?? "").trim();
+			return text && text !== target
+				? `[[${target}|${text}]]`
+				: `[[${target}]]`;
+		},
+	});
+}
+
+/**
  * Convert HTML to Markdown
  */
 function htmlToMarkdown(html: string): string {
@@ -98,6 +144,7 @@ function htmlToMarkdown(html: string): string {
 	// Add GitHub Flavored Markdown support (including tables)
 	// gfm is a function that accepts turndownService as parameter
 	gfm(turndownService);
+	addObsidianLinkRule(turndownService);
 	let markdown = turndownService.turndown(html);
 	
 	// Normalize bullet point spacing: replace multiple spaces after "-" with single space
