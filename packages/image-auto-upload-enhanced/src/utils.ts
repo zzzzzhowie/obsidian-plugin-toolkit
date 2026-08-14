@@ -88,6 +88,31 @@ export function uuid() {
   return Math.random().toString(36).slice(2);
 }
 
+export interface ImageSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * The pasted image's own pixel size, read from the bytes before they are uploaded.
+ *
+ * Used to write a `|<w>x<h>` suffix instead of a bare `|<w>`, which is what lets Obsidian
+ * reserve the image's box before the upload finishes downloading again — see handleName.
+ * Null whenever the bytes can't be decoded (an SVG, a format the runtime won't take), and
+ * the caller then keeps the width-only suffix it would have written anyway.
+ */
+export async function imageSizeOf(file: File): Promise<ImageSize | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const size = { width: bitmap.width, height: bitmap.height };
+    bitmap.close();
+    return size.width > 0 && size.height > 0 ? size : null;
+  } catch (e) {
+    console.error("Could not read the pasted image's size: ", e);
+    return null;
+  }
+}
+
 /**
  * Write pasted image bytes to the OS temp directory and return the paths.
  *

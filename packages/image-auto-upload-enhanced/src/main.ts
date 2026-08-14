@@ -13,7 +13,12 @@ import {
 } from "obsidian";
 import { resolve, basename, dirname } from "path-browserify";
 
-import { isAssetTypeAnImage, arrayToObject } from "./utils";
+import {
+  isAssetTypeAnImage,
+  arrayToObject,
+  imageSizeOf,
+  type ImageSize,
+} from "./utils";
 import { downloadAllImageFiles } from "./download";
 import { UploaderManager } from "./uploader/index";
 import { PicGoDeleter } from "./deleter";
@@ -22,6 +27,13 @@ import { t } from "./lang/helpers";
 import { SettingTab, PluginSettings, DEFAULT_SETTINGS } from "./setting";
 
 import type { Image } from "./types";
+
+/**
+ * How long to wait before checking whether a write actually landed. Only has to outlast
+ * the `setTimeout` Obsidian's table-cell editor re-dispatches through; a delay this short
+ * is invisible next to the upload it follows.
+ */
+const RETRY_DELAY = 50;
 
 export default class imageAutoUploadPlugin extends Plugin {
   settings: PluginSettings;
@@ -540,11 +552,16 @@ export default class imageAutoUploadPlugin extends Plugin {
       new Notice(t("Could not write to the note, paste again"));
       return;
     }
-    const name = clipboardData.files[0]?.name ?? "";
+    // Read off the event synchronously: a DataTransfer is unreadable once the paste
+    // has finished dispatching, though the File it handed over stays valid.
+    const file = clipboardData.files[0] ?? null;
+    const name = file?.name ?? "";
+    // Measured alongside the upload rather than before it, so it costs no latency.
+    const size = file ? imageSizeOf(file) : Promise.resolve(null);
 
     try {
       const url = await callback(editor, pasteId);
-      this.embedMarkDownImage(editor, pasteId, url, name);
+      this.embedMarkDownImage(editor, pasteId, url, name, await size);
     } catch (e) {
       this.handleFailedUpload(editor, pasteId, e);
     }
@@ -559,7 +576,6 @@ export default class imageAutoUploadPlugin extends Plugin {
    */
   insertTemporaryText(editor: Editor, pasteId: string): boolean {
     const progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
-    const cursor = editor.getCursor("to");
 
     // No trailing newline: inside a table row it splits the row in two, and
     // Obsidian's table editor then rewrites the whole table — padding header and
@@ -569,30 +585,17 @@ export default class imageAutoUploadPlugin extends Plugin {
       editor.replaceSelection(progressText);
     } catch (e) {
       console.error("Could not insert the upload placeholder: ", e);
+      return false;
     }
-    if (imageAutoUploadPlugin.findText(editor, progressText)) {
-      return true;
-    }
-    // The insert was dropped — inside a table Obsidian re-serializes rows on its
-    // own schedule and rejects a transaction built against the pre-rewrite
-    // document ("change set … wrong length"). Splice the text in by offset, in a
-    // single whole-document transaction that cannot go stale.
-    return this.spliceText(editor, cursor, progressText);
-  }
 
-  private spliceText(
-    editor: Editor,
-    at: EditorPosition,
-    text: string
-  ): boolean {
-    if (this.helper.getEditor() !== editor) {
-      return false; // a different note is in front now
-    }
-    const value = editor.getValue();
-    const offset = editor.posToOffset(at);
-    this.helper.setValue(value.slice(0, offset) + text + value.slice(offset));
-
-    return imageAutoUploadPlugin.findText(editor, text) !== null;
+    // Deliberately not verified here. Inside a table cell the text does not land in
+    // this document at all: Obsidian's cell editor filters the change out and
+    // re-dispatches it into the cell's own editor a task later, so reading the
+    // document now always says "missing" and any second write we made on that belief
+    // was a duplicate — and the one that produced the "change set … wrong length"
+    // crashes. If it really never lands, the upload still has somewhere to go, since
+    // embedMarkDownImage falls back to the cursor.
+    return true;
   }
 
   /**
@@ -607,12 +610,13 @@ export default class imageAutoUploadPlugin extends Plugin {
     editor: Editor,
     pasteId: string,
     imageUrl: any,
-    name: string = ""
+    name: string = "",
+    size: ImageSize | null = null
   ) {
     let progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
     const at = imageAutoUploadPlugin.findText(editor, progressText);
     if (at === null) {
-      this.embedAtCursor(editor, imageUrl, name);
+      this.embedAtCursor(editor, imageUrl, name, size);
       return;
     }
 
@@ -622,6 +626,7 @@ export default class imageAutoUploadPlugin extends Plugin {
       this.imageMarkdown(editor.getLine(at.line), at.ch, progressText, {
         imageUrl,
         name,
+        size,
       })
     );
   }
@@ -631,7 +636,12 @@ export default class imageAutoUploadPlugin extends Plugin {
    * insert got rolled back. An upload that already finished shouldn't be thrown
    * away, so place the image at the cursor while the note is still in front.
    */
-  private embedAtCursor(editor: Editor, imageUrl: any, name: string) {
+  private embedAtCursor(
+    editor: Editor,
+    imageUrl: any,
+    name: string,
+    size: ImageSize | null
+  ) {
     if (this.helper.getEditor() !== editor) {
       new Notice(`${t("Uploaded, but the note is gone")}: ${imageUrl}`);
       console.warn("Uploaded image had nowhere to go: ", imageUrl);
@@ -643,6 +653,7 @@ export default class imageAutoUploadPlugin extends Plugin {
       this.imageMarkdown(editor.getLine(cursor.line), cursor.ch, "", {
         imageUrl,
         name,
+        size,
       })
     );
   }
@@ -659,9 +670,9 @@ export default class imageAutoUploadPlugin extends Plugin {
     line: string,
     ch: number,
     placeholder: string,
-    image: { imageUrl: any; name: string }
+    image: { imageUrl: any; name: string; size: ImageSize | null }
   ) {
-    const name = this.handleName(image.name);
+    const name = this.handleName(image.name, image.size);
 
     return this.lineIsTableRow(line, placeholder)
       ? `${imageAutoUploadPlugin.cellSeparator(line, ch)}![${this.escapeAltPipes(name)}](${image.imageUrl})`
@@ -716,8 +727,8 @@ export default class imageAutoUploadPlugin extends Plugin {
     this.replaceText(editor, progressText, "⚠️upload failed, check dev console");
   }
 
-  handleName(name: string) {
-    const imageSizeSuffix = this.settings.imageSizeSuffix || "";
+  handleName(name: string, size: ImageSize | null = null) {
+    const imageSizeSuffix = this.sizeSuffix(size);
 
     if (this.settings.imageDesc === "origin") {
       return `${name}${imageSizeSuffix}`;
@@ -735,41 +746,96 @@ export default class imageAutoUploadPlugin extends Plugin {
   }
 
   /**
+   * The `|500` from settings, upgraded to `|500x281` once the image's own pixel size is
+   * known.
+   *
+   * Width alone leaves the height unknown until the upload has been downloaded again, so
+   * the image occupies no vertical space and then suddenly takes hundreds of pixels,
+   * shoving everything below it — the scroll jump after a paste, and inside a table it
+   * takes the whole block with it. Obsidian parses a `<w>x<h>` suffix into real `width`
+   * and `height` attributes, so the box is reserved from the first paint.
+   *
+   * Only a plain `|<number>` is upgraded: anything else the user has configured is theirs,
+   * and with no suffix at all the image is meant to render at its natural size.
+   */
+  private sizeSuffix(size: ImageSize | null): string {
+    const suffix = this.settings.imageSizeSuffix || "";
+    if (!size) return suffix;
+    const width = suffix.match(/^\|(\d+)$/)?.[1];
+    if (!width) return suffix;
+
+    const height = Math.round((Number(width) * size.height) / size.width);
+    return height > 0 ? `|${width}x${height}` : suffix;
+  }
+
+  /**
    * Swap the first occurrence of `target` for `replacement`.
    *
-   * A write that lands inside a table can be rejected while Obsidian's table
-   * editor is re-serializing rows, so retry from a freshly located position and
-   * then, as a last resort, rewrite the whole document — one transaction built
-   * from the current value, which cannot be stale.
+   * One write, then — if the text is still there a moment later — one more, through the
+   * escape hatch below. Never two in the same tick: a write inside a table cell is not
+   * applied to this document at all. Obsidian's cell editor filters it out, rewrites it
+   * into cell-relative coordinates against the cell's text *as it is now*, and dispatches
+   * it into the cell's own editor from a `setTimeout`. Checking immediately therefore
+   * always reads "not replaced", and writing again on that belief queues a second
+   * translated change set that no longer matches the cell — which is the
+   * "Applying change set to a document with the wrong length" crash, thrown from inside
+   * Obsidian's own timeout where nothing can catch it.
    */
   private replaceText(editor: Editor, target: string, replacement: string) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const at = imageAutoUploadPlugin.findText(editor, target);
-      if (at === null) {
-        return attempt > 0; // an earlier attempt already replaced it
-      }
-      try {
-        editor.replaceRange(replacement, at, {
-          line: at.line,
-          ch: at.ch + target.length,
-        });
-        if (imageAutoUploadPlugin.findText(editor, target) === null) {
-          return true;
-        }
-      } catch (e) {
-        console.error("Could not replace the upload placeholder: ", e);
-      }
+    const at = imageAutoUploadPlugin.findText(editor, target);
+    if (at === null) return false;
+
+    try {
+      editor.replaceRange(replacement, at, {
+        line: at.line,
+        ch: at.ch + target.length,
+      });
+    } catch (e) {
+      console.error("Could not replace the upload placeholder: ", e);
     }
 
-    if (this.helper.getEditor() !== editor) {
-      return false; // a different note is in front now
-    }
-    const value = editor.getValue();
-    if (!value.includes(target)) {
+    // Long enough for the cell editor's own dispatch to have run.
+    window.setTimeout(() => {
+      const from = editor.getValue().indexOf(target);
+      if (from === -1) return; // it landed
+      this.dispatchEdit(editor, from, from + target.length, replacement);
+    }, RETRY_DELAY);
+
+    return true;
+  }
+
+  /**
+   * Apply one change through the editor's own CodeMirror view, marked as a `set` user
+   * event.
+   *
+   * That marking is the point: Obsidian's table-cell change filter passes a `set`
+   * straight through (tearing its cell editor down first), so the change lands in this
+   * document synchronously instead of being translated and re-dispatched into a cell
+   * editor a task later. It is still a single-range change, so unlike replacing the
+   * whole document — which is what this used to fall back to — the view keeps its scroll
+   * position and its undo history.
+   *
+   * Offsets are plain document offsets, which is exactly what `indexOf` on the editor's
+   * value returns.
+   */
+  private dispatchEdit(
+    editor: Editor,
+    from: number,
+    to: number,
+    insert: string
+  ): boolean {
+    const cm = (editor as unknown as { cm?: { dispatch(spec: unknown): void } }).cm;
+    if (!cm) return false;
+    try {
+      cm.dispatch({
+        changes: { from, to, insert },
+        userEvent: "set",
+        scrollIntoView: false,
+      });
+    } catch (e) {
+      console.error("Could not write to the editor: ", e);
       return false;
     }
-    this.helper.setValue(value.replace(target, replacement));
-
     return true;
   }
 }
