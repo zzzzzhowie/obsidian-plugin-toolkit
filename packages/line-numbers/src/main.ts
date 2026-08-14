@@ -18,6 +18,9 @@ export default class LineNumbersPlugin extends Plugin {
 	 */
 	private editorExtensions: Extension[] = [];
 
+	/** Whether the reveal class is currently on the body — see setPeekActive. */
+	private peekActive = false;
+
 	async onload() {
 		await this.loadSettings();
 		this.addSettingTab(new LineNumbersSettingTab(this.app, this));
@@ -29,15 +32,33 @@ export default class LineNumbersPlugin extends Plugin {
 		// handlers just toggle a body class; the base `line-numbers-peek` class
 		// (set in refreshExtensions) gates whether it has any effect, so these
 		// stay cheap no-ops when peek mode is off.
+		//
+		// Nothing here trusts the modifier's own keyup to arrive. It is the only
+		// event that says "released", and it goes missing whenever something eats
+		// the rest of the chord — switching tabs with ⌘+number, a menu accelerator
+		// firing, focus moving into a leaf that is being rebuilt — which left the
+		// numbers showing until the next time the modifier was pressed and released
+		// cleanly. So every input event that carries modifier state is allowed to
+		// end peek mode: they all report the modifier as up, whatever happened to
+		// the keyup we never got.
 		this.registerDomEvent(document, "keydown", (e) => {
 			if (e.key === "Meta" || e.key === "Control") this.setPeekActive(true);
+			else if (!e.metaKey && !e.ctrlKey) this.setPeekActive(false);
 		});
 		this.registerDomEvent(document, "keyup", (e) => {
-			if (e.key === "Meta" || e.key === "Control") this.setPeekActive(false);
+			if (e.key === "Meta" || e.key === "Control" || !(e.metaKey || e.ctrlKey)) {
+				this.setPeekActive(false);
+			}
 		});
-		// Releasing the modifier while the window is unfocused (e.g. ⌘+Tab)
-		// never fires keyup here — reset on blur so numbers don't get stuck on.
+		// Covers releasing the modifier while the window is unfocused (⌘+Tab), where
+		// no key event of any kind reaches us.
 		this.registerDomEvent(window, "blur", () => this.setPeekActive(false));
+		// The reliable catch-all: the first mouse move after the modifier is gone.
+		// setPeekActive returns immediately when the state is unchanged, so this
+		// costs one boolean compare per event.
+		this.registerDomEvent(document, "mousemove", (e) => {
+			if (!e.metaKey && !e.ctrlKey) this.setPeekActive(false);
+		});
 
 		this.addCommand({
 			id: "toggle-line-numbers",
@@ -59,12 +80,20 @@ export default class LineNumbersPlugin extends Plugin {
 			"line-numbers-peek",
 			"line-numbers-peek-active"
 		);
+		this.peekActive = false;
 	}
 
-	/** Toggle the "numbers currently revealed" state (only meaningful in peek mode). */
+	/**
+	 * Toggle the "numbers currently revealed" state (only meaningful in peek mode).
+	 * Tracked in a field and returned from early when unchanged, so the handlers that
+	 * fire continuously — mousemove above — never touch the DOM for nothing.
+	 */
 	private setPeekActive(active: boolean): void {
 		const peek = this.settings.enabled && this.settings.revealOnModifier;
-		document.body.classList.toggle("line-numbers-peek-active", peek && active);
+		const next = peek && active;
+		if (next === this.peekActive) return;
+		this.peekActive = next;
+		document.body.classList.toggle("line-numbers-peek-active", next);
 	}
 
 	/** Rebuilds the editor extension from current settings and applies it live. */
@@ -92,7 +121,10 @@ export default class LineNumbersPlugin extends Plugin {
 		// the key handlers add `line-numbers-peek-active` to reveal them.
 		const peek = active && this.settings.revealOnModifier;
 		document.body.classList.toggle("line-numbers-peek", peek);
-		if (!peek) document.body.classList.remove("line-numbers-peek-active");
+		if (!peek) {
+			document.body.classList.remove("line-numbers-peek-active");
+			this.peekActive = false;
+		}
 	}
 
 	async loadSettings() {
