@@ -10,6 +10,18 @@ const CLAUDIAN_MESSAGES = ".claudian-messages";
 /** A user's own message bubble — appears the moment a prompt is submitted. */
 const CLAUDIAN_USER_MESSAGE = ".claudian-message-user";
 /**
+ * Marks the prompt currently pinned to the top of the list. Only while it's actually
+ * pinned may the header styling paint outside the bubble — see markPinnedPrompt.
+ */
+const PINNED_CLS = "claudian-enhanced-pinned";
+/**
+ * Marks a prompt that is stuck to the top but sits *behind* a later one. Every prompt
+ * sticks at the same offset, so without this they pile up — and because they're
+ * right-aligned and only as wide as their text, a shorter newer prompt leaves the left
+ * end of an older one showing, which reads as two titles overlapping.
+ */
+const BURIED_CLS = "claudian-enhanced-buried";
+/**
  * How far above the bottom still counts as "following the stream" (px). Claudian's own
  * autoscroll uses 20px, which is tighter than the height a single render step adds — we
  * measure *after* the mutation, so that would read as detached almost every time. This
@@ -138,6 +150,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private lastScrollTop = new WeakMap<HTMLElement, number>();
 	/** Set while we move a list ourselves, so our own pin isn't read as the reader scrolling. */
 	private selfScrolling = false;
+	/** The prompt currently marked as pinned; re-marking the same one writes nothing. */
+	private pinnedPrompt: HTMLElement | null = null;
+	/** Pending frame for the pinned-prompt pass, so scrolling schedules at most one. */
+	private pinnedFrame: number | null = null;
 
 	async onload(): Promise<void> {
 		this.addCommand({
@@ -201,6 +217,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 
 	onunload(): void {
 		if (this.syncTimer !== null) window.clearTimeout(this.syncTimer);
+		if (this.pinnedFrame !== null) cancelAnimationFrame(this.pinnedFrame);
+		this.pinnedPrompt?.removeClass(PINNED_CLS);
 	}
 
 	private onEscapeCapture = (e: KeyboardEvent): void => {
@@ -724,6 +742,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private onScrollCapture = (event: Event): void => {
 		const scroller = event.target as HTMLElement | null;
 		if (!scroller?.matches?.(CLAUDIAN_MESSAGES)) return;
+		this.schedulePinnedPrompt(scroller);
 		const top = scroller.scrollTop;
 		const previous = this.lastScrollTop.get(scroller) ?? top;
 		this.lastScrollTop.set(scroller, top);
@@ -734,6 +753,78 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const distance = scroller.scrollHeight - top - scroller.clientHeight;
 		if (distance <= REATTACH_PX) this.detached.delete(scroller);
 	};
+
+	/**
+	 * Flag the prompt currently stuck to the top of `scroller`, at most once a frame.
+	 *
+	 * The sticky prompt has to paint over the strip above it or the reply scrolls through
+	 * the gap; CSS alone can't, because a box-shadow is drawn whether or not the element is
+	 * stuck, so a fill wide enough for the strip would cover the previous message too.
+	 * Knowing which prompt is pinned is the missing piece.
+	 *
+	 * Getting there costs a forced layout, so this is throttled to one pass per frame —
+	 * scroll events fire far faster than that, and an intermediate answer is never shown.
+	 */
+	private schedulePinnedPrompt(scroller: HTMLElement): void {
+		if (this.pinnedFrame !== null) return;
+		this.pinnedFrame = requestAnimationFrame(() => {
+			this.pinnedFrame = null;
+			this.markPinnedPrompt(scroller);
+		});
+	}
+
+	/**
+	 * Every rect is read before any class is written, and nothing is written at all unless
+	 * the pinned prompt actually changed. Both matter:
+	 *
+	 * - interleaving reads and writes makes the browser re-run layout between each one, so
+	 *   a long conversation paid O(n) forced reflows per scroll — enough on its own to make
+	 *   scrolling stutter.
+	 * - writing a class here feeds the MutationObserver in ensureSubmitScrollObserver,
+	 *   which watches `class` on this subtree. Touching the DOM on every pass turned that
+	 *   into a loop that hung the app. In the steady state — scrolling inside one answer —
+	 *   the pinned prompt doesn't change, so now nothing is written and the observer stays
+	 *   quiet. It only fires on a real section change, where it settles immediately because
+	 *   the next pass finds the same prompt and writes nothing.
+	 */
+	private markPinnedPrompt(scroller: HTMLElement): void {
+		if (!scroller.isConnected) return;
+		// Where a pinned prompt actually comes to rest. `top: 0` is measured from the
+		// scrollport, and the list carries a top padding, so a stuck prompt sits that far
+		// below the list's own top edge — not flush with it. Comparing against the bare
+		// edge therefore matched nothing, no prompt was ever marked, and both the strip
+		// above the prompt and the stacking of older prompts went unhandled. Reading the
+		// padding keeps this correct whether the engine insets the scrollport by it or not,
+		// since a prompt that hasn't reached the top is still well below either line.
+		const listRect = scroller.getBoundingClientRect();
+		const padding = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
+		const listTop = listRect.top + padding;
+		const prompts = Array.from(
+			scroller.querySelectorAll<HTMLElement>(CLAUDIAN_USER_MESSAGE),
+		);
+		let pinned: HTMLElement | null = null;
+		let pinnedIndex = -1;
+		for (const [index, prompt] of prompts.entries()) {
+			// Sticky holds it at the edge, so "reached the top" means at or just past it.
+			if (prompt.getBoundingClientRect().top <= listTop + 1) {
+				pinned = prompt;
+				pinnedIndex = index;
+			} else break;
+		}
+		if (this.pinnedPrompt === pinned) return;
+		this.pinnedPrompt?.removeClass(PINNED_CLS);
+		pinned?.addClass(PINNED_CLS);
+		this.pinnedPrompt = pinned;
+		// Everything before the pinned prompt is stuck underneath it. Hiding rather than
+		// unsticking keeps this free of jitter: visibility takes the buried prompts out of
+		// sight without touching layout, so nothing below them moves and the pinned one
+		// never has to be re-positioned. Re-adding a class the element already has is not
+		// an attribute change, so these passes stay quiet for the MutationObserver too.
+		for (const [index, prompt] of prompts.entries()) {
+			if (index < pinnedIndex) prompt.addClass(BURIED_CLS);
+			else prompt.removeClass(BURIED_CLS);
+		}
+	}
 
 	/** Pin a list to the bottom, marking the move as ours. */
 	private pinToBottom(scroller: HTMLElement): void {

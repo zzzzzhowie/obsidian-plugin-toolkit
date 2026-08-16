@@ -177,3 +177,55 @@
 .claudian-messages.claudian-messages {
 	padding-right: 10px;
 }
+
+/* Pin each prompt to the top of the conversation while its reply scrolls past, so you can
+   always see which question you're reading the answer to (the reply is the long part; the
+   prompt is what gives it context).
+
+   Claudian sets `position: relative` and a translucent `background` on this element at
+   (0,1,0), so both the class doubling and the opaque base below are load-order-proof —
+   the same reason the permission-chip rule above is doubled.
+
+   Two details make the pin itself work:
+   - the tint is translucent (rgba(0,0,0,0.3)), so pinned text would have the reply
+     scrolling visibly through it. Keep that exact tint as a background-image layered over
+     an opaque surface colour, which preserves the look and blocks what's underneath.
+   - a positioned element still loses to later siblings in paint order, so without z-index
+     the assistant's reply would slide over the pinned prompt instead of under it. */
+.claudian-message-user.claudian-message-user {
+	--claudian-sticky-surface: var(--background-secondary);
+	position: sticky;
+	top: 0;
+	/* Claudian sets no top margin today; pin it so a future one can't open a gap. */
+	margin-top: 0;
+	z-index: 1;
+	background-color: var(--claudian-sticky-surface);
+	background-image: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3));
+}
+
+/* Claudian can also be opened as a main-editor tab, where the leaf sits on the primary
+   surface rather than the sidebar's. Only the variable changes; the rules below follow. */
+.workspace-split.mod-root .claudian-message-user.claudian-message-user {
+	--claudian-sticky-surface: var(--background-primary);
+}
+
+/* Only while a prompt is actually pinned (markPinnedPrompt sets this) does it get the
+   separator, so an unpinned prompt sitting in the list keeps Claudian's own look.
+
+   Deliberately just a hairline. Earlier versions also painted a fill around the pinned
+   prompt to hide the reply scrolling through the strip beside and above it, but the fill
+   blanked out that text instead — worse than the thing it was hiding. The prompt's own
+   opaque background plus this line is enough to tell the two apart. */
+.claudian-message-user.claudian-message-user.claudian-enhanced-pinned {
+	box-shadow: 0 1px 0 0 var(--background-modifier-border);
+}
+
+/* A prompt that is stuck but has a later one stuck on top of it. They all pin at the same
+   offset, and since each is only as wide as its own text, a shorter newer prompt left the
+   left end of an older one visible — two titles apparently overlapping. Only the newest is
+   ever wanted, so take the rest out of sight. `visibility`, not `display`, so their slot in
+   the list is untouched and nothing below shifts; they come back the moment you scroll up
+   far enough for one of them to be the newest again. */
+.claudian-message-user.claudian-enhanced-buried {
+	visibility: hidden;
+}
