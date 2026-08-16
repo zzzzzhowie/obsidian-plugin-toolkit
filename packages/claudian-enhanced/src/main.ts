@@ -17,6 +17,13 @@ const CLAUDIAN_USER_MESSAGE = ".claudian-message-user";
  * to read anything real detaches.
  */
 const FOLLOW_THRESHOLD_PX = 200;
+/**
+ * How close to the bottom the reader has to come back before streaming starts following
+ * again (px). Deliberately much tighter than FOLLOW_THRESHOLD_PX: that one only decides
+ * whether an *undisturbed* view still counts as pinned, whereas re-following after someone
+ * deliberately scrolled up should need them to actually return to the end.
+ */
+const REATTACH_PX = 24;
 /** Row above the composer; shows "⌐ Queued: …" for a prompt submitted mid-stream. */
 const CLAUDIAN_QUEUE_ROW = ".claudian-input-queue-row";
 /** The summary label inside that row (Claudian rebuilds it on every queue update). */
@@ -121,6 +128,16 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private observedContainer: HTMLElement | null = null;
 	/** Last queued-message summary we scrolled for; see handleQueueChange. */
 	private lastQueueText = "";
+	/**
+	 * Message lists the reader has scrolled up in. Streaming stops following these until
+	 * they come back to the bottom (or submit again). Keyed by element so each conversation
+	 * tab keeps its own answer, and held weakly so a closed tab's list can be collected.
+	 */
+	private detached = new WeakSet<HTMLElement>();
+	/** Last scrollTop seen per list, to tell an upward move from a downward one. */
+	private lastScrollTop = new WeakMap<HTMLElement, number>();
+	/** Set while we move a list ourselves, so our own pin isn't read as the reader scrolling. */
+	private selfScrolling = false;
 
 	async onload(): Promise<void> {
 		this.addCommand({
@@ -157,6 +174,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// watch the view for submits, replies rendering, and queued prompts instead.
 		// See setupSubmitScroll / ensureSubmitScrollObserver.
 		this.setupSubmitScroll(Date.now() + 8000);
+		// Notice when the reader scrolls away from the bottom, so streaming stops dragging
+		// them back. `scroll` doesn't bubble, so this listens in the capture phase.
+		this.registerDomEvent(document, "scroll", this.onScrollCapture, {
+			capture: true,
+		});
 		// MutationObserver isn't auto-cleaned by Obsidian's register* helpers.
 		this.register(() => this.submitScrollObserver?.disconnect());
 		// Reuse a tab instead of stacking a new one per clicked link. See
@@ -687,11 +709,50 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * this batch added are included and there is nothing for a rAF to wait for — it would
 	 * only add a frame of lag, plus a starved frame would strand the pin.
 	 */
+	/**
+	 * Track whether the reader is still following the stream.
+	 *
+	 * Geometry alone can't answer this. Measuring the distance from the bottom after each
+	 * streamed chunk means a small scroll — one wheel notch is about 100px — sits inside the
+	 * slack we need for the chunk itself, so the next chunk snapped the reader straight back
+	 * and scrolling up felt like it did nothing. What matters isn't where the view is, it's
+	 * whether the person moved it, so record the direction they moved instead. Any upward
+	 * move detaches; only returning to the end re-attaches. Reading scrollTop covers the
+	 * wheel, trackpad, scrollbar dragging and the keyboard alike, and the selfScrolling flag
+	 * keeps our own pinning from being mistaken for either.
+	 */
+	private onScrollCapture = (event: Event): void => {
+		const scroller = event.target as HTMLElement | null;
+		if (!scroller?.matches?.(CLAUDIAN_MESSAGES)) return;
+		const top = scroller.scrollTop;
+		const previous = this.lastScrollTop.get(scroller) ?? top;
+		this.lastScrollTop.set(scroller, top);
+		if (!this.selfScrolling && top < previous - 1) {
+			this.detached.add(scroller);
+			return;
+		}
+		const distance = scroller.scrollHeight - top - scroller.clientHeight;
+		if (distance <= REATTACH_PX) this.detached.delete(scroller);
+	};
+
+	/** Pin a list to the bottom, marking the move as ours. */
+	private pinToBottom(scroller: HTMLElement): void {
+		this.selfScrolling = true;
+		scroller.scrollTop = scroller.scrollHeight;
+		this.lastScrollTop.set(scroller, scroller.scrollTop);
+		// The scroll event lands asynchronously, so hold the flag past this frame.
+		requestAnimationFrame(() => {
+			this.selfScrolling = false;
+		});
+	}
+
 	private followToBottom(scroller: HTMLElement): void {
+		// The reader took over; leave them where they are until they come back down.
+		if (this.detached.has(scroller)) return;
 		const distance =
 			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
 		if (distance > FOLLOW_THRESHOLD_PX) return;
-		scroller.scrollTop = scroller.scrollHeight;
+		this.pinToBottom(scroller);
 	}
 
 	/** Did this mutation land inside the queue row (childList targets the row itself)? */
@@ -734,8 +795,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private scrollToBottom(scroller: HTMLElement | null): void {
 		if (!scroller) return;
+		// Sending a prompt (or queueing one) is a request to see it, so it cancels an
+		// earlier scroll-up and puts the reader back on the stream.
+		this.detached.delete(scroller);
 		const run = (): void => {
-			scroller.scrollTop = scroller.scrollHeight;
+			this.pinToBottom(scroller);
 		};
 		requestAnimationFrame(run);
 		window.setTimeout(run, 150);
