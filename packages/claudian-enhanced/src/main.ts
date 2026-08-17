@@ -784,9 +784,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private clearCurrentTab(): void {
 		const path = this.activeNotePath();
 		if (path) this.forgetNote(path);
-		(this.app as unknown as AppWithCommands).commands.executeCommandById(
-			NEW_SESSION_COMMAND,
-		);
+		// An untouched tab already is the fresh start being asked for. Claudian's command
+		// would run createNew() regardless — filing the empty conversation into history and
+		// re-attaching the note — so reuse what's there and only spend a reset on a tab
+		// that actually holds something.
+		if (this.tabHasContent()) {
+			(this.app as unknown as AppWithCommands).commands.executeCommandById(
+				NEW_SESSION_COMMAND,
+			);
+		}
 
 		// Land in the composer, so an emptied tab can be typed into straight away. Claudian
 		// re-focuses its own tab root after every render, which is why this needs the same
@@ -801,6 +807,18 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			return;
 		}
 		this.stickyFocusInput(Date.now() + 1500, gen);
+	}
+
+	/**
+	 * Whether the active tab holds anything a clear would throw away.
+	 *
+	 * An unreadable tab counts as holding something: the point of the check is to skip
+	 * pointless churn, and guessing "empty" on a build whose internals drifted would turn
+	 * the command into a no-op instead of degrading it to always resetting.
+	 */
+	private tabHasContent(): boolean {
+		const messages = this.getActiveTabState()?.messages;
+		return Array.isArray(messages) ? messages.length > 0 : true;
 	}
 
 	/** Drop a deleted note (and, for a folder, everything under it) from the memory. */
