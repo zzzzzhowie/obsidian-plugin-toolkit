@@ -15,9 +15,15 @@
 	color: var(--text-faint);
 }
 
-/* Keep the active line readable when "Highlight active line" is on. */
+/*
+ * Keep the active line readable when "Highlight active line" is on. Bold as well as
+ * brighter: in overlay mode the number stands alone out in the margin with its
+ * background dropped (see below), and a shade of grey on its own is too quiet to find.
+ * `--bold-weight` is Obsidian's own, so it follows the theme's bold.
+ */
 .cm-lineNumbers .cm-activeLineGutter {
 	color: var(--text-muted);
+	font-weight: var(--bold-weight, 600);
 }
 
 /*
@@ -81,6 +87,19 @@
 	/* Belt-and-suspenders: in overlay mode the column is purely decorative, so
 	   never let it (or any stray hit area) intercept selection. */
 	pointer-events: none;
+}
+
+/*
+ * The active line's number is highlighted by CodeMirror with a background
+ * (`#e2f2ff` in its default light theme), which reads as a tint across the
+ * gutter column — but in overlay mode there is no column: the element is 0-wide
+ * and transformed out into the margin, so that background paints as a stray
+ * block floating to the left of the text, as tall as the line it belongs to (and
+ * taller still when the line wraps). Drop it here and let the digit's own colour
+ * carry the emphasis, which is all there is room for out in the margin anyway.
+ */
+.line-numbers-overlay .cm-lineNumbers .cm-activeLineGutter {
+	background-color: transparent;
 }
 
 .line-numbers-overlay .cm-lineNumbers .cm-gutterElement {
