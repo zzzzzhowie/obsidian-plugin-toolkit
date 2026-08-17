@@ -56,6 +56,20 @@ const OPEN_COMMAND = "realclaudian:open-view";
  */
 const NEW_SESSION_COMMAND = "realclaudian:new-session";
 /**
+ * How many notes keep a conversation on file. Beyond this the least recently visited note
+ * is forgotten — its conversation still exists in Claudian's own history, it just stops
+ * coming back on its own.
+ */
+const REMEMBERED_NOTES = 5;
+/**
+ * Where Claudian stores one `<conversationId>.meta.json` per conversation. The folder is a
+ * hardcoded constant in its bundle (not a setting), and each meta already records the note
+ * the conversation belongs to — which is what we seed our own memory from on first run, so
+ * the feature works against conversations that predate it. See seedFromClaudianHistory.
+ */
+const CLAUDIAN_SESSIONS_DIR = ".claudian/sessions";
+const SESSION_META_SUFFIX = ".meta.json";
+/**
  * The decoration Claudian marks a carried 划词 with, inside the note's editor. Present
  * only while Claudian is painting the selection; the native editor highlight takes over
  * whenever the editor itself has focus.
@@ -113,11 +127,53 @@ interface ClaudianSelectionController {
 	showHighlight?: () => void;
 }
 
-/** One of Claudian's conversation tabs — the object every reach-in below starts from. */
+/**
+ * One of Claudian's conversation tabs — the object every reach-in below starts from.
+ * `conversationId` is null until the first prompt is sent (an untouched tab has no
+ * conversation yet), which is exactly the case we decline to remember.
+ */
 interface ClaudianTab {
+	conversationId?: string | null;
 	state?: ClaudianTabState;
 	ui?: { fileContextManager?: ClaudianFileContext };
 	controllers?: { selectionController?: ClaudianSelectionController };
+}
+
+/**
+ * Claudian's per-view tab manager, reached through the view's own `getTabManager()`.
+ *
+ * `openConversation` is the seam that makes returning to a note cheap: given
+ * `preferNewTab: false` it first switches to a tab already holding that conversation,
+ * then to another Claudian view holding it, and only otherwise swaps the conversation
+ * into the *current* tab. So no path through it creates a tab, which is the whole point
+ * — Claudian caps tabs at `maxTabs` (3 by default) and we never want to spend one.
+ */
+interface ClaudianTabManager {
+	getActiveTab?: () => ClaudianTab | null;
+	openConversation?: (
+		id: string,
+		options: { preferNewTab: boolean },
+	) => Promise<void>;
+}
+
+/**
+ * The Claudian plugin instance, hanging off its view. Only used to ask whether a
+ * conversation id is still real — its repository keeps every conversation in memory, so
+ * the lookup is synchronous and covers ones never opened this session.
+ */
+interface ClaudianPluginApi {
+	getCachedConversation?: (id: string) => unknown;
+}
+
+/** A note and the conversation it was last discussed in. */
+interface RememberedNote {
+	path: string;
+	conversationId: string;
+}
+
+/** Our own data.json. Most recently visited note first; at most REMEMBERED_NOTES entries. */
+interface StoredData {
+	recentNotes?: RememberedNote[];
 }
 
 export default class ClaudianEnhancedPlugin extends Plugin {
@@ -154,8 +210,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private pinnedPrompt: HTMLElement | null = null;
 	/** Pending frame for the pinned-prompt pass, so scrolling schedules at most one. */
 	private pinnedFrame: number | null = null;
+	/**
+	 * Notes we can put a conversation back for, most recently visited first. Written when
+	 * leaving a note, read when arriving at one; see rememberConversation / restoreConversationFor.
+	 */
+	private remembered: RememberedNote[] = [];
 
 	async onload(): Promise<void> {
+		// Awaited rather than backgrounded: a restore that lost a race with this would
+		// silently start a fresh session instead, which is the behavior we're replacing.
+		// It reads one small file, plus Claudian's conversation metas on first run only.
+		await this.loadMemory();
 		this.addCommand({
 			id: "toggle-claudian",
 			// "Claudian" is a proper noun (the plugin's name), so it stays capitalized.
@@ -181,6 +246,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				// containerEl) when revealed — re-bind the submit-scroll observer to it.
 				this.ensureSubmitScrollObserver();
 			}),
+		);
+		// Notes are remembered by path, so a rename would otherwise strand a conversation
+		// under a path that no longer exists — and, worse, make the next sync read the new
+		// path as a note change and clear the session. Both trackers move with the file.
+		this.registerEvent(
+			this.app.vault.on("rename", (file, oldPath) =>
+				this.handleNoteRenamed(file.path, oldPath),
+			),
+		);
+		this.registerEvent(
+			this.app.vault.on("delete", (file) => this.forgetNote(file.path)),
 		);
 		// Keep the conversation pinned to the bottom. Claudian's own autoscroll is too
 		// brittle to rely on: it only forces the list down on a new conversation, its
@@ -467,26 +543,217 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * React to the open note changing. Switching notes means the conversation is about
-	 * something else now, so clear the context: start a fresh session in the current tab
-	 * (the old one is saved to Claudian's history). When that's declined — a reply is
-	 * streaming, or the conversation is empty so there's nothing to clear — fall back to
-	 * re-pointing the attached note in place, which is the old behavior.
+	 * React to the open note changing.
+	 *
+	 * The conversation is about something else now, so it has to give way — but which way
+	 * depends on whether we've been here before. A note we have a conversation on file for
+	 * gets it put back; any other note falls through to clearing the context, which is what
+	 * this always did. Either way the outgoing note's conversation is written down first, so
+	 * the note we're leaving can be returned to later.
+	 *
+	 * When neither branch takes (a reply is streaming, the conversation is empty and there's
+	 * nothing to clear, or Claudian's internals have drifted) we're left re-pointing the
+	 * attached note in place, the oldest fallback of the three.
 	 */
 	private handleNoteChange(path: string): void {
 		const previous = this.lastOpenedPath;
 		this.lastOpenedPath = path;
 		// First note we've seen (fresh load, or Claudian just appeared): there is no
 		// previous conversation to clear, so only attach.
-		if (previous !== null && previous !== path && this.resetSessionForNoteChange()) {
-			// The fresh session attaches a note itself, but createNew() is async and picks
-			// `getActiveFile()` — normally this note, though that isn't guaranteed to agree
-			// with the leaf we measured. Re-assert once it settles; attachNoteToClaudian is
-			// idempotent and null-safe, so this is a no-op whenever it already matches.
-			window.setTimeout(() => this.attachNoteToClaudian(path), 300);
-			return;
+		if (previous !== null && previous !== path) {
+			this.rememberConversation(previous);
+			if (this.restoreConversationFor(path) || this.resetSessionForNoteChange()) {
+				// Both branches settle asynchronously and attach a note themselves —
+				// createNew() from `getActiveFile()`, a restored conversation from its own
+				// saved note — and neither is guaranteed to agree with the leaf we measured.
+				// Re-assert once it lands; attachNoteToClaudian is idempotent and null-safe,
+				// so this is a no-op whenever it already matches.
+				window.setTimeout(() => this.attachNoteToClaudian(path), 300);
+				return;
+			}
 		}
 		this.attachNoteToClaudian(path);
+	}
+
+	/**
+	 * Write down which conversation the tab is on as we leave `notePath`.
+	 *
+	 * Recorded on the way out rather than on the way in because that's the only moment the
+	 * pairing is certainly true: the tab has been sitting on this note for the whole
+	 * conversation, and any switch Claudian makes next would blur it. A tab with no
+	 * conversation id has never been prompted, so there is nothing worth coming back to.
+	 */
+	private rememberConversation(notePath: string): void {
+		const conversationId = this.getActiveTab()?.conversationId;
+		if (!conversationId) return;
+		const existing = this.remembered.find((note) => note.path === notePath);
+		if (existing?.conversationId === conversationId && this.remembered[0] === existing) {
+			return; // already on file, already newest — nothing to write
+		}
+		this.remembered = [
+			{ path: notePath, conversationId },
+			...this.remembered.filter((note) => note.path !== notePath),
+		].slice(0, REMEMBERED_NOTES);
+		void this.persistMemory();
+	}
+
+	/**
+	 * Put this note's conversation back in the tab we're already in, and report whether that
+	 * happened so the caller can fall through to a fresh session.
+	 *
+	 * Declines while a reply is streaming for the same reason resetSessionForNoteChange does
+	 * — Claudian's own switchTo refuses mid-stream anyway, so acting would report a restore
+	 * that never occurred and skip the fallback. A conversation the user has since deleted is
+	 * dropped from memory rather than handed to Claudian, which would only raise its own
+	 * "failed to load" notice.
+	 */
+	private restoreConversationFor(notePath: string): boolean {
+		const entry = this.remembered.find((note) => note.path === notePath);
+		if (!entry) return false;
+		const manager = this.getTabManager();
+		const tab = manager?.getActiveTab?.() ?? null;
+		if (!manager || typeof manager.openConversation !== "function" || !tab) {
+			return false;
+		}
+		if (tab.state?.isStreaming) return false;
+		// Already showing it (came back without ever leaving the conversation) — count it as
+		// restored so the caller doesn't clear the very thing we wanted to keep.
+		if (tab.conversationId === entry.conversationId) return true;
+		if (!this.conversationExists(entry.conversationId)) {
+			this.remembered = this.remembered.filter((note) => note !== entry);
+			void this.persistMemory();
+			return false;
+		}
+		// Reported as restored synchronously, so a hydration that fails afterwards would
+		// otherwise leave the previous note's conversation sitting under this note with the
+		// fallback already skipped. Clear it then instead — but only if we're still on the
+		// note that asked, since another switch may have landed while it was loading.
+		manager.openConversation(entry.conversationId, { preferNewTab: false }).catch(() => {
+			if (this.lastOpenedPath === notePath) this.resetSessionForNoteChange();
+		});
+		return true;
+	}
+
+	/**
+	 * Whether Claudian still has this conversation. Its repository holds every conversation
+	 * in memory, so this also answers for ones never opened in this session.
+	 *
+	 * A build that renamed the lookup answers "yes": the point of this check is to catch a
+	 * deleted conversation, and treating an unreachable lookup as "gone" would disable
+	 * restoring altogether rather than degrade it.
+	 */
+	private conversationExists(id: string): boolean {
+		const view = this.getClaudianLeaf()?.view as unknown as {
+			plugin?: ClaudianPluginApi;
+		};
+		const lookup = view?.plugin?.getCachedConversation;
+		if (typeof lookup !== "function") return true;
+		return lookup.call(view.plugin, id) != null;
+	}
+
+	/**
+	 * Load the note→conversation memory, seeding it from Claudian's own history the first
+	 * time. Claudian records a `currentNote` on every conversation, so the pairings we want
+	 * already exist on disk — without this the feature would sit idle until you'd switched
+	 * notes enough times to rebuild what was already known.
+	 *
+	 * Seeding runs once: an empty result is still stored, so a vault with no history doesn't
+	 * re-scan on every load.
+	 */
+	private async loadMemory(): Promise<void> {
+		const stored = (await this.loadData()) as StoredData | null;
+		if (stored?.recentNotes) {
+			this.remembered = stored.recentNotes.slice(0, REMEMBERED_NOTES);
+			return;
+		}
+		this.remembered = await this.seedFromClaudianHistory();
+		await this.persistMemory();
+	}
+
+	private async persistMemory(): Promise<void> {
+		await this.saveData({ recentNotes: this.remembered } satisfies StoredData);
+	}
+
+	/**
+	 * The most recent conversation for each of the last {@link REMEMBERED_NOTES} notes, read
+	 * out of Claudian's session metas. Anything unreadable or missing a note is skipped —
+	 * this is a convenience, so a single malformed file must not cost the whole seed.
+	 */
+	private async seedFromClaudianHistory(): Promise<RememberedNote[]> {
+		const adapter = this.app.vault.adapter;
+		if (!(await adapter.exists(CLAUDIAN_SESSIONS_DIR))) return [];
+		const metas: Array<RememberedNote & { updatedAt: number }> = [];
+		for (const file of (await adapter.list(CLAUDIAN_SESSIONS_DIR)).files) {
+			if (!file.endsWith(SESSION_META_SUFFIX)) continue;
+			try {
+				const meta = JSON.parse(await adapter.read(file)) as {
+					id?: string;
+					currentNote?: string;
+					updatedAt?: number;
+					createdAt?: number;
+				};
+				if (!meta.id || !meta.currentNote) continue;
+				metas.push({
+					path: meta.currentNote,
+					conversationId: meta.id,
+					updatedAt: meta.updatedAt ?? meta.createdAt ?? 0,
+				});
+			} catch {
+				continue;
+			}
+		}
+		metas.sort((a, b) => b.updatedAt - a.updatedAt);
+		const seeded: RememberedNote[] = [];
+		for (const meta of metas) {
+			if (seeded.some((note) => note.path === meta.path)) continue;
+			seeded.push({ path: meta.path, conversationId: meta.conversationId });
+			if (seeded.length === REMEMBERED_NOTES) break;
+		}
+		return seeded;
+	}
+
+	/**
+	 * Follow a renamed or moved note. A folder rename fires once for the folder itself, so
+	 * paths underneath it are rewritten by prefix rather than waiting for events that never
+	 * come.
+	 *
+	 * The two note trackers move too. `lastOpenedPath` especially: leaving it on the old path
+	 * would make the next sync compare the same note under two names, read that as a switch,
+	 * and clear a conversation purely because the file was renamed.
+	 */
+	private handleNoteRenamed(newPath: string, oldPath: string): void {
+		const moved = (path: string): string | null => {
+			if (path === oldPath) return newPath;
+			const prefix = `${oldPath}/`;
+			return path.startsWith(prefix)
+				? `${newPath}/${path.slice(prefix.length)}`
+				: null;
+		};
+		if (this.lastOpenedPath) {
+			this.lastOpenedPath = moved(this.lastOpenedPath) ?? this.lastOpenedPath;
+		}
+		if (this.lastSyncedPath) {
+			this.lastSyncedPath = moved(this.lastSyncedPath) ?? this.lastSyncedPath;
+		}
+		let changed = false;
+		this.remembered = this.remembered.map((note) => {
+			const path = moved(note.path);
+			if (path === null) return note;
+			changed = true;
+			return { ...note, path };
+		});
+		if (changed) void this.persistMemory();
+	}
+
+	/** Drop a deleted note (and, for a folder, everything under it) from the memory. */
+	private forgetNote(path: string): void {
+		const prefix = `${path}/`;
+		const kept = this.remembered.filter(
+			(note) => note.path !== path && !note.path.startsWith(prefix),
+		);
+		if (kept.length === this.remembered.length) return;
+		this.remembered = kept;
+		void this.persistMemory();
 	}
 
 	/**
@@ -512,10 +779,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * rather than throwing; the accessors below narrow it to the one piece they need.
 	 */
 	private getActiveTab(): ClaudianTab | null {
+		return this.getTabManager()?.getActiveTab?.() ?? null;
+	}
+
+	/** Claudian's tab manager for its view, or null when absent / internals renamed. */
+	private getTabManager(): ClaudianTabManager | null {
 		const view = this.getClaudianLeaf()?.view as unknown as {
-			getTabManager?: () => { getActiveTab?: () => ClaudianTab | null } | null;
+			getTabManager?: () => ClaudianTabManager | null;
 		};
-		return view?.getTabManager?.()?.getActiveTab?.() ?? null;
+		return view?.getTabManager?.() ?? null;
 	}
 
 	/** Claudian's active conversation-tab state, or null if absent / internals renamed. */
