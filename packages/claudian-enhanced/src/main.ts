@@ -228,6 +228,23 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			name: "Toggle Claudian chat",
 			callback: () => this.toggle(),
 		});
+		// Claudian's own "New session (in current tab)" already clears the tab, but on its
+		// own it half-clears: this note keeps pointing at the conversation that was just
+		// thrown away (we only write the pairing down on the way out, and a tab that has
+		// never been prompted has no id to write), so leaving and coming back would restore
+		// exactly what the user cleared. Drive its command and drop the note in one act, so
+		// one key means the note genuinely starts over.
+		this.addCommand({
+			id: "clear-tab",
+			name: "Clear current tab",
+			checkCallback: (checking: boolean) => {
+				const tab = this.getActiveTab();
+				if (!tab || tab.state?.isStreaming) return false;
+				if (checking) return true;
+				this.clearCurrentTab();
+				return true;
+			},
+		});
 		// Escape cancels a live 划词 (see onEscapeCapture). Listened for on window in
 		// the capture phase so it runs regardless of where focus currently sits.
 		this.registerDomEvent(window, "keydown", this.onEscapeCapture, {
@@ -246,6 +263,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				// containerEl) when revealed — re-bind the submit-scroll observer to it.
 				this.ensureSubmitScrollObserver();
 			}),
+		);
+		// Opening a note fires this immediately and exactly once, so it needs none of the
+		// debounce above — that exists to absorb active-leaf churn, and paying it here just
+		// delayed every conversation restore by the full window. This is the path a normal
+		// note switch takes; the debounced one stays as the fallback for switches Obsidian
+		// reports as leaf changes only (Claudian's sidebar holding the active leaf, where
+		// the active *file* never changes and no file-open fires).
+		this.registerEvent(
+			this.app.workspace.on("file-open", () => this.syncCurrentNoteChip()),
 		);
 		// Notes are remembered by path, so a rename would otherwise strand a conversation
 		// under a path that no longer exists — and, worse, make the next sync read the new
@@ -743,6 +769,38 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			return { ...note, path };
 		});
 		if (changed) void this.persistMemory();
+	}
+
+	/**
+	 * Start a fresh conversation in the current tab and stop associating the open note with
+	 * the one being left behind.
+	 *
+	 * The order matters: the note is forgotten first, because Claudian's command settles
+	 * asynchronously and a sync landing in between would otherwise see the note still on
+	 * file and restore the conversation we are in the middle of clearing. Nothing is lost
+	 * either way — the old conversation stays in Claudian's own history, it just stops
+	 * coming back on its own.
+	 */
+	private clearCurrentTab(): void {
+		const path = this.activeNotePath();
+		if (path) this.forgetNote(path);
+		(this.app as unknown as AppWithCommands).commands.executeCommandById(
+			NEW_SESSION_COMMAND,
+		);
+
+		// Land in the composer, so an emptied tab can be typed into straight away. Claudian
+		// re-focuses its own tab root after every render, which is why this needs the same
+		// sticky loop ⌘L uses rather than a single focus() — and the generation bump makes
+		// any loop still running from an earlier press stand down.
+		const gen = ++this.gen;
+		const leaf = this.getClaudianLeaf();
+		if (leaf && !this.isLeafVisible(leaf)) {
+			// Hidden: there is nothing to focus until it is on screen, and revealing is
+			// exactly what ⌘L does — including the focus loop.
+			this.openClaudian(gen);
+			return;
+		}
+		this.stickyFocusInput(Date.now() + 1500, gen);
 	}
 
 	/** Drop a deleted note (and, for a folder, everything under it) from the memory. */
