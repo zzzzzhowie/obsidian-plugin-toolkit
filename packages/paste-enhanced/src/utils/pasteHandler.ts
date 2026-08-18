@@ -101,6 +101,30 @@ export function isInCodeBlock(editor: Editor): boolean {
  * actually differs from the target — Obsidian renders an un-aliased `[[a#b]]` with its
  * target as the text, so comparing them is what stops us inventing `[[a#b|a#b]]`.
  */
+/**
+ * The vault path an anchor points at, or null when it doesn't point inside the vault.
+ *
+ * A vault link's target is a path (`note`, `note#heading`, `folder/note`), never an
+ * absolute URL — so a target carrying a scheme is external no matter how the anchor is
+ * marked up. That check is the whole fix for links copied out of Lark, Confluence and
+ * friends: they put their own `data-href` on anchors, which used to be enough on its own
+ * to have an external link rewritten as `[[https://…|Title]]` — a wikilink to a URL,
+ * which resolves to nothing and reads as a stray pair of brackets.
+ */
+function wikilinkTarget(el: HTMLElement): string | null {
+	const target = (
+		el.getAttribute("data-href") ||
+		el.getAttribute("href") ||
+		""
+	).trim();
+	if (!target) return null;
+	// `scheme://…` (http, obsidian, file, app) and protocol-relative `//host/…`.
+	if (/^[a-z][a-z\d+.-]*:\/\//i.test(target) || target.startsWith("//")) {
+		return null;
+	}
+	return target;
+}
+
 function addObsidianLinkRule(turndownService: TurndownService): void {
 	turndownService.addRule("obsidianInternalLink", {
 		filter: (node): boolean => {
@@ -108,19 +132,20 @@ function addObsidianLinkRule(turndownService: TurndownService): void {
 			const el = node as unknown as HTMLElement;
 			// Obsidian marks vault links with `internal-link`; external ones carry
 			// `external-link` and no data-href, so they keep the normal `[text](url)`.
-			return (
-				el.classList?.contains("internal-link") ||
-				(el.hasAttribute?.("data-href") &&
-					!el.classList?.contains("external-link"))
-			);
+			if (el.classList?.contains("external-link")) return false;
+			if (
+				!el.classList?.contains("internal-link") &&
+				!el.hasAttribute?.("data-href")
+			) {
+				return false;
+			}
+			// ...and whatever it is marked with, it only becomes a wikilink if the
+			// target is one (see wikilinkTarget).
+			return wikilinkTarget(el) !== null;
 		},
 		replacement: (content, node): string => {
 			const el = node as unknown as HTMLElement;
-			const target = (
-				el.getAttribute("data-href") ||
-				el.getAttribute("href") ||
-				""
-			).trim();
+			const target = wikilinkTarget(el);
 			// Without a target there's no wikilink to write; fall back to Turndown's
 			// already-converted inner content rather than dropping the text.
 			if (!target) return content;
