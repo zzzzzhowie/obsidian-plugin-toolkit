@@ -21,6 +21,15 @@ Automatically recognize and integrate folder notes into your workflow.
 - The folder note file is automatically hidden from the file list
 - Right-click folders to create or open folder notes
 
+### ⌫ Contextual delete
+One hotkey that means "delete what I'm looking at", the way `Cmd/Ctrl+Backspace` does in VSCode.
+
+- Command: **Delete (line in editor, selected items in file explorer)**
+- In the editor it deletes every line touched by a cursor or selection (multi-cursor supported), as a single undo step
+- In the file explorer it hands off to Obsidian's own delete-selected-items handler, so multi-selection and the confirmation prompt behave natively
+- Setup: bind it to `Cmd/Ctrl+Backspace` in **Settings → Hotkeys**, and clear that key from **Delete current file** — otherwise the built-in command fires in the editor and deletes the whole note
+- Obsidian decides pane focus by *active leaf*, not DOM focus (`document.activeElement` stays on `<body>` in the sidebars), so that's what the dispatch checks
+
 ### 🔢 File Count Display
 See the number of files in each folder at a glance.
 
