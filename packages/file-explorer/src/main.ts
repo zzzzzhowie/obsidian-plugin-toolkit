@@ -15,7 +15,6 @@ import { PinnedItemsManager } from "./pinned-items";
 import { FolderNoteManager } from "./folder-note";
 import { FileCountManager } from "./file-count";
 import { FileHiderManager } from "./hider";
-import { registerContextDelete } from "./context-delete";
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
@@ -57,10 +56,6 @@ export default class MyPlugin extends Plugin {
 				);
 			},
 		});
-
-		// VSCode-style contextual delete: bind Cmd/Ctrl+Backspace to this in
-		// Settings → Hotkeys (and clear it from "Delete current file").
-		registerContextDelete(this);
 
 		// Register context menu event for files and folders
 		this.registerEvent(
