@@ -612,6 +612,16 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private rememberConversation(notePath: string): void {
 		const conversationId = this.getActiveTab()?.conversationId;
 		if (!conversationId) return;
+		// A conversation belongs to the note it was started on, and only that one.
+		// Browsing on without prompting carries the same conversation from note to note,
+		// and writing it down at each departure paired one conversation with every note
+		// visited since — after which arriving at any of them found "the conversation is
+		// already open", counted that as a restore, and so never cleared the tab. The
+		// first note to claim a conversation keeps it.
+		const owner = this.remembered.find(
+			(note) => note.conversationId === conversationId,
+		);
+		if (owner && owner.path !== notePath) return;
 		const existing = this.remembered.find((note) => note.path === notePath);
 		if (existing?.conversationId === conversationId && this.remembered[0] === existing) {
 			return; // already on file, already newest — nothing to write
@@ -689,11 +699,57 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private async loadMemory(): Promise<void> {
 		const stored = (await this.loadData()) as StoredData | null;
 		if (stored?.recentNotes) {
-			this.remembered = stored.recentNotes.slice(0, REMEMBERED_NOTES);
+			const notes = stored.recentNotes.slice(0, REMEMBERED_NOTES);
+			this.remembered = await this.dropSharedConversations(notes);
+			if (this.remembered.length !== notes.length) await this.persistMemory();
 			return;
 		}
 		this.remembered = await this.seedFromClaudianHistory();
 		await this.persistMemory();
+	}
+
+	/**
+	 * Keep one note per conversation, healing memory written before a conversation could
+	 * only be claimed once (see rememberConversation).
+	 *
+	 * Which note keeps it is Claudian's own answer: each conversation's meta records the
+	 * note it belongs to, so that pairing wins over ours. Only when the meta is gone or
+	 * names none of the candidates does recency decide, which is the best guess left.
+	 */
+	private async dropSharedConversations(
+		notes: RememberedNote[],
+	): Promise<RememberedNote[]> {
+		const byConversation = new Map<string, RememberedNote[]>();
+		for (const note of notes) {
+			const group = byConversation.get(note.conversationId);
+			if (group) group.push(note);
+			else byConversation.set(note.conversationId, [note]);
+		}
+
+		const keep = new Set<RememberedNote>();
+		for (const [conversationId, group] of byConversation) {
+			if (group.length === 1) {
+				keep.add(group[0]!);
+				continue;
+			}
+			const owner = await this.claudianNoteFor(conversationId);
+			keep.add(group.find((note) => note.path === owner) ?? group[0]!);
+		}
+
+		return notes.filter((note) => keep.has(note));
+	}
+
+	/** The note Claudian itself records for a conversation, or null if it can't be read. */
+	private async claudianNoteFor(conversationId: string): Promise<string | null> {
+		const path = `${CLAUDIAN_SESSIONS_DIR}/${conversationId}${SESSION_META_SUFFIX}`;
+		try {
+			const meta = JSON.parse(
+				await this.app.vault.adapter.read(path),
+			) as { currentNote?: string };
+			return meta.currentNote ?? null;
+		} catch {
+			return null;
+		}
 	}
 
 	private async persistMemory(): Promise<void> {
