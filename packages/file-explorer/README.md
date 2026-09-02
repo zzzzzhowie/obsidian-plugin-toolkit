@@ -21,6 +21,13 @@ Automatically recognize and integrate folder notes into your workflow.
 - The folder note file is automatically hidden from the file list
 - Right-click folders to create or open folder notes
 
+### 🗂 Reuse an open tab
+`Cmd/Ctrl`-click a file that is already open and go to that tab, instead of opening a second one for the same file.
+
+- Only the plain modifier is taken over — `Cmd/Ctrl+Alt` (split) and `Cmd/Ctrl+Alt+Shift` (new window) still make a new pane, since they asked for one
+- Matches any tab in the main area, in this window or a popout, and any file type — PDFs, images and canvases count
+- A file that isn't open anywhere is left alone: Obsidian opens the new tab exactly as before
+
 ### 🔢 File Count Display
 See the number of files in each folder at a glance.
 

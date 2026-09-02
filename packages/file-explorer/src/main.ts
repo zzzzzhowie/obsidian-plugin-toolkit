@@ -15,6 +15,7 @@ import { PinnedItemsManager } from "./pinned-items";
 import { FolderNoteManager } from "./folder-note";
 import { FileCountManager } from "./file-count";
 import { FileHiderManager } from "./hider";
+import { registerReuseTab } from "./reuse-tab";
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
@@ -66,6 +67,10 @@ export default class MyPlugin extends Plugin {
 				},
 			),
 		);
+
+		// Mod-click a file that is already open goes to that tab instead of opening
+		// a second one for it. See reuse-tab.ts.
+		registerReuseTab(this);
 
 		// VSCode-style sidebar toggle, scoped to the pane you last interacted
 		// with:
