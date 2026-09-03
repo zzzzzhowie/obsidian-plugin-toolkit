@@ -134,6 +134,13 @@ interface ClaudianSelectionController {
  */
 interface ClaudianTab {
 	conversationId?: string | null;
+	/**
+	 * How far Claudian has got loading this tab's conversation history: "loading", then
+	 * "ready" or "failed" (absent until it starts). The id and the note are in place before
+	 * any of that, so this is the only way to tell a conversation that is genuinely empty
+	 * from one whose messages simply haven't arrived yet. See restoredTabSettled.
+	 */
+	hydrationState?: string;
 	state?: ClaudianTabState;
 	ui?: { fileContextManager?: ClaudianFileContext };
 	controllers?: { selectionController?: ClaudianSelectionController };
@@ -967,16 +974,27 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private reconcileChipOnStartup(deadline: number): void {
 		const tick = (): void => {
-			if (this.claudianMounted()) {
+			if (this.claudianMounted() && this.restoredTabSettled()) {
 				const attached = this.attachedNotePath();
 				if (attached !== null) {
 					const notePath = this.activeNotePath();
 					if (notePath) {
-						// Seed the note-change tracker: the restored conversation belongs to
-						// whatever is open now, so a *later* switch is the first thing that
-						// clears context — a cold start never wipes the restored session.
-						this.lastOpenedPath = notePath;
-						this.attachNoteToClaudian(notePath);
+						if (attached === notePath) {
+							// Already agree — seed the tracker so a *later* switch is the first
+							// thing that clears context, and leave the conversation alone.
+							this.lastOpenedPath = notePath;
+						} else {
+							// The restored conversation belongs to a different note. Dragging it
+							// onto this one (what this used to do) rewrote the conversation's own
+							// note in Claudian's meta, so a conversation merely *held* while some
+							// note happened to be open looked like it was about that note from
+							// then on — and the memory, which trusts that meta, inherited the lie.
+							// Arrive from the note it actually belongs to instead: the restored
+							// conversation is recorded where it can be found again, and this note
+							// gets its own conversation back, or a fresh one.
+							this.lastOpenedPath = attached;
+							this.handleNoteChange(notePath);
+						}
 					}
 					return; // restore settled — done
 				}
@@ -984,6 +1002,27 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (Date.now() < deadline) window.setTimeout(tick, 150);
 		};
 		tick();
+	}
+
+	/**
+	 * Whether the tab is done being restored, so its state can be judged.
+	 *
+	 * Claudian populates a restored tab in two steps: the conversation id and its note first,
+	 * the message history afterwards. Reading it in between is what broke the cold start —
+	 * resetSessionForNoteChange asks "is there anything to clear?" by counting messages, saw
+	 * none yet, decided the conversation was empty and left it in place, so the chip moved to
+	 * the open note while the tab kept a conversation about a different one.
+	 *
+	 * Messages arriving is the signal in the normal case; the hydration marker covers a
+	 * conversation that legitimately loads to nothing, and a failed load, so this can't wait
+	 * forever on either.
+	 */
+	private restoredTabSettled(): boolean {
+		const tab = this.getActiveTab();
+		// A tab with no conversation has nothing to wait for (it's already the empty state).
+		if (!tab?.conversationId) return true;
+		if (tab.state?.messages?.length) return true;
+		return tab.hydrationState === "ready" || tab.hydrationState === "failed";
 	}
 
 	/**
