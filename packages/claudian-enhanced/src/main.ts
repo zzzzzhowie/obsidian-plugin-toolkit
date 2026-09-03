@@ -157,6 +157,8 @@ interface ClaudianTab {
  */
 interface ClaudianTabManager {
 	getActiveTab?: () => ClaudianTab | null;
+	/** Claudian's own tab cap: `settings.maxTabs ?? 3`, clamped to 3–10. See enforceSingleTab. */
+	getMaxTabs?: () => number;
 	openConversation?: (
 		id: string,
 		options: { preferNewTab: boolean },
@@ -217,6 +219,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private pinnedPrompt: HTMLElement | null = null;
 	/** Pending frame for the pinned-prompt pass, so scrolling schedules at most one. */
 	private pinnedFrame: number | null = null;
+	/** Set once Claudian's tab cap is ours, so the poll and a re-entry don't patch twice. */
+	private tabCapPinned = false;
 	/**
 	 * Notes we can put a conversation back for, most recently visited first. Written when
 	 * leaving a note, read when arriving at one; see rememberConversation / restoreConversationFor.
@@ -319,9 +323,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// re-attaches the note we actually have open and the chip finally matches. We
 		// fire only on a real mismatch so a restart never discards a conversation whose
 		// note already matches. See reconcileChipOnStartup.
-		this.app.workspace.onLayoutReady(() =>
-			this.reconcileChipOnStartup(Date.now() + 8000),
-		);
+		this.app.workspace.onLayoutReady(() => {
+			this.reconcileChipOnStartup(Date.now() + 8000);
+			this.enforceSingleTab(Date.now() + 8000);
+		});
 	}
 
 	onunload(): void {
@@ -919,6 +924,47 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private getActiveTab(): ClaudianTab | null {
 		return this.getTabManager()?.getActiveTab?.() ?? null;
+	}
+
+	/**
+	 * Hold Claudian to a single conversation tab.
+	 *
+	 * Its own cap can't express this: `getMaxTabs` reads `settings.maxTabs` but clamps the
+	 * result to 3–10, so the setting bottoms out at three. Overriding the method is what
+	 * actually pins it, and it's the one seam that covers every route to a new tab —
+	 * `createTab` checks it directly, `canCreateTab` and the fork-to-new-tab paths go
+	 * through it — so the button, the command and its hotkey all stop short together.
+	 * Nothing is broken by the cap: fork falls back to forking in the current tab (with
+	 * Claudian's own notice), and `openConversation` to swapping the conversation in place,
+	 * which is what this plugin already asks of it.
+	 *
+	 * Patched on the prototype rather than the instance because Claudian builds a fresh tab
+	 * manager whenever its view is recreated (a deferred leaf revealed, the panel reopened),
+	 * and an instance patch would quietly lapse there. Restored on unload.
+	 *
+	 * Restoring a workspace that had several tabs open keeps only the first — deliberate,
+	 * and the rest are still in Claudian's history.
+	 */
+	private enforceSingleTab(deadline: number): void {
+		const tick = (): void => {
+			if (this.tabCapPinned) return;
+			const manager = this.getTabManager();
+			if (manager) {
+				const proto = Object.getPrototypeOf(manager) as ClaudianTabManager;
+				const original = proto.getMaxTabs;
+				// Absent means a Claudian build renamed it; leave its own cap in place.
+				if (typeof original === "function") {
+					this.tabCapPinned = true;
+					proto.getMaxTabs = (): number => 1;
+					this.register(() => {
+						proto.getMaxTabs = original;
+					});
+				}
+				return;
+			}
+			if (Date.now() < deadline) window.setTimeout(tick, 150);
+		};
+		tick();
 	}
 
 	/** Claudian's tab manager for its view, or null when absent / internals renamed. */

@@ -229,3 +229,16 @@
 .claudian-message-user.claudian-enhanced-buried {
 	visibility: hidden;
 }
+
+/* Hide the "New tab" button (square-plus) from the composer nav row. With the tab cap
+   pinned to one (see enforceSingleTab) it can no longer do anything, and it sits directly
+   left of "New conversation" (square-pen) — the one that clears the current conversation in
+   place, which is what's actually wanted. Leaving a dead button next to it only invites the
+   misclick that made every note switch look like it opened a new session.
+
+   Doubled to (0,2,0) for the same reason as the permission chip above: Claudian styles the
+   button through .claudian-input-nav-btn at (0,1,0), and a single class would win or lose on
+   stylesheet load order. */
+.claudian-new-tab-btn.claudian-new-tab-btn {
+	display: none;
+}
