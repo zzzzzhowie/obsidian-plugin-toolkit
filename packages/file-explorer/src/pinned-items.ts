@@ -7,6 +7,7 @@ import {
 } from "obsidian";
 import { PinnedItem, MyPluginSettings } from "./settings";
 import { getFolderNote, getFolderFromNote } from "./utils";
+import { goToOpenTab } from "./reuse-tab";
 import type MyPlugin from "./main";
 
 export class PinnedItemsManager {
@@ -429,6 +430,12 @@ export class PinnedItemsManager {
 							// Check for modifier keys (Cmd on Mac, Ctrl on Windows/Linux)
 							const mouseEvent = evt as MouseEvent;
 							const openInNewTab = mouseEvent.metaKey || mouseEvent.ctrlKey;
+							// Already open in a tab: go there rather than open a second
+							// copy — whether a new tab was asked for or the file would
+							// have loaded over the current one. These rows are our own
+							// DOM with our own handler, so the file tree's interception
+							// can't cover them — see reuse-tab.ts.
+							if (goToOpenTab(this.app, file.path)) return;
 							// Open the file in a new tab if modifier key is pressed, otherwise use active leaf
 							const leaf = this.app.workspace.getLeaf(openInNewTab);
 							await leaf.openFile(file);
@@ -444,6 +451,7 @@ export class PinnedItemsManager {
 							const openInNewTab = mouseEvent.metaKey || mouseEvent.ctrlKey;
 							const folderNote = getFolderNote(file, this.app);
 							if (folderNote) {
+								if (goToOpenTab(this.app, folderNote.path)) return;
 								const leaf = this.app.workspace.getLeaf(openInNewTab);
 								await leaf.openFile(folderNote);
 							}

@@ -1,5 +1,6 @@
 import { App, TFolder, TFile, Notice } from "obsidian";
 import { getFolderNote, escapeCSSSelector, getFolderFromNote } from "./utils";
+import { goToOpenTab } from "./reuse-tab";
 import type MyPlugin from "./main";
 
 export class FolderNoteManager {
@@ -385,9 +386,14 @@ export class FolderNoteManager {
 								// Check for Cmd (Mac) or Ctrl (Windows/Linux) key
 								// If modifier key pressed, open in new tab; otherwise open in current tab
 								const openInNewTab = e.metaKey || e.ctrlKey;
-								const leaf =
-									this.app.workspace.getLeaf(openInNewTab);
-								leaf.openFile(folderNote);
+								// Same rule as the file tree and the pinned list: a
+								// file that already has a tab is gone to, not opened
+								// again. See reuse-tab.ts.
+								if (!goToOpenTab(this.app, folderNote.path)) {
+									const leaf =
+										this.app.workspace.getLeaf(openInNewTab);
+									leaf.openFile(folderNote);
+								}
 							}
 							// Otherwise, let the default toggle behavior happen
 						}
@@ -868,7 +874,9 @@ export class FolderNoteManager {
 			}
 
 			// Fallback 2: open the note so the user can keep working
-			this.app.workspace.getLeaf(false).openFile(fallbackNote);
+			if (!goToOpenTab(this.app, fallbackNote.path)) {
+				this.app.workspace.getLeaf(false).openFile(fallbackNote);
+			}
 		} catch (error) {
 			console.error("Failed to start inline rename:", error);
 		}
