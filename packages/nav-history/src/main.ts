@@ -1,0 +1,376 @@
+import { MarkdownView, Notice, Plugin, TAbstractFile, TFile, WorkspaceLeaf } from "obsidian";
+import { EditorView } from "@codemirror/view";
+import {
+	DEFAULT_SETTINGS,
+	NavHistorySettingTab,
+	NavHistorySettings,
+} from "./settings";
+
+/** One remembered spot: a file plus the caret position and the tab it was in. */
+interface NavLocation {
+	path: string;
+	line: number;
+	ch: number;
+	/** Internal WorkspaceLeaf id, so we can go back into the same tab. */
+	leafId: string | null;
+}
+
+/** `id` exists on every leaf at runtime but is not in the public typings. */
+type LeafWithId = WorkspaceLeaf & { id?: string };
+
+/**
+ * Obsidian's built-in `app:go-back` walks a per-leaf history: each tab has its
+ * own stack, so it can never take you back to a file you left in a different
+ * tab. This plugin keeps ONE stack for the whole workspace — the VS Code model
+ * behind Ctrl+- / Ctrl+Shift+-.
+ */
+export default class NavHistoryPlugin extends Plugin {
+	settings: NavHistorySettings = DEFAULT_SETTINGS;
+
+	private backStack: NavLocation[] = [];
+	private forwardStack: NavLocation[] = [];
+	/** Where we are now. Not on either stack until we navigate away from it. */
+	private current: NavLocation | null = null;
+	/**
+	 * Set while WE are moving the caret, so the file-open and selection
+	 * listeners don't record our own replay as fresh user navigation.
+	 */
+	private navigating = false;
+	private navigatingTimer: number | null = null;
+
+	async onload() {
+		await this.loadSettings();
+		this.addSettingTab(new NavHistorySettingTab(this.app, this));
+
+		// The workspace is still empty during onload — seed the starting
+		// location once the initial tabs have been restored.
+		this.app.workspace.onLayoutReady(() => {
+			this.current = this.snapshotActive();
+		});
+
+		this.registerEvent(
+			this.app.workspace.on("file-open", (file) => {
+				this.onFileOpen(file);
+			})
+		);
+
+		// Switching to a tab that already shows the current file fires no
+		// file-open, but it does change which tab a later "go back" should
+		// return to — keep the leaf id fresh.
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				if (this.navigating || !this.current || !leaf) return;
+				const view = leaf.view;
+				if (view instanceof MarkdownView && view.file?.path === this.current.path) {
+					this.current.leafId = this.leafId(leaf);
+				}
+			})
+		);
+
+		// Caret tracking. Every selection change updates the current location in
+		// place; only moves past the threshold split off a new history entry.
+		this.registerEditorExtension(
+			EditorView.updateListener.of((update) => {
+				if (update.selectionSet || update.docChanged) {
+					this.onSelectionChange();
+				}
+			})
+		);
+
+		this.registerEvent(
+			this.app.vault.on("rename", (file, oldPath) => {
+				this.onRename(file, oldPath);
+			})
+		);
+		this.registerEvent(
+			this.app.vault.on("delete", (file) => {
+				this.onDelete(file);
+			})
+		);
+
+		this.addCommand({
+			id: "go-back",
+			name: "Go back",
+			icon: "arrow-left",
+			hotkeys: [{ modifiers: ["Ctrl"], key: "-" }],
+			callback: () => {
+				void this.goBack();
+			},
+		});
+
+		this.addCommand({
+			id: "go-forward",
+			name: "Go forward",
+			icon: "arrow-right",
+			hotkeys: [{ modifiers: ["Ctrl", "Shift"], key: "-" }],
+			callback: () => {
+				void this.goForward();
+			},
+		});
+
+		this.addCommand({
+			id: "clear-history",
+			name: "Clear navigation history",
+			callback: () => {
+				this.clearHistory();
+			},
+		});
+	}
+
+	onunload() {
+		if (this.navigatingTimer !== null) {
+			window.clearTimeout(this.navigatingTimer);
+		}
+	}
+
+	// ── recording ────────────────────────────────────────────────────────────
+
+	private onFileOpen(file: TFile | null) {
+		if (this.navigating || !file) return;
+
+		const leafId = this.leafId(this.activeMarkdownLeaf());
+		const previous = this.current;
+
+		// Re-opening the same file (e.g. a second tab on it) is not a jump.
+		if (previous && previous.path === file.path) {
+			previous.leafId = leafId;
+			return;
+		}
+
+		if (previous) this.pushBack(previous);
+		// Any fresh navigation invalidates the redo branch, exactly as VS Code
+		// (and every browser) does.
+		this.forwardStack = [];
+
+		const cursor = this.activeCursor();
+		this.current = {
+			path: file.path,
+			line: cursor?.line ?? 0,
+			ch: cursor?.ch ?? 0,
+			leafId,
+		};
+	}
+
+	private onSelectionChange() {
+		if (this.navigating) return;
+
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const file = view?.file;
+		if (!view || !file) return;
+
+		const cursor = view.editor.getCursor();
+		const leafId = this.leafId(view.leaf);
+		const previous = this.current;
+
+		// file-open normally gets here first; this is the fallback for the very
+		// first editor of the session.
+		if (!previous || previous.path !== file.path) {
+			this.current = { path: file.path, line: cursor.line, ch: cursor.ch, leafId };
+			return;
+		}
+
+		if (Math.abs(cursor.line - previous.line) >= this.settings.jumpThreshold) {
+			this.pushBack({ ...previous });
+			this.forwardStack = [];
+		}
+
+		previous.line = cursor.line;
+		previous.ch = cursor.ch;
+		previous.leafId = leafId;
+	}
+
+	private pushBack(location: NavLocation) {
+		const top = this.backStack[this.backStack.length - 1];
+		// Collapse near-duplicates so repeated small hops in one file don't
+		// require ten presses to escape.
+		if (
+			top &&
+			top.path === location.path &&
+			Math.abs(top.line - location.line) < this.settings.jumpThreshold
+		) {
+			this.backStack[this.backStack.length - 1] = location;
+			return;
+		}
+		this.backStack.push(location);
+		this.trimHistory();
+	}
+
+	trimHistory() {
+		const overflow = this.backStack.length - this.settings.maxEntries;
+		if (overflow > 0) this.backStack.splice(0, overflow);
+	}
+
+	clearHistory() {
+		this.backStack = [];
+		this.forwardStack = [];
+		this.current = this.snapshotActive();
+		new Notice("Navigation history cleared");
+	}
+
+	// ── navigating ───────────────────────────────────────────────────────────
+
+	private async goBack() {
+		const target = this.backStack.pop();
+		if (!target) {
+			this.notifyEmpty("No earlier location in history");
+			return;
+		}
+		if (this.current) this.forwardStack.push(this.current);
+		await this.jumpTo(target);
+	}
+
+	private async goForward() {
+		const target = this.forwardStack.pop();
+		if (!target) {
+			this.notifyEmpty("No later location in history");
+			return;
+		}
+		if (this.current) this.backStack.push(this.current);
+		await this.jumpTo(target);
+	}
+
+	private async jumpTo(location: NavLocation) {
+		const file = this.app.vault.getFileByPath(location.path);
+		if (!file) {
+			// The file is gone; drop this entry and keep unwinding rather than
+			// dead-ending on it.
+			new Notice(`File no longer exists: ${location.path}`);
+			return;
+		}
+
+		this.beginNavigation();
+		try {
+			const leaf = this.resolveLeaf(location);
+			const cursor = { line: location.line, ch: location.ch };
+			const view = leaf.view;
+			const alreadyOpen = view instanceof MarkdownView && view.file?.path === location.path;
+
+			if (!alreadyOpen) {
+				await leaf.openFile(file, {
+					active: true,
+					eState: { line: location.line, cursor: { from: cursor, to: cursor } },
+				});
+			}
+
+			this.app.workspace.setActiveLeaf(leaf, { focus: true });
+
+			const target = leaf.view;
+			if (target instanceof MarkdownView) {
+				const editor = target.editor;
+				// Clamp: the file may have shrunk since we recorded the spot.
+				const line = Math.min(location.line, Math.max(editor.lastLine(), 0));
+				const ch = Math.min(location.ch, editor.getLine(line)?.length ?? 0);
+				editor.setCursor({ line, ch });
+				editor.scrollIntoView({ from: { line, ch }, to: { line, ch } }, true);
+				editor.focus();
+			}
+
+			this.current = { ...location };
+		} finally {
+			this.endNavigation();
+		}
+	}
+
+	/**
+	 * Which tab to replay a location in: the original one if it still exists in
+	 * the main area, otherwise whatever is active.
+	 */
+	private resolveLeaf(location: NavLocation): WorkspaceLeaf {
+		if (this.settings.reuseOriginalTab && location.leafId) {
+			const matches: WorkspaceLeaf[] = [];
+			this.app.workspace.iterateAllLeaves((leaf) => {
+				if (this.leafId(leaf) === location.leafId && this.isMainAreaLeaf(leaf)) {
+					matches.push(leaf);
+				}
+			});
+			const original = matches[0];
+			if (original) return original;
+		}
+
+		const active = this.activeMarkdownLeaf();
+		if (active) return active;
+		return this.app.workspace.getLeaf(false);
+	}
+
+	private beginNavigation() {
+		if (this.navigatingTimer !== null) window.clearTimeout(this.navigatingTimer);
+		this.navigating = true;
+	}
+
+	/**
+	 * The editor mounts asynchronously, so its first selection update lands
+	 * after `jumpTo` has already returned — hold the guard open a beat longer.
+	 */
+	private endNavigation() {
+		if (this.navigatingTimer !== null) window.clearTimeout(this.navigatingTimer);
+		this.navigatingTimer = window.setTimeout(() => {
+			this.navigating = false;
+			this.navigatingTimer = null;
+		}, 150);
+	}
+
+	// ── vault bookkeeping ────────────────────────────────────────────────────
+
+	private onRename(file: TAbstractFile, oldPath: string) {
+		for (const location of this.allLocations()) {
+			if (location.path === oldPath) {
+				location.path = file.path;
+			} else if (location.path.startsWith(`${oldPath}/`)) {
+				// A renamed folder takes every file under it along.
+				location.path = file.path + location.path.slice(oldPath.length);
+			}
+		}
+	}
+
+	private onDelete(file: TAbstractFile) {
+		const gone = (path: string) => path === file.path || path.startsWith(`${file.path}/`);
+		this.backStack = this.backStack.filter((location) => !gone(location.path));
+		this.forwardStack = this.forwardStack.filter((location) => !gone(location.path));
+		if (this.current && gone(this.current.path)) this.current = null;
+	}
+
+	private allLocations(): NavLocation[] {
+		const locations = [...this.backStack, ...this.forwardStack];
+		if (this.current) locations.push(this.current);
+		return locations;
+	}
+
+	// ── helpers ──────────────────────────────────────────────────────────────
+
+	private snapshotActive(): NavLocation | null {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const file = view?.file;
+		if (!view || !file) return null;
+		const cursor = view.editor.getCursor();
+		return { path: file.path, line: cursor.line, ch: cursor.ch, leafId: this.leafId(view.leaf) };
+	}
+
+	private activeMarkdownLeaf(): WorkspaceLeaf | null {
+		return this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf ?? null;
+	}
+
+	private activeCursor(): { line: number; ch: number } | null {
+		return this.app.workspace.getActiveViewOfType(MarkdownView)?.editor.getCursor() ?? null;
+	}
+
+	private leafId(leaf: WorkspaceLeaf | null): string | null {
+		return (leaf as LeafWithId | null)?.id ?? null;
+	}
+
+	/** Sidebar leaves are not somewhere a "go back" should ever land. */
+	private isMainAreaLeaf(leaf: WorkspaceLeaf): boolean {
+		return leaf.getRoot() === this.app.workspace.rootSplit;
+	}
+
+	private notifyEmpty(message: string) {
+		if (this.settings.notifyOnEmpty) new Notice(message);
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
+	}
+}

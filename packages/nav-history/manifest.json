@@ -1,0 +1,9 @@
+{
+	"id": "nav-history",
+	"name": "Nav History",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "VS Code style global Go Back / Go Forward. One navigation stack across every tab and pane, remembering the exact cursor position you left.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}

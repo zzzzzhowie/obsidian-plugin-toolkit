@@ -47,6 +47,7 @@ pnpm dev:hide-ui-elements           # Hide UI Elements
 pnpm dev:image-auto-upload-enhanced # Image Auto Upload Enhanced
 pnpm dev:mermaid-enhanced           # Mermaid Enhanced
 pnpm dev:line-numbers               # Line Numbers
+pnpm dev:nav-history                # Nav History
 ```
 
 Or use filter:
@@ -75,6 +76,7 @@ pnpm build:hide-ui-elements
 pnpm build:image-auto-upload-enhanced
 pnpm build:mermaid-enhanced
 pnpm build:line-numbers
+pnpm build:nav-history
 ```
 
 ## Lint
@@ -107,6 +109,9 @@ Enhance Mermaid diagrams: fit tall diagrams to one screen (with a per-diagram si
 
 ### @obsidian-plugin-toolkit/line-numbers
 Show whole-document line numbers in the editor gutter (every line, not just fenced code blocks). Absolute / relative / hybrid (vim-style) numbering.
+
+### @obsidian-plugin-toolkit/nav-history
+VS Code style global Go Back / Go Forward (`Ctrl+-` / `Ctrl+Shift+-`). Unlike Obsidian's built-in per-tab `app:go-back`, this keeps one navigation stack for the whole workspace and restores the exact cursor position you left.
 
 ## Tech Stack
 

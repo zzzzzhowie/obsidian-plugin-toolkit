@@ -37,7 +37,9 @@
         "dev:sticky-find": "pnpm --filter @obsidian-plugin-toolkit/sticky-find dev",
         "build:sticky-find": "pnpm --filter @obsidian-plugin-toolkit/sticky-find build",
         "dev:vault-backup": "pnpm --filter @obsidian-plugin-toolkit/vault-backup dev",
-        "build:vault-backup": "pnpm --filter @obsidian-plugin-toolkit/vault-backup build"
+        "build:vault-backup": "pnpm --filter @obsidian-plugin-toolkit/vault-backup build",
+        "dev:nav-history": "pnpm --filter @obsidian-plugin-toolkit/nav-history dev",
+        "build:nav-history": "pnpm --filter @obsidian-plugin-toolkit/nav-history build"
     },
     "keywords": [
         "obsidian",
