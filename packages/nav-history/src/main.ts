@@ -209,35 +209,42 @@ export default class NavHistoryPlugin extends Plugin {
 
 	// ── navigating ───────────────────────────────────────────────────────────
 
+	/**
+	 * Both ends of the history are a silent no-op — hitting the bottom of the
+	 * stack is the normal way to find out you are at the bottom, and a notice
+	 * on every extra keypress is just noise.
+	 */
 	private async goBack() {
-		const target = this.backStack.pop();
-		if (!target) {
-			this.notifyEmpty("No earlier location in history");
-			return;
-		}
+		const target = this.takeResolvable(this.backStack);
+		if (!target) return;
 		if (this.current) this.forwardStack.push(this.current);
-		await this.jumpTo(target);
+		await this.jumpTo(target.location, target.file);
 	}
 
 	private async goForward() {
-		const target = this.forwardStack.pop();
-		if (!target) {
-			this.notifyEmpty("No later location in history");
-			return;
-		}
+		const target = this.takeResolvable(this.forwardStack);
+		if (!target) return;
 		if (this.current) this.backStack.push(this.current);
-		await this.jumpTo(target);
+		await this.jumpTo(target.location, target.file);
 	}
 
-	private async jumpTo(location: NavLocation) {
-		const file = this.app.vault.getFileByPath(location.path);
-		if (!file) {
-			// The file is gone; drop this entry and keep unwinding rather than
-			// dead-ending on it.
-			new Notice(`File no longer exists: ${location.path}`);
-			return;
+	/**
+	 * Pop until we hit a location whose file still exists, discarding the dead
+	 * ones on the way. Without this, a since-deleted note turns into a keypress
+	 * that visibly does nothing.
+	 */
+	private takeResolvable(
+		stack: NavLocation[]
+	): { location: NavLocation; file: TFile } | null {
+		for (;;) {
+			const location = stack.pop();
+			if (!location) return null;
+			const file = this.app.vault.getFileByPath(location.path);
+			if (file) return { location, file };
 		}
+	}
 
+	private async jumpTo(location: NavLocation, file: TFile) {
 		this.beginNavigation();
 		try {
 			const leaf = this.resolveLeaf(location);
@@ -360,10 +367,6 @@ export default class NavHistoryPlugin extends Plugin {
 	/** Sidebar leaves are not somewhere a "go back" should ever land. */
 	private isMainAreaLeaf(leaf: WorkspaceLeaf): boolean {
 		return leaf.getRoot() === this.app.workspace.rootSplit;
-	}
-
-	private notifyEmpty(message: string) {
-		if (this.settings.notifyOnEmpty) new Notice(message);
 	}
 
 	async loadSettings() {

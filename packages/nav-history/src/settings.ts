@@ -17,15 +17,12 @@ export interface NavHistorySettings {
 	 * is active right now.
 	 */
 	reuseOriginalTab: boolean;
-	/** Show a notice when there is nothing left to go back/forward to. */
-	notifyOnEmpty: boolean;
 }
 
 export const DEFAULT_SETTINGS: NavHistorySettings = {
 	jumpThreshold: 10,
 	maxEntries: 50,
 	reuseOriginalTab: true,
-	notifyOnEmpty: true,
 };
 
 export class NavHistorySettingTab extends PluginSettingTab {
@@ -83,18 +80,6 @@ export class NavHistorySettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.reuseOriginalTab)
 					.onChange(async (value) => {
 						this.plugin.settings.reuseOriginalTab = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Notify when the stack is empty")
-			.setDesc("Show a notice instead of failing silently at either end of the history.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.notifyOnEmpty)
-					.onChange(async (value) => {
-						this.plugin.settings.notifyOnEmpty = value;
 						await this.plugin.saveSettings();
 					})
 			);
