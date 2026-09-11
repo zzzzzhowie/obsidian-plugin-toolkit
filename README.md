@@ -111,7 +111,7 @@ Enhance Mermaid diagrams: fit tall diagrams to one screen (with a per-diagram si
 Show whole-document line numbers in the editor gutter (every line, not just fenced code blocks). Absolute / relative / hybrid (vim-style) numbering.
 
 ### @obsidian-plugin-toolkit/nav-history
-VS Code style global Go Back / Go Forward (`Ctrl+-` / `Ctrl+Shift+-`). Unlike Obsidian's built-in per-tab `app:go-back`, this keeps one navigation stack for the whole workspace and restores the exact cursor position you left.
+VS Code style global Go Back / Go Forward (`Ctrl+-` / `Ctrl+Shift+-`). Unlike Obsidian's built-in per-tab `app:go-back`, this keeps one navigation stack for the whole workspace, restores the exact cursor position you left, and reopens a tab that was closed rather than taking over the one you are looking at.
 
 ## Tech Stack
 

@@ -17,12 +17,19 @@ export interface NavHistorySettings {
 	 * is active right now.
 	 */
 	reuseOriginalTab: boolean;
+	/**
+	 * When the original tab has since been closed, put it back instead of
+	 * hijacking whichever tab is focused — VS Code reopens the editor you
+	 * closed. Only consulted when `reuseOriginalTab` is on.
+	 */
+	restoreClosedTabs: boolean;
 }
 
 export const DEFAULT_SETTINGS: NavHistorySettings = {
 	jumpThreshold: 10,
 	maxEntries: 50,
 	reuseOriginalTab: true,
+	restoreClosedTabs: true,
 };
 
 export class NavHistorySettingTab extends PluginSettingTab {
@@ -80,6 +87,22 @@ export class NavHistorySettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.reuseOriginalTab)
 					.onChange(async (value) => {
 						this.plugin.settings.reuseOriginalTab = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Reopen closed tabs")
+			.setDesc(
+				"If the tab a location belongs to was closed, open it again in the " +
+					"same pane and tab position instead of taking over the tab you " +
+					"are looking at. Needs the option above."
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.restoreClosedTabs)
+					.onChange(async (value) => {
+						this.plugin.settings.restoreClosedTabs = value;
 						await this.plugin.saveSettings();
 					})
 			);

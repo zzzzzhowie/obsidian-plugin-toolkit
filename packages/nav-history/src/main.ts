@@ -1,4 +1,13 @@
-import { MarkdownView, Notice, Plugin, TAbstractFile, TFile, WorkspaceLeaf } from "obsidian";
+import {
+	MarkdownView,
+	Notice,
+	Plugin,
+	TAbstractFile,
+	TFile,
+	WorkspaceLeaf,
+	WorkspaceParent,
+	WorkspaceSplit,
+} from "obsidian";
 import { EditorView } from "@codemirror/view";
 import {
 	DEFAULT_SETTINGS,
@@ -6,17 +15,30 @@ import {
 	NavHistorySettings,
 } from "./settings";
 
+/** Where a tab was sitting, so a closed one can be put back the same way. */
+interface TabPlacement {
+	/** Internal WorkspaceLeaf id, so we can go back into the same tab. */
+	leafId: string | null;
+	/** Internal id of the tab group holding it. */
+	parentId: string | null;
+	/** Position within that group, -1 when unknown. */
+	tabIndex: number;
+}
+
 /** One remembered spot: a file plus the caret position and the tab it was in. */
-interface NavLocation {
+interface NavLocation extends TabPlacement {
 	path: string;
 	line: number;
 	ch: number;
-	/** Internal WorkspaceLeaf id, so we can go back into the same tab. */
-	leafId: string | null;
 }
 
 /** `id` exists on every leaf at runtime but is not in the public typings. */
 type LeafWithId = WorkspaceLeaf & { id?: string };
+
+/** Same for a tab group's id and its ordered list of tabs. */
+type ParentInternals = WorkspaceParent & { id?: string; children?: unknown[] };
+
+const NO_PLACEMENT: TabPlacement = { leafId: null, parentId: null, tabIndex: -1 };
 
 /**
  * Obsidian's built-in `app:go-back` walks a per-leaf history: each tab has its
@@ -62,7 +84,7 @@ export default class NavHistoryPlugin extends Plugin {
 				if (this.navigating || !this.current || !leaf) return;
 				const view = leaf.view;
 				if (view instanceof MarkdownView && view.file?.path === this.current.path) {
-					this.current.leafId = this.leafId(leaf);
+					Object.assign(this.current, this.placementOf(leaf));
 				}
 			})
 		);
@@ -128,12 +150,12 @@ export default class NavHistoryPlugin extends Plugin {
 	private onFileOpen(file: TFile | null) {
 		if (this.navigating || !file) return;
 
-		const leafId = this.leafId(this.activeMarkdownLeaf());
+		const placement = this.placementOf(this.activeMarkdownLeaf());
 		const previous = this.current;
 
 		// Re-opening the same file (e.g. a second tab on it) is not a jump.
 		if (previous && previous.path === file.path) {
-			previous.leafId = leafId;
+			Object.assign(previous, placement);
 			return;
 		}
 
@@ -147,7 +169,7 @@ export default class NavHistoryPlugin extends Plugin {
 			path: file.path,
 			line: cursor?.line ?? 0,
 			ch: cursor?.ch ?? 0,
-			leafId,
+			...placement,
 		};
 	}
 
@@ -159,13 +181,13 @@ export default class NavHistoryPlugin extends Plugin {
 		if (!view || !file) return;
 
 		const cursor = view.editor.getCursor();
-		const leafId = this.leafId(view.leaf);
+		const placement = this.placementOf(view.leaf);
 		const previous = this.current;
 
 		// file-open normally gets here first; this is the fallback for the very
 		// first editor of the session.
 		if (!previous || previous.path !== file.path) {
-			this.current = { path: file.path, line: cursor.line, ch: cursor.ch, leafId };
+			this.current = { path: file.path, line: cursor.line, ch: cursor.ch, ...placement };
 			return;
 		}
 
@@ -176,7 +198,7 @@ export default class NavHistoryPlugin extends Plugin {
 
 		previous.line = cursor.line;
 		previous.ch = cursor.ch;
-		previous.leafId = leafId;
+		Object.assign(previous, placement);
 	}
 
 	private pushBack(location: NavLocation) {
@@ -272,31 +294,80 @@ export default class NavHistoryPlugin extends Plugin {
 				editor.focus();
 			}
 
-			this.current = { ...location };
+			// Record where we actually ended up: a reopened tab has a brand-new
+			// leaf id, and keeping the dead one would spawn another tab on the
+			// next press.
+			this.current = { ...location, ...this.placementOf(leaf) };
 		} finally {
 			this.endNavigation();
 		}
 	}
 
-	/**
-	 * Which tab to replay a location in: the original one if it still exists in
-	 * the main area, otherwise whatever is active.
-	 */
+	/** Which tab to replay a location in. */
 	private resolveLeaf(location: NavLocation): WorkspaceLeaf {
-		if (this.settings.reuseOriginalTab && location.leafId) {
-			const matches: WorkspaceLeaf[] = [];
-			this.app.workspace.iterateAllLeaves((leaf) => {
-				if (this.leafId(leaf) === location.leafId && this.isMainAreaLeaf(leaf)) {
-					matches.push(leaf);
-				}
-			});
-			const original = matches[0];
-			if (original) return original;
-		}
+		// The user opted out of tab juggling: everything happens right here.
+		if (!this.settings.reuseOriginalTab) return this.currentLeaf();
 
-		const active = this.activeMarkdownLeaf();
-		if (active) return active;
-		return this.app.workspace.getLeaf(false);
+		// Guard the null id: without it, an unidentified leaf would match an
+		// unidentified location and we'd hijack an arbitrary tab.
+		const original = location.leafId
+			? this.findLeaf((leaf) => this.leafId(leaf) === location.leafId)
+			: null;
+		if (original) return original;
+
+		// The tab is gone. Taking over whichever tab happens to be focused would
+		// destroy the thing the user is looking at, so put the closed tab back
+		// instead — VS Code reopens the editor you closed.
+		if (!this.settings.restoreClosedTabs) return this.currentLeaf();
+
+		// Unless the file picked up another tab in the meantime; a second tab on
+		// one note is never what anyone wants.
+		const elsewhere = this.findLeaf(
+			(leaf) => leaf.view instanceof MarkdownView && leaf.view.file?.path === location.path
+		);
+		if (elsewhere) return elsewhere;
+
+		return this.reopenTab(location);
+	}
+
+	/**
+	 * Recreate a closed tab where it used to live: same tab group, same slot in
+	 * the tab bar. Falls back to a plain new tab once the whole group is gone.
+	 */
+	private reopenTab(location: NavLocation): WorkspaceLeaf {
+		const group = this.findTabGroup(location.parentId);
+		if (!group) return this.app.workspace.getLeaf("tab");
+
+		const size = group.children?.length ?? 0;
+		const index = location.tabIndex < 0 ? size : Math.min(location.tabIndex, size);
+		// WorkspaceTabs is the runtime type here; the signature only names its
+		// WorkspaceSplit sibling, which is the same shape as far as this call goes.
+		return this.app.workspace.createLeafInParent(group as WorkspaceSplit, index);
+	}
+
+	private findLeaf(predicate: (leaf: WorkspaceLeaf) => boolean): WorkspaceLeaf | null {
+		const matches: WorkspaceLeaf[] = [];
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (this.isMainAreaLeaf(leaf) && predicate(leaf)) matches.push(leaf);
+		});
+		return matches[0] ?? null;
+	}
+
+	/** A tab group only exists as long as one of its tabs does. */
+	private findTabGroup(parentId: string | null): ParentInternals | null {
+		if (!parentId) return null;
+		const matches: ParentInternals[] = [];
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			const parent: ParentInternals | undefined = leaf.parent;
+			if (parent && parent.id === parentId && this.isMainAreaLeaf(leaf)) {
+				matches.push(parent);
+			}
+		});
+		return matches[0] ?? null;
+	}
+
+	private currentLeaf(): WorkspaceLeaf {
+		return this.activeMarkdownLeaf() ?? this.app.workspace.getLeaf(false);
 	}
 
 	private beginNavigation() {
@@ -349,7 +420,12 @@ export default class NavHistoryPlugin extends Plugin {
 		const file = view?.file;
 		if (!view || !file) return null;
 		const cursor = view.editor.getCursor();
-		return { path: file.path, line: cursor.line, ch: cursor.ch, leafId: this.leafId(view.leaf) };
+		return {
+			path: file.path,
+			line: cursor.line,
+			ch: cursor.ch,
+			...this.placementOf(view.leaf),
+		};
 	}
 
 	private activeMarkdownLeaf(): WorkspaceLeaf | null {
@@ -362,6 +438,17 @@ export default class NavHistoryPlugin extends Plugin {
 
 	private leafId(leaf: WorkspaceLeaf | null): string | null {
 		return (leaf as LeafWithId | null)?.id ?? null;
+	}
+
+	/** Snapshot of which tab a leaf is, and where that tab sits. */
+	private placementOf(leaf: WorkspaceLeaf | null): TabPlacement {
+		if (!leaf) return NO_PLACEMENT;
+		const parent: ParentInternals | undefined = leaf.parent;
+		return {
+			leafId: this.leafId(leaf),
+			parentId: parent?.id ?? null,
+			tabIndex: parent?.children?.indexOf(leaf) ?? -1,
+		};
 	}
 
 	/** Sidebar leaves are not somewhere a "go back" should ever land. */
