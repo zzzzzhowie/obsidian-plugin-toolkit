@@ -46,6 +46,11 @@ const CLAUDIAN_QUEUE_TEXT = ".claudian-queue-indicator-text";
  * click handler, which always opens a new tab (see interceptLinkClicks).
  */
 const CLAUDIAN_LINK = ".claudian-file-link, .internal-link";
+/**
+ * Claudian's own per-prompt toolbar (copy / edit / rewind / fork). It is created *inside* the
+ * user bubble, so a click there has to keep its own meaning — see interceptPinnedPromptClicks.
+ */
+const CLAUDIAN_USER_ACTIONS = ".claudian-user-msg-actions";
 /** Claudian's own command that opens/reveals its view. */
 const OPEN_COMMAND = "realclaudian:open-view";
 /**
@@ -313,6 +318,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// Reuse a tab instead of stacking a new one per clicked link. See
 		// interceptLinkClicks.
 		this.interceptLinkClicks();
+		// Click the pinned prompt to go back to where its turn begins. Registered after
+		// the link interception above so a link inside the bubble is still claimed by it
+		// first (it stops immediate propagation), and this never sees that click.
+		this.interceptPinnedPromptClicks();
 		// Cold-start fix. Claudian restores its last conversation together with *that
 		// conversation's* saved note. When that was a started/interrupted session,
 		// Claudian deliberately freezes the note (handleFileOpen's isSessionStarted
@@ -1400,6 +1409,95 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * Capture phase + stopImmediatePropagation so Claudian's own bubble-phase handler
 	 * never runs. Cmd/Ctrl-click and middle-click keep their standard "new tab" meaning.
 	 */
+	/**
+	 * Click the prompt that's stuck to the top of the conversation to scroll back to where
+	 * that turn actually begins.
+	 *
+	 * A pinned prompt reads as a heading for the answer being scrolled through, and the thing
+	 * you want from a heading is to be taken back to the start of its section — the reply is
+	 * the long part, so once you are deep in it the question is the only way back up.
+	 *
+	 * Only the pinned prompt answers to this. An unpinned one is already sitting at its own
+	 * position, so there would be nowhere to go.
+	 */
+	private interceptPinnedPromptClicks(): void {
+		this.registerDomEvent(
+			document,
+			"click",
+			(event: MouseEvent) => {
+				if (event.button !== 0 || event.defaultPrevented) return;
+				// A modified click asks for something else entirely (open elsewhere,
+				// extend a selection); none of them mean "scroll".
+				if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+					return;
+				}
+				const pinned = this.pinnedPrompt;
+				const target = event.target as HTMLElement | null;
+				if (!pinned || !target || !pinned.contains(target)) return;
+				// The bubble hosts Claudian's copy / rewind / fork toolbar and can hold
+				// links, all of which keep their own meaning.
+				if (
+					target.closest(CLAUDIAN_USER_ACTIONS) ??
+					target.closest(CLAUDIAN_LINK) ??
+					target.closest("button")
+				) {
+					return;
+				}
+				// Selecting text inside the prompt ends in a click as well. The live
+				// selection is what tells a drag from a tap — checking the event alone
+				// can't, since both arrive as a plain left click.
+				const selection = pinned.ownerDocument.defaultView?.getSelection();
+				if (
+					selection &&
+					!selection.isCollapsed &&
+					selection.anchorNode &&
+					pinned.contains(selection.anchorNode)
+				) {
+					return;
+				}
+				const scroller = pinned.closest<HTMLElement>(CLAUDIAN_MESSAGES);
+				if (scroller) this.scrollTurnIntoView(scroller, pinned);
+			},
+			{ capture: true },
+		);
+	}
+
+	/**
+	 * Scroll `scroller` until `prompt` sits where it belongs rather than where sticky is
+	 * holding it.
+	 *
+	 * While stuck, the prompt's own rect reports the *stuck* position — that's the whole
+	 * point of sticky — so it can't say where its turn starts. Dropping the offset for the
+	 * length of one measurement gives the honest answer. An inline style is used rather than
+	 * a class, for two reasons: it beats our own stylesheet rule without needing to out-
+	 * specify it, and the MutationObserver in ensureSubmitScrollObserver watches `class` on
+	 * this subtree, where a write would wake it for nothing. Sticky elements sit in normal
+	 * flow, so taking the offset away moves nothing else and the pair of writes never paints.
+	 *
+	 * The scroll is left to read as the reader's own upward move, which is what it is: that
+	 * detaches the list, so a reply still streaming stops dragging them back down to it.
+	 */
+	private scrollTurnIntoView(scroller: HTMLElement, prompt: HTMLElement): void {
+		const inline = prompt.style.position;
+		// Not a style being applied to the element — it is set and put back inside one
+		// synchronous block, purely so the rect below can be read without the sticky
+		// offset, and nothing paints in between. A class would be the usual answer and is
+		// the wrong one here: it would wake the MutationObserver for nothing.
+		// eslint-disable-next-line obsidianmd/no-static-styles-assignment
+		prompt.style.position = "static";
+		const naturalTop = prompt.getBoundingClientRect().top;
+		prompt.style.position = inline;
+		// The same rest position markPinnedPrompt measures against: `top: 0` is relative to
+		// the scrollport, which the list's own top padding sits inside.
+		const padding = parseFloat(getComputedStyle(scroller).paddingTop) || 0;
+		const listTop = scroller.getBoundingClientRect().top + padding;
+		const delta = naturalTop - listTop;
+		// Already there — clicking again shouldn't emit a scroll that only serves to mark
+		// the list detached.
+		if (Math.abs(delta) < 1) return;
+		scroller.scrollTop += delta;
+	}
+
 	private interceptLinkClicks(): void {
 		this.registerDomEvent(
 			document,

@@ -242,3 +242,19 @@
 .claudian-new-tab-btn.claudian-new-tab-btn {
 	display: none;
 }
+
+/* Signal that the pinned prompt is the way back to the start of its turn (the click is
+   handled in interceptPinnedPromptClicks). Scoped to the pinned state on purpose: an
+   unpinned prompt already sits at its own position, so there is nothing to go to. Text
+   inside stays selectable — a drag still selects, and the handler bows out when it sees a
+   live selection rather than treating the closing click as a jump. */
+.claudian-message-user.claudian-message-user.claudian-enhanced-pinned {
+	cursor: pointer;
+}
+
+/* …but the toolbar and any links inside keep their own affordance, since they keep their
+   own behaviour. */
+.claudian-enhanced-pinned .claudian-user-msg-actions,
+.claudian-enhanced-pinned .claudian-user-msg-actions * {
+	cursor: default;
+}
