@@ -22,6 +22,14 @@ export interface VaultBackupSettings {
 	gitPath: string;
 	/** Abort a git command that runs longer than this. */
 	commandTimeoutSeconds: number;
+	/**
+	 * Paths kept out of the backup, gitignore-style, one pattern per entry. Applied as git
+	 * pathspecs, so they are matched the same way `git add <pattern>` would match.
+	 *
+	 * Deliberately not the vault's own `.gitignore`: that file is the user's, it is itself
+	 * committed, and it could not untrack anything that is already in the repo.
+	 */
+	ignorePatterns: string[];
 	/** Machine name -> last known opt-in state. Never used as the gate. */
 	machines: Record<string, MachineRecord>;
 }
@@ -33,8 +41,43 @@ export const DEFAULT_SETTINGS: VaultBackupSettings = {
 	startupDelaySeconds: 60,
 	gitPath: "git",
 	commandTimeoutSeconds: 120,
+	// Empty here on purpose — the real default depends on where this vault keeps its config
+	// folder, so it is filled in at load time. See defaultIgnorePatterns.
+	ignorePatterns: [],
 	machines: {},
 };
+
+/**
+ * What a vault with no ignore list of its own starts with: build output and chat session
+ * metadata. All of it is rewritten constantly, all of it is reproducible, and none of it is
+ * worth anything in a restore.
+ *
+ * Plugin `data.json` files are deliberately absent — those hold settings, which are exactly
+ * what a restore wants back. `.DS_Store` is absent too: a global gitignore already covers it
+ * on this machine, and a pattern per annoyance is how an ignore list stops being readable.
+ *
+ * `configDir` rather than a hardcoded `.obsidian`, because a vault can be told to keep its
+ * configuration somewhere else, and then every pattern below would quietly match nothing.
+ */
+export function defaultIgnorePatterns(configDir: string): string[] {
+	return [
+		".claudian/sessions/",
+		`${configDir}/plugins/*/main.js`,
+		`${configDir}/plugins/*/styles.css`,
+		`${configDir}/plugins/*/manifest.json`,
+	];
+}
+
+/**
+ * Split the textarea into patterns. Blank lines and `#` comments are dropped so the box can
+ * be annotated the way a `.gitignore` can.
+ */
+export function parseIgnorePatterns(value: string): string[] {
+	return value
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0 && !line.startsWith("#"));
+}
 
 export class VaultBackupSettingTab extends PluginSettingTab {
 	private readonly plugin: VaultBackupPlugin;
@@ -113,6 +156,23 @@ export class VaultBackupSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.commitMessage)
 					.onChange((value) => {
 						this.plugin.settings.commitMessage = value.trim() || DEFAULT_SETTINGS.commitMessage;
+						void this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Ignore list")
+			.setDesc(
+				"One gitignore-style pattern per line. Matching paths stay on disk but are " +
+					"dropped from the backup — anything already committed is untracked on the " +
+					"next run, so it also disappears from the remote.",
+			)
+			.addTextArea((text) =>
+				text
+					.setPlaceholder(`${this.app.vault.configDir}/plugins/*/main.js`)
+					.setValue(this.plugin.settings.ignorePatterns.join("\n"))
+					.onChange((value) => {
+						this.plugin.settings.ignorePatterns = parseIgnorePatterns(value);
 						void this.plugin.saveSettings();
 					}),
 			);

@@ -4,7 +4,7 @@ import { FileSystemAdapter, Notice, Plugin, setIcon } from "obsidian";
 
 import { describeGitFailure, runBackup, type BackupOutcome } from "./backup";
 import { GitRunner } from "./git";
-import { DEFAULT_SETTINGS, VaultBackupSettingTab, type VaultBackupSettings } from "./settings";
+import { DEFAULT_SETTINGS, defaultIgnorePatterns, VaultBackupSettingTab, type VaultBackupSettings } from "./settings";
 
 /**
  * Per-machine state lives in Obsidian's local storage, which is scoped to this
@@ -18,6 +18,14 @@ const LAST_ERROR_KEY = "vault-backup:last-error";
 
 /** How often the timer wakes up to decide whether a backup is due. */
 const TICK_MS = 30_000;
+/**
+ * How soon to try again after a failure, and how fast that backs off. A dropped connection
+ * used to cost a whole interval — on a daily schedule, one blip meant no backup for a day —
+ * so the first retry comes quickly and each further failure triples the wait, up to the
+ * normal interval. Success clears it.
+ */
+const FIRST_RETRY_MS = 2 * 60_000;
+const RETRY_GROWTH = 3;
 
 type RunReason = "timer" | "startup" | "manual";
 
@@ -30,6 +38,8 @@ export default class VaultBackupPlugin extends Plugin {
 	private statusEl: HTMLElement | null = null;
 	private running = false;
 	private lastAttemptAt = 0;
+	/** Wait until the next attempt while the last one failed; 0 once a run succeeds. */
+	private retryDelayMs = 0;
 	/** null until the first check finishes. False keeps the plugin fully inert. */
 	private repoRoot: boolean | null = null;
 
@@ -118,6 +128,11 @@ export default class VaultBackupPlugin extends Plugin {
 	async loadSettings(): Promise<void> {
 		const stored = (await this.loadData()) as Partial<VaultBackupSettings> | null;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, stored ?? {});
+		// Absent, not empty: a vault that has never seen this setting gets the starting list,
+		// while one where the user deliberately cleared it keeps an empty list.
+		if (!Array.isArray(stored?.ignorePatterns)) {
+			this.settings.ignorePatterns = defaultIgnorePatterns(this.app.vault.configDir);
+		}
 	}
 
 	async saveSettings(): Promise<void> {
@@ -196,13 +211,25 @@ export default class VaultBackupPlugin extends Plugin {
 				commitMessage: this.settings.commitMessage,
 				push: this.settings.push,
 				machineName: this.machineName,
+				ignorePatterns: this.settings.ignorePatterns,
 			});
 			this.app.saveLocalStorage(LAST_OK_KEY, Date.now());
 			this.app.saveLocalStorage(LAST_ERROR_KEY, null);
+			this.retryDelayMs = 0;
 			if (outcome.warning) new Notice(`Vault backup: ${outcome.warning}`, 10_000);
+			// Worth saying out loud even on a timer run: this is the moment files leave the
+			// backup, and it happens once per pattern rather than every pass.
+			if (outcome.untracked > 0) {
+				new Notice(
+					`Vault backup: ${outcome.untracked} path(s) matched the ignore list and are no longer backed up.`,
+					10_000,
+				);
+			}
 			if (reason === "manual") new Notice(`Vault backup: ${summarise(outcome)}`);
 		} catch (error) {
 			const detail = describeGitFailure(error);
+			this.retryDelayMs =
+				this.retryDelayMs > 0 ? this.retryDelayMs * RETRY_GROWTH : FIRST_RETRY_MS;
 			this.app.saveLocalStorage(LAST_ERROR_KEY, detail);
 			console.error("Vault backup failed", error);
 			new Notice(`Vault backup failed\n\n${detail}`, 15_000);
@@ -220,8 +247,12 @@ export default class VaultBackupPlugin extends Plugin {
 		if (this.running || !this.isEnabledHere()) return;
 
 		const minutes = this.settings.intervalMinutes;
+		// 0 turns the timer off, and that has to hold for retries too — otherwise a failure
+		// would quietly restart a schedule the user switched off.
 		if (minutes <= 0) return;
-		if (Date.now() - this.lastAttemptAt < minutes * 60_000) return;
+		const intervalMs = minutes * 60_000;
+		const due = this.retryDelayMs > 0 ? Math.min(this.retryDelayMs, intervalMs) : intervalMs;
+		if (Date.now() - this.lastAttemptAt < due) return;
 
 		void this.backupNow("timer");
 	}
@@ -310,6 +341,7 @@ function samePath(a: string, b: string): boolean {
 function summarise(outcome: BackupOutcome): string {
 	const parts: string[] = [];
 	parts.push(outcome.committed ? `committed ${outcome.changed} path(s)` : "nothing to commit");
+	if (outcome.untracked > 0) parts.push(`stopped backing up ${outcome.untracked} path(s)`);
 	if (outcome.pushed > 0) parts.push(`pushed ${outcome.pushed} commit(s)`);
 	return parts.join(", ");
 }
