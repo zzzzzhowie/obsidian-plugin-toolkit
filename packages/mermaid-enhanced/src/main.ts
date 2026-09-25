@@ -1,4 +1,12 @@
-import { MarkdownView, Notice, Plugin } from "obsidian";
+import {
+	App,
+	MarkdownView,
+	Modal,
+	Notice,
+	Plugin,
+	setIcon,
+	setTooltip,
+} from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	MermaidEnhancedSettings,
@@ -8,6 +16,15 @@ import { ZoomOverlay } from "../../../shared/zoom-overlay";
 
 /** Attribute stamped on a block container carrying its `%% fit: ... %%` value. */
 const FIT_ATTR = "data-mermaid-fit-override";
+
+/** Attribute stamped on a block container carrying its `%% caption: ... %%` text. */
+const CAPTION_ATTR = "data-mermaid-caption";
+
+/** Class on the caption injected below a diagram. */
+const CAPTION_CLS = "mermaid-caption";
+
+/** Class on the button that edits a diagram's caption. */
+const CAPTION_BTN_CLS = "mermaid-caption-btn";
 
 /** Class on the injected fit-size slider. */
 const SLIDER_CLS = "mermaid-fit-slider";
@@ -61,6 +78,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 				info.lineStart > 0 ? (lines[info.lineStart - 1] ?? "") : "";
 			const value = this.parseFitLine(src) ?? this.parseFitLine(above);
 			if (value) el.setAttribute(FIT_ATTR, value);
+			const caption = this.parseCaption(src);
+			if (caption) el.setAttribute(CAPTION_ATTR, caption);
 		});
 
 		// Process diagrams that already exist once the layout is ready.
@@ -101,6 +120,9 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		if (this.resizeTimer !== null) window.clearTimeout(this.resizeTimer);
 		// Leave the DOM as we found it.
 		this.clearAll();
+		document
+			.querySelectorAll(`.${CAPTION_CLS}, .${CAPTION_BTN_CLS}`)
+			.forEach((el) => el.remove());
 	}
 
 	async loadSettings() {
@@ -126,11 +148,32 @@ export default class MermaidEnhancedPlugin extends Plugin {
 
 	/** (Re)apply the fit constraint to every rendered Mermaid diagram. */
 	processAll() {
-		if (!this.settings.enabled) {
-			this.clearAll();
-			return;
-		}
 		const svgs = document.querySelectorAll<SVGSVGElement>(".mermaid svg");
+		// Captions don't depend on the fit toggle: turning off "fit tall diagrams"
+		// shouldn't take away text the note itself asked for.
+		svgs.forEach((svg) => {
+			try {
+				this.syncCaption(svg);
+			} catch (e) {
+				console.error("mermaid-enhanced: failed to caption a diagram", e);
+			}
+		});
+		// Before the slider pass: the button joins Obsidian's action group, which
+		// widens it, and the slider parks itself left of that group — measured after
+		// the button is in, or the two would overlap.
+		svgs.forEach((svg) => {
+			try {
+				this.injectCaptionButton(svg);
+			} catch (e) {
+				console.error("mermaid-enhanced: failed to add the caption button", e);
+			}
+		});
+		if (this.settings.enabled) this.fitAll(svgs);
+		else this.clearAll();
+	}
+
+	/** Fit every diagram and give each its size slider. */
+	private fitAll(svgs: NodeListOf<SVGSVGElement>) {
 		svgs.forEach((svg) => {
 			// Don't stomp the diagram currently being dragged with its slider.
 			if (svg === this.draggingSvg) return;
@@ -270,7 +313,12 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		if (!block) return;
 		if (block.querySelector(`:scope > .${SLIDER_CLS}`)) return;
 
-		const editBtn = block.querySelector<HTMLElement>(".edit-block-button");
+		// Left of the whole action group, not just the edit button: the caption button
+		// sits in that group too, and anchoring to the edit button would land the
+		// slider on top of it.
+		const editBtn =
+			block.querySelector<HTMLElement>(".embed-actions") ??
+			block.querySelector<HTMLElement>(".edit-block-button");
 
 		const slider = document.createElement("input");
 		slider.type = "range";
@@ -481,6 +529,177 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Keep a caption under the diagram in step with its `%% caption %%` line.
+	 *
+	 * Writes only when something actually differs. This runs on every pass of the
+	 * workspace MutationObserver, and inserting or re-texting the caption is itself a
+	 * mutation — an unconditional write would re-trigger the pass forever.
+	 */
+	private syncCaption(svg: SVGSVGElement) {
+		const diagram = svg.closest<HTMLElement>(".mermaid");
+		if (!diagram) return;
+		const text = this.resolveCaption(svg);
+		const next = diagram.nextElementSibling;
+		const existing = next?.classList.contains(CAPTION_CLS) ? next : null;
+
+		if (!text) {
+			existing?.remove();
+			return;
+		}
+		if (existing) {
+			if (existing.textContent !== text) existing.setText(text);
+			return;
+		}
+		diagram.after(createDiv({ cls: CAPTION_CLS, text }));
+	}
+
+	/**
+	 * A button that edits the caption in a small dialog, placed as a sibling of
+	 * Obsidian's own edit-block button.
+	 *
+	 * Obsidian 1.13 builds that button as `createDiv("embed-action")` inside a flex
+	 * `.embed-actions` group, which owns the spacing and the reveal-on-hover. Joining
+	 * the group rather than floating beside it means the two buttons sit together and
+	 * look alike by construction — a theme's `<button>` styling was what made the first
+	 * version stand out. Obsidian binds each action's click on the element itself, not
+	 * by class, so borrowing `embed-action` borrows only the look.
+	 *
+	 * Live Preview only, like the slider: that's where the block's source can be edited
+	 * in place. Without the group (older Obsidian) it falls back to being positioned
+	 * beside the edit button.
+	 */
+	private injectCaptionButton(svg: SVGSVGElement) {
+		const block = svg.closest<HTMLElement>(".cm-preview-code-block");
+		if (!block || block.querySelector(`.${CAPTION_BTN_CLS}`)) return;
+
+		const actions = block.querySelector<HTMLElement>(".embed-actions");
+		const btn = createDiv({
+			cls: actions
+				? `embed-action ${CAPTION_BTN_CLS}`
+				: `clickable-icon ${CAPTION_BTN_CLS}`,
+		});
+		setIcon(btn, "captions");
+		setTooltip(btn, "Edit caption");
+		if (actions) {
+			actions.prepend(btn);
+		} else {
+			block.appendChild(btn);
+			this.positionControl(
+				btn,
+				block,
+				block.querySelector<HTMLElement>(".edit-block-button")
+			);
+		}
+
+		// Keep the press out of the editor, which would otherwise put the cursor into
+		// the block and swap the diagram for its source.
+		btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+		btn.addEventListener("click", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			new CaptionModal(this.app, this.resolveCaption(svg) ?? "", (text) =>
+				this.persistCaption(block, text)
+			).open();
+		});
+	}
+
+	/**
+	 * Write a caption into the block as a `%% caption: ... %%` line — replacing the one
+	 * already there, removing it when the text is empty, otherwise adding one.
+	 *
+	 * A new line goes below a `%% fit %%` directive on the first inner line rather than
+	 * above it: the slider reads and writes fit on exactly that line, so pushing it down
+	 * would quietly detach the diagram from its size.
+	 */
+	private persistCaption(block: HTMLElement, raw: string) {
+		const view = this.findMarkdownView(block);
+		const fence = view ? this.locateFenceLine(view, block) : null;
+		if (!view || fence === null) {
+			new Notice("Mermaid Enhanced: 说明只能在实时预览下编辑");
+			return;
+		}
+		const editor = view.editor;
+		// A `%%` in the text would end the comment early, and a newline would put the
+		// rest of it into the diagram source.
+		const text = raw.replace(/%%/g, "").replace(/\s+/g, " ").trim();
+		const indent = editor.getLine(fence).match(/^\s*/)?.[0] ?? "";
+		const next = `${indent}%% caption: ${text} %%`;
+
+		let existing: number | null = null;
+		for (let i = fence + 1; i <= editor.lastLine(); i++) {
+			const line = editor.getLine(i);
+			if (/^\s*`{3,}\s*$/.test(line)) break;
+			if (/^\s*%%\s*caption\s*[:=]/i.test(line)) {
+				existing = i;
+				break;
+			}
+		}
+
+		// Same guard as persistFit: editing the source re-renders the block, and the
+		// cursor move makes CodeMirror scroll it into view. Put the page back.
+		const scroll = editor.getScrollInfo();
+		if (existing !== null) {
+			if (!text) {
+				editor.replaceRange("", { line: existing, ch: 0 }, { line: existing + 1, ch: 0 });
+			} else if (editor.getLine(existing) !== next) {
+				const end = editor.getLine(existing).length;
+				editor.replaceRange(next, { line: existing, ch: 0 }, { line: existing, ch: end });
+			} else {
+				return; // unchanged — skip the re-render entirely
+			}
+		} else if (text) {
+			const fitOnFirst = this.parseFitLine(editor.getLine(fence + 1) ?? "") !== null;
+			editor.replaceRange(`${next}\n`, { line: fence + (fitOnFirst ? 2 : 1), ch: 0 });
+		} else {
+			return;
+		}
+		const restore = () => editor.scrollTo(scroll.left, scroll.top);
+		restore();
+		requestAnimationFrame(restore);
+	}
+
+	/**
+	 * The `%% caption: ... %%` text of a mermaid block, or null. Anywhere inside the
+	 * block rather than on a fixed line, since the first line may already be taken by a
+	 * `%% fit %%` directive. Case is kept (unlike fit): it's prose.
+	 */
+	private parseCaption(src: string): string | null {
+		const m = src.match(/^\s*%%\s*caption\s*[:=]\s*(.*?)\s*(?:%%)?\s*$/im);
+		const text = m?.[1]?.trim();
+		return text ? text : null;
+	}
+
+	/**
+	 * Resolve a diagram's caption the same two ways as its fit directive: straight from
+	 * the editor source in Live Preview, from the stamped attribute in reading view.
+	 */
+	private resolveCaption(svg: SVGSVGElement): string | null {
+		const lpBlock = svg.closest<HTMLElement>(".cm-preview-code-block");
+		if (lpBlock) return this.readCaptionFromEditor(lpBlock);
+		return (
+			svg.closest<HTMLElement>(`[${CAPTION_ATTR}]`)?.getAttribute(CAPTION_ATTR) ??
+			null
+		);
+	}
+
+	/** Scan a Live Preview block's source, fence to closing fence, for its caption. */
+	private readCaptionFromEditor(block: HTMLElement): string | null {
+		const view = this.findMarkdownView(block);
+		if (!view) return null;
+		const fence = this.locateFenceLine(view, block);
+		if (fence === null) return null;
+		const editor = view.editor;
+		const last = editor.lastLine();
+		const lines: string[] = [];
+		for (let i = fence + 1; i <= last; i++) {
+			const line = editor.getLine(i);
+			if (/^\s*`{3,}\s*$/.test(line)) break;
+			lines.push(line);
+		}
+		return this.parseCaption(lines.join("\n"));
+	}
+
 	/** Extract the fit value from a `%% fit: ... %%` line, or null if absent. */
 	private parseFitLine(line: string): string | null {
 		const m = line.match(/%%\s*fit\s*[:=]?\s*(.+)/i);
@@ -574,5 +793,50 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		document
 			.querySelectorAll(`.${SLIDER_CLS}, .${SLIDER_CLS}-tip`)
 			.forEach((el) => el.remove());
+	}
+}
+
+/**
+ * A one-field dialog for a diagram's caption. Enter saves; an empty field removes the
+ * caption. Enter is ignored mid-composition, or confirming a pinyin candidate would
+ * save half-typed text.
+ */
+class CaptionModal extends Modal {
+	constructor(
+		app: App,
+		private readonly initial: string,
+		private readonly onSubmit: (text: string) => void
+	) {
+		super(app);
+	}
+
+	onOpen() {
+		this.titleEl.setText("Diagram caption");
+		const input = this.contentEl.createEl("input", {
+			type: "text",
+			cls: "mermaid-caption-input",
+			attr: { placeholder: "Leave empty to remove the caption" },
+		});
+		input.value = this.initial;
+		const submit = () => {
+			this.onSubmit(input.value);
+			this.close();
+		};
+		input.addEventListener("keydown", (e) => {
+			if (e.key === "Enter" && !e.isComposing) {
+				e.preventDefault();
+				submit();
+			}
+		});
+		const actions = this.contentEl.createDiv({ cls: "modal-button-container" });
+		actions
+			.createEl("button", { text: "Save", cls: "mod-cta" })
+			.addEventListener("click", submit);
+		input.focus();
+		input.select();
+	}
+
+	onClose() {
+		this.contentEl.empty();
 	}
 }

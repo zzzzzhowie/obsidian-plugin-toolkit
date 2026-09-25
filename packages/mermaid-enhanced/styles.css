@@ -142,3 +142,59 @@
 	min-width: 60px;
 	text-align: center;
 }
+
+/* ── Diagram caption (`%% caption: ... %%`) ─────────────────────────────── */
+
+/* Same look as Caption (Enhanced)'s image captions — centred, italic, muted — so a
+   figure reads the same whether it's a screenshot or a diagram. Its own class rather
+   than `.image-caption`, because that plugin's `:has(> .image-caption)` layout rules
+   would otherwise reach into the code-block container. */
+.mermaid-caption {
+	display: block;
+	width: 100%;
+	font-size: 0.85em;
+	color: var(--text-muted);
+	font-style: italic;
+	text-align: center;
+	line-height: 1.4;
+	margin-top: 6px;
+	margin-bottom: 8px;
+}
+
+/* Caption button. Normally it lives inside Obsidian's `.embed-actions` group and
+   needs nothing here — the group styles and reveals it. These rules are only the
+   fallback for a build without that group, where it floats beside the edit button
+   (position set inline by positionControl). */
+.cm-preview-code-block > .mermaid-caption-btn {
+	position: absolute;
+	z-index: 1;
+	opacity: 0;
+	transition: opacity 100ms ease-in-out;
+}
+
+.cm-preview-code-block:hover > .mermaid-caption-btn,
+.cm-preview-code-block > .mermaid-caption-btn:focus-visible {
+	opacity: 1;
+}
+
+.mermaid-caption-input {
+	width: 100%;
+}
+
+/* Match the edit button beside it. Themes style that button by its own class —
+   Primary gives `.edit-block-button` a padded box with its `--embed-edit-btn-*`
+   background and shadow — so the caption button, which only shares `embed-action`,
+   came out flat next to it. Same selector shape and the theme's own variables, so it
+   tracks the theme. Where a theme defines none of them, background and shadow fall
+   back to nothing — the plain action look the edit button has there too. */
+.markdown-source-view.mod-cm6 .cm-embed-block:not(.cm-table-widget):hover .mermaid-caption-btn {
+	padding: var(--size-2-2) var(--size-2-2);
+	background: var(--embed-edit-btn-bg);
+	border-radius: var(--radius-m);
+	box-shadow: var(--embed-edit-btn-shadow);
+}
+
+.markdown-source-view.mod-cm6 .cm-embed-block:not(.cm-table-widget):hover .mermaid-caption-btn:hover {
+	background: var(--embed-edit-btn-bg-hover);
+	box-shadow: var(--embed-edit-btn-shadow-hover);
+}
