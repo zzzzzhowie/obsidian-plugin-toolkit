@@ -258,3 +258,18 @@
 .claudian-enhanced-pinned .claudian-user-msg-actions * {
 	cursor: default;
 }
+
+/* Fold a long prompt to a readable header (foldLongPrompts decides which, and adds the
+   expand/collapse toggle to its action toolbar). Folded everywhere rather than only while
+   pinned, because the pinned box is also the prompt's slot in the list — shrinking it at
+   the moment it pins would pull the reply up under the reader.
+
+   `6lh` is FOLD_LINES in main.ts, measured in the content's own line height, which is what
+   the script compares against. The fade says there is more; it masks the text only, so the
+   opaque sticky surface behind it is untouched. */
+.claudian-message-user.claudian-enhanced-folded .claudian-message-content {
+	max-height: 6lh;
+	overflow: hidden;
+	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
+	mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
+}

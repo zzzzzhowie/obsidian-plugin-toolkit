@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf } from "obsidian";
+import { Plugin, setIcon, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
@@ -21,6 +21,19 @@ const PINNED_CLS = "claudian-enhanced-pinned";
  * end of an older one showing, which reads as two titles overlapping.
  */
 const BURIED_CLS = "claudian-enhanced-buried";
+/** Marks a prompt long enough to fold; it carries the fold toggle. See foldLongPrompts. */
+const FOLDABLE_CLS = "claudian-enhanced-foldable";
+/** Marks a foldable prompt that is currently collapsed. */
+const FOLDED_CLS = "claudian-enhanced-folded";
+/** The expand/collapse control added to a long prompt's action toolbar. */
+const FOLD_TOGGLE_CLS = "claudian-enhanced-fold-toggle";
+/** Lines a folded prompt keeps — styles.css says `6lh`; keep the two together. */
+const FOLD_LINES = 6;
+/**
+ * Only fold when at least this many lines would disappear. Folding a prompt that is one
+ * line over the limit hides a single line behind a toggle, which costs more than it saves.
+ */
+const FOLD_SLACK_LINES = 2;
 /**
  * How far above the bottom still counts as "following the stream" (px). Claudian's own
  * autoscroll uses 20px, which is tighter than the height a single render step adds — we
@@ -224,6 +237,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private pinnedPrompt: HTMLElement | null = null;
 	/** Pending frame for the pinned-prompt pass, so scrolling schedules at most one. */
 	private pinnedFrame: number | null = null;
+	/** rAF handle for the next fold pass; see scheduleFold. */
+	private foldFrame: number | null = null;
+	/** Prompts the reader expanded by hand, which a later pass must not fold back up. */
+	private expandedPrompts = new WeakSet<HTMLElement>();
+	/** Re-runs the fold pass when the panel resizes, since width changes how text wraps. */
+	private foldResizeObserver: ResizeObserver | null = null;
 	/** Set once Claudian's tab cap is ours, so the poll and a re-entry don't patch twice. */
 	private tabCapPinned = false;
 	/**
@@ -315,6 +334,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		});
 		// MutationObserver isn't auto-cleaned by Obsidian's register* helpers.
 		this.register(() => this.submitScrollObserver?.disconnect());
+		this.register(() => this.foldResizeObserver?.disconnect());
 		// Reuse a tab instead of stacking a new one per clicked link. See
 		// interceptLinkClicks.
 		this.interceptLinkClicks();
@@ -1170,11 +1190,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			let submitted: HTMLElement | null = null;
 			let streamed: HTMLElement | null = null;
 			let queued = false;
+			let promptsChanged = false;
 			for (const record of records) {
 				submitted ??= this.addedUserMessage(record);
 				streamed ??= this.messagesListOf(record.target);
 				queued ||= this.isInQueueRow(record.target);
+				promptsChanged ||= this.changesPromptContent(record);
 			}
+			if (promptsChanged) this.scheduleFold(container);
 			// Both scroll "the list this landed in" — there's one per conversation tab.
 			if (submitted) this.scrollToBottom(submitted.closest(CLAUDIAN_MESSAGES));
 			else if (streamed) this.followToBottom(streamed);
@@ -1189,6 +1212,27 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			attributes: true,
 			attributeFilter: ["class"],
 		});
+		// Width decides how many lines a prompt wraps to, so a panel resize can move a
+		// prompt across the fold limit in either direction.
+		this.foldResizeObserver?.disconnect();
+		this.foldResizeObserver = new ResizeObserver(() => this.scheduleFold(container));
+		this.foldResizeObserver.observe(container);
+		// Prompts already on screen when we bind never produce a mutation of their own.
+		this.scheduleFold(container);
+	}
+
+	/**
+	 * Whether a mutation can change how tall a prompt is: one added, or its content
+	 * re-rendered (Claudian empties and refills it on edit). Class changes are ignored on
+	 * purpose — pinning, burying and folding all write classes onto prompts, and none of
+	 * them change what the content measures.
+	 */
+	private changesPromptContent(record: MutationRecord): boolean {
+		if (record.type !== "childList") return false;
+		if (this.addedUserMessage(record)) return true;
+		const el =
+			record.target instanceof HTMLElement ? record.target : record.target.parentElement;
+		return !!el?.closest(CLAUDIAN_USER_MESSAGE);
 	}
 
 	/** The user bubble this mutation added, if any (it can arrive nested in a re-render). */
@@ -1322,6 +1366,85 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (index < pinnedIndex) prompt.addClass(BURIED_CLS);
 			else prompt.removeClass(BURIED_CLS);
 		}
+	}
+
+	/** Run a fold pass on the next frame, coalescing a burst of mutations into one. */
+	private scheduleFold(container: HTMLElement): void {
+		if (this.foldFrame !== null) return;
+		this.foldFrame = requestAnimationFrame(() => {
+			this.foldFrame = null;
+			this.foldLongPrompts(container);
+		});
+	}
+
+	/**
+	 * Fold prompts too long to be a readable header down to FOLD_LINES, with a toggle.
+	 *
+	 * A pinned prompt is only useful as a header: a long one — a pasted diagram, a file's
+	 * worth of context — covered the whole panel while its reply scrolled underneath. It is
+	 * folded wherever it is, not only while pinned, because a sticky element's box is its
+	 * slot in the list: shrinking it at the moment it pins would pull the reply being read
+	 * up by however much was cut, every time the pin changed hands.
+	 *
+	 * Reads before writes, and writes only on change — the same discipline as
+	 * markPinnedPrompt, for the same reasons: interleaving forces a reflow per prompt, and
+	 * every class write here is a mutation the observer above sees. A prompt that isn't laid
+	 * out (in a hidden tab) measures zero and is left exactly as it was.
+	 */
+	private foldLongPrompts(container: HTMLElement): void {
+		if (!container.isConnected) return;
+		const measured: Array<{ prompt: HTMLElement; long: boolean }> = [];
+		for (const prompt of Array.from(
+			container.querySelectorAll<HTMLElement>(CLAUDIAN_USER_MESSAGE),
+		)) {
+			const content = prompt.querySelector<HTMLElement>(".claudian-message-content");
+			if (!content || content.scrollHeight === 0) continue;
+			const style = getComputedStyle(content);
+			const line =
+				parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5 || 20;
+			// scrollHeight is the full content even while folded, so this is stable.
+			const long = content.scrollHeight > line * (FOLD_LINES + FOLD_SLACK_LINES);
+			measured.push({ prompt, long });
+		}
+		for (const { prompt, long } of measured) {
+			const folded = long && !this.expandedPrompts.has(prompt);
+			if (prompt.hasClass(FOLDABLE_CLS) !== long) prompt.toggleClass(FOLDABLE_CLS, long);
+			if (prompt.hasClass(FOLDED_CLS) !== folded) prompt.toggleClass(FOLDED_CLS, folded);
+			if (long) this.syncFoldToggle(prompt, folded);
+			else prompt.querySelector(`.${FOLD_TOGGLE_CLS}`)?.remove();
+		}
+	}
+
+	/**
+	 * The expand/collapse control, as one more action in Claudian's own toolbar under the
+	 * prompt — so it looks and reveals exactly like copy / rewind / fork. The pinned-prompt
+	 * click handler already stands aside for anything in that toolbar, so toggling never
+	 * doubles as a jump to the turn. The icon is only rewritten when the state flips.
+	 */
+	private syncFoldToggle(prompt: HTMLElement, folded: boolean): void {
+		let toggle = prompt.querySelector<HTMLElement>(`.${FOLD_TOGGLE_CLS}`);
+		if (!toggle) {
+			const toolbar =
+				prompt.querySelector<HTMLElement>(CLAUDIAN_USER_ACTIONS) ??
+				prompt.createDiv({ cls: CLAUDIAN_USER_ACTIONS.slice(1) });
+			// First in the row, ahead of Claudian's own actions.
+			toggle = toolbar.createSpan({ cls: FOLD_TOGGLE_CLS });
+			toolbar.prepend(toggle);
+			toggle.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				const collapse = !prompt.hasClass(FOLDED_CLS);
+				if (collapse) this.expandedPrompts.delete(prompt);
+				else this.expandedPrompts.add(prompt);
+				prompt.toggleClass(FOLDED_CLS, collapse);
+				this.syncFoldToggle(prompt, collapse);
+			});
+		}
+		const state = folded ? "folded" : "expanded";
+		if (toggle.dataset.state === state) return;
+		toggle.dataset.state = state;
+		setIcon(toggle, folded ? "unfold-vertical" : "fold-vertical");
+		toggle.setAttribute("aria-label", folded ? "Expand prompt" : "Collapse prompt");
 	}
 
 	/** Pin a list to the bottom, marking the move as ours. */
