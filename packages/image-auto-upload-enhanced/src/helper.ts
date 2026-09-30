@@ -1,4 +1,4 @@
-import { MarkdownView, App } from "obsidian";
+import { MarkdownView, App, Editor } from "obsidian";
 import { parse } from "path-browserify";
 
 interface Image {
@@ -43,13 +43,18 @@ export default class Helper {
     }
   }
 
-  getValue() {
-    const editor = this.getEditor();
+  /**
+   * `target` is the editor to work on when it isn't the active note's — a paste can happen
+   * in an editor embedded elsewhere (a comment box in a side panel), and rewriting the active
+   * note there would edit the wrong document.
+   */
+  getValue(target?: Editor) {
+    const editor = target ?? this.getEditor();
     return editor?.getValue() ?? "";
   }
 
-  setValue(value: string) {
-    const editor = this.getEditor();
+  setValue(value: string, target?: Editor) {
+    const editor = target ?? this.getEditor();
     if (!editor) {
       return;
     }

@@ -283,10 +283,10 @@ export default class imageAutoUploadPlugin extends Plugin {
   /**
    * 替换上传的图片
    */
-  replaceImage(imageList: Image[], uploadUrlList: string[]) {
+  replaceImage(imageList: Image[], uploadUrlList: string[], editor?: Editor) {
     // Rebuild per line so we can tell whether each occurrence sits in a table
     // row and escape the size-suffix pipe there (never split on `|`).
-    let lines = this.helper.getValue().split("\n");
+    let lines = this.helper.getValue(editor).split("\n");
 
     imageList.map(item => {
       const uploadImage = uploadUrlList.shift();
@@ -301,7 +301,7 @@ export default class imageAutoUploadPlugin extends Plugin {
       });
     });
 
-    this.helper.setValue(lines.join("\n"));
+    this.helper.setValue(lines.join("\n"), editor);
 
     if (this.settings.deleteSource) {
       imageList.map(image => {
@@ -459,7 +459,8 @@ export default class imageAutoUploadPlugin extends Plugin {
               evt.preventDefault();
               editor.replaceSelection(clipboardValue);
               this.upload(imageList).then(res => {
-                this.replaceImage(imageList, res.result);
+                // The editor the paste happened in — not necessarily the active note's.
+                this.replaceImage(imageList, res.result, editor);
               });
             }
           }
