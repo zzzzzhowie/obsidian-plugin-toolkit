@@ -59,6 +59,8 @@ const NOTE_CONTAINER = '.workspace-leaf-content[data-type="markdown"]';
 export class ZoomOverlay {
 	private overlay: HTMLElement | null = null;
 	private current: ZoomTarget | null = null;
+	/** The clone's wrapper: what zoom and pan transform, and what carries the backing. */
+	private frame: HTMLElement | null = null;
 	private toolbar: HTMLElement | null = null;
 	private scale = 1;
 	/** The fit-to-screen scale the overlay opened at; what "reset" returns to. */
@@ -213,15 +215,84 @@ export class ZoomOverlay {
 		clone.style.height = `${height}px`;
 		clone.style.maxWidth = "none";
 		clone.style.maxHeight = "none";
-		container.appendChild(clone);
+		// Block, so an inline element's baseline gap doesn't add a strip under it.
+		clone.style.display = "block";
+		// Whatever filter the note gives the element, the clone gets too: it is part of how
+		// the drawing looks, and it comes from rules the clone no longer matches once it
+		// leaves the note. In dark mode Obsidian renders Mermaid in its light theme and
+		// flips it with `.theme-dark .mermaid > svg { filter: invert… }`, so without this
+		// the overlay showed the raw light-theme colours, nothing like the note.
+		const filter = getComputedStyle(target).filter;
+		if (filter && filter !== "none") clone.style.filter = filter;
+
+		// The frame is what's transformed, and where a plugin puts its backing. Kept apart
+		// from the clone so a filter on the clone recolours the drawing only, not the
+		// backing behind it — the same as in the note, where the filtered drawing sits on
+		// the note's own background.
+		const frame = container.createDiv(`${this.options.cssPrefix}-frame`);
+		// The container is a flex row capped at 90vw, and a flex item shrinks to fit by
+		// default — but only along the row. Wider than that (every diagram, on a phone), the
+		// width was squeezed to the container while the height kept its full px value: a
+		// tall card with the drawing shrunk to a sliver in the middle of it. The transform
+		// does the fitting; the box has to keep the drawing's own proportions.
+		frame.style.flexShrink = "0";
+		frame.appendChild(clone);
+		this.frame = frame;
 		this.current = clone;
 
+		// A first estimate, so nothing renders at scale 1 before it's measured below.
 		this.initialScale = this.initialScaleFor(width, height);
 		this.scale = this.initialScale;
 		this.setupZoomAndDrag(container);
 		this.createToolbar();
 
 		this.overlay.style.display = "flex";
+		// Fit against the room actually left, now that the overlay is laid out. The estimate
+		// guesses the toolbar at 60px and the screen at the window's size; on a phone the
+		// toolbar wraps taller and the overlay keeps clear of the notch and home bar, so the
+		// estimate promised more room than there was and the drawing opened too large,
+		// running off the screen.
+		const measured = this.measuredScaleFor(width, height);
+		if (measured !== null) {
+			this.initialScale = measured;
+			this.scale = measured;
+			this.updateTransform(true);
+			this.updateToolbar();
+		}
+	}
+
+	/**
+	 * The fit-to-screen scale from the overlay as laid out: its own box minus its padding
+	 * (the safe-area insets on mobile), the toolbar's real height, and the padding of the
+	 * frame and the clone — read from the styles rather than assumed, since each plugin
+	 * using this overlay styles it differently. Null when nothing could be measured.
+	 */
+	private measuredScaleFor(width: number, height: number): number | null {
+		const overlay = this.overlay;
+		const clone = this.current;
+		const frame = this.frame;
+		if (!overlay || !clone || !frame) return null;
+		const px = (value: string): number => parseFloat(value) || 0;
+		const box = getComputedStyle(overlay);
+		const innerWidth = overlay.clientWidth - px(box.paddingLeft) - px(box.paddingRight);
+		const innerHeight = overlay.clientHeight - px(box.paddingTop) - px(box.paddingBottom);
+		let toolbarHeight = 0;
+		if (this.toolbar) {
+			const bar = getComputedStyle(this.toolbar);
+			toolbarHeight = this.toolbar.getBoundingClientRect().height + px(bar.marginTop) + px(bar.marginBottom);
+		}
+		let padX = 0;
+		let padY = 0;
+		for (const el of [frame, clone]) {
+			const own = getComputedStyle(el);
+			padX += px(own.paddingLeft) + px(own.paddingRight);
+			padY += px(own.paddingTop) + px(own.paddingBottom);
+		}
+		// The same 90% the estimate uses, so there is still a margin around the drawing.
+		const availWidth = innerWidth * 0.9 - padX;
+		const availHeight = innerHeight * 0.9 - toolbarHeight - padY;
+		if (availWidth <= 0 || availHeight <= 0) return null;
+		return Math.min(availWidth / width, availHeight / height);
 	}
 
 	/**
@@ -441,9 +512,9 @@ export class ZoomOverlay {
 	}
 
 	private updateTransform(disableTransition = false): void {
-		if (!this.current) return;
-		this.current.style.transition = disableTransition ? "none" : "";
-		this.current.style.transform = `translate(${this.translateX}px, ${this.translateY}px) scale(${this.scale})`;
+		if (!this.frame) return;
+		this.frame.style.transition = disableTransition ? "none" : "";
+		this.frame.style.transform = `translate(${this.translateX}px, ${this.translateY}px) scale(${this.scale})`;
 	}
 
 	private close(): void {
@@ -451,6 +522,7 @@ export class ZoomOverlay {
 		this.overlay.style.display = "none";
 		this.overlay.empty();
 		this.current = null;
+		this.frame = null;
 		this.toolbar = null;
 		this.isDragging = false;
 	}

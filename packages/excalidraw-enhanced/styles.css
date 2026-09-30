@@ -61,14 +61,19 @@ body.excalidraw-enhanced-sizing
 	pointer-events: auto;
 }
 
+/* The clone's wrapper, which zoom and pan transform. */
+.excalidraw-zoom-frame {
+	transition: transform 0.1s ease-out;
+	transform-origin: center center;
+}
+
 /* Width/height are set inline from the intrinsic size or the viewBox (see showZoomed) —
    an auto size collapses an SVG that has no intrinsic size, so don't reintroduce one
    here. */
 .excalidraw-zoom-container img,
 .excalidraw-zoom-container svg {
-	transition: transform 0.1s ease-out;
-	transform-origin: center center;
-	/* Light backing so a transparent drawing stays legible in the overlay. */
+	/* Light backing so a transparent drawing stays legible in the overlay. It can sit on
+	   the drawing itself: an Excalidraw embed carries no filter for the clone to copy. */
 	background-color: white;
 	padding: 20px;
 	border-radius: 8px;

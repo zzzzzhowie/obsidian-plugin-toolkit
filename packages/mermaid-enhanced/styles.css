@@ -69,6 +69,11 @@
 /* Mobile: a darker (still semi-transparent) mask. */
 .is-mobile .mermaid-zoom-overlay {
 	background-color: rgba(0, 0, 0, 0.8);
+	/* Keep the drawing and the toolbar clear of the notch and the home indicator. The fit
+	   is measured inside this padding, so it also stops the drawing opening underneath them. */
+	box-sizing: border-box;
+	padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+		env(safe-area-inset-left);
 }
 
 .mermaid-zoom-container {
@@ -83,16 +88,23 @@
 	pointer-events: auto;
 }
 
-/* Width/height are set inline from the viewBox (see showZoomed) — an auto size
-   collapses a Mermaid SVG, so don't reintroduce one here. */
-.mermaid-zoom-container svg {
+/* The clone's wrapper, which zoom and pan transform. The backing is here rather than on
+   the SVG: in dark mode the SVG carries the note's colour-flipping filter (copied over in
+   showZoomed), which would flip a backing on the SVG too. Out here it stays the note's own
+   background, the one the diagram is seen against in the note — in either theme. (The
+   overlay's dim is too dark to show a diagram against directly.) */
+.mermaid-zoom-frame {
 	transition: transform 0.1s ease-out;
 	transform-origin: center center;
-	/* Light backing so dark-mode diagrams stay legible in the overlay. */
-	background-color: white;
+	background-color: var(--background-primary);
 	padding: 20px;
 	border-radius: 8px;
 	box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* Width/height are set inline from the viewBox (see showZoomed) — an auto size
+   collapses a Mermaid SVG, so don't reintroduce one here. */
+.mermaid-zoom-container svg {
 	/* A Mermaid diagram's nodes and edge labels carry their own cursors, which would
 	   otherwise show through and hide the container's grab/grabbing cursor while
 	   panning. Inherit instead, on the root and every node inside it. */
