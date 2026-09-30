@@ -57,12 +57,6 @@ Perfect for pasting Python, JavaScript, or any indentation-sensitive code.
 - **Strikethrough**: `<del>` to `~~text~~` (GFM)
 - **Task Lists**: `[ ]` and `[x]` checkboxes (GFM)
 
-## Settings
-
-Open **Settings → Paste Enhanced** to:
-
-- **Enable/Disable**: Toggle the enhanced paste functionality on or off
-
 ## Installation
 
 ### From Obsidian Community Plugins

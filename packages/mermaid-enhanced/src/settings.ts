@@ -28,8 +28,10 @@ export class MermaidEnhancedSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Fit tall diagrams to the screen")
 			.setDesc(
-				"Constrain tall Mermaid diagrams so they fit within one screen. " +
-					"Turn off to restore the theme's original sizing."
+				"Constrain tall Mermaid diagrams so they fit within one screen, with a " +
+					"size slider on each diagram. Turning this off restores the theme's " +
+					"sizing everywhere — `%% fit %%` lines are ignored and the sliders go " +
+					"away; zoom and captions stay. To opt out a single diagram, use `%% fit: none %%`."
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.enabled).onChange(async (value) => {

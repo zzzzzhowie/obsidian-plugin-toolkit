@@ -14,7 +14,7 @@ Fork of [zolrath/obsidian-auto-link-title](https://github.com/zolrath/obsidian-a
 2. **LinkPreview** — if a `linkPreviewApiKey` is set.
 3. **`requestUrl` scraper** — fetches the page and reads its `<title>`, applying any custom header rules.
 
-The LLM step is skipped (straight to step 2) when *Use LLM* is off, no API key/model is set, or the request errors / times out (20s).
+The LLM step is skipped (straight to step 2) when *Use LLM* is off, no API key/model is set, or the request errors / times out (15s).
 
 ### LLM settings
 

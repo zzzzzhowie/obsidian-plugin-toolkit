@@ -250,8 +250,3 @@ available in the app when your plugin is enabled.
 .file-count-enabled .nav-folder-title-content {
 	padding-right: 30px;
 }
-
-/* Ensure folder note indicator doesn't cause text overflow */
-.nav-folder-title-content .folder-note-indicator {
-	flex-shrink: 0;
-}

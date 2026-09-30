@@ -241,14 +241,15 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData(),
-		);
+		// Only carry over known keys, so fields from removed features (e.g. the old
+		// virtual vaults) don't linger in data.json; they're dropped on the save below.
+		const saved = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+		const stale = Object.keys(saved).filter((key) => !(key in DEFAULT_SETTINGS));
+		for (const key of stale) delete saved[key];
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
 
 		// Migrate old pinned items without order field
-		let needsSave = false;
+		let needsSave = stale.length > 0;
 		this.settings.pinnedItems.forEach((item, index) => {
 			if (item.order === undefined) {
 				item.order = index;
@@ -281,13 +282,11 @@ class MyPluginSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl("h2", { text: "File Explorer Enhancements" });
-
 		// Folder note settings
 		new Setting(containerEl)
 			.setName("Show folder notes")
 			.setDesc(
-				"Show an indicator (📝) next to folders that have a folder note (a markdown file with the same name as the folder).",
+				"Treat a note named after its folder (e.g. Projects/Projects.md) as the folder's note: it's hidden from the list, the folder name is underlined, and clicking the folder name opens the note.",
 			)
 			.addToggle((toggle) =>
 				toggle
@@ -303,7 +302,7 @@ class MyPluginSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Show file count")
 			.setDesc(
-				"Show the number of files in each folder. Displays as 'direct/total' where direct is the number of files directly in the folder and total includes subfolders.",
+				"Show the number of files in each folder, including its subfolders.",
 			)
 			.addToggle((toggle) =>
 				toggle
@@ -315,14 +314,6 @@ class MyPluginSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		containerEl.createEl("h3", { text: "Pinned Items" });
-
-		new Setting(containerEl)
-			.setName("Pin files and folders")
-			.setDesc(
-				"Right-click on any file or folder in the file explorer to pin it to the top. Reorder pinned items by dragging them directly in the file explorer; remove one by hovering it and clicking ×.",
-			);
-
 		this.displayHiderSettings(containerEl);
 	}
 
@@ -331,24 +322,9 @@ class MyPluginSettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h3", { text: "Hide Files & Folders" });
 
-		new Setting(containerEl)
-			.setName("Hide files & folders")
-			.setDesc(
-				"When enabled, items in the hidden list below are invisible in the file explorer. Right-click any item to hide it.",
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.hideFiles)
-					.onChange(async (value) => {
-						this.plugin.settings.hideFiles = value;
-						await this.plugin.saveSettings();
-						hider.refreshStyles();
-					}),
-			);
-
-		// ── Wildcard patterns ──────────────────────────────────
+		// ── Name patterns ──────────────────────────────────────
 		containerEl.createEl("p", {
-			text: 'Wildcard patterns hide all files/folders matching a name at any nesting level. For example, "attachments" hides every folder named "attachments" across the entire vault.',
+			text: 'Patterns hide every file or folder with exactly this name, at any depth. For example, "attachments" hides every folder named "attachments" across the entire vault.',
 			cls: "setting-item-description",
 		});
 

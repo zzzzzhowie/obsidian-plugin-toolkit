@@ -19,7 +19,6 @@ export interface AutoLinkTitleSettings {
   linkLineRegex: RegExp;
   imageRegex: RegExp;
   shouldPreserveSelectionAsTitle: boolean;
-  enhanceDefaultPaste: boolean;
   enhanceDropEvents: boolean;
   websiteBlacklist: string;
   maximumTitleLength: number;
@@ -42,7 +41,6 @@ export const DEFAULT_SETTINGS: AutoLinkTitleSettings = {
   linkLineRegex:
     /\[([^\[\]]*)\]\((https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|www\.[a-zA-Z0-9][a-zA-Z0-9-]+[a-zA-Z0-9]\.[^\s]{2,}|https?:\/\/(?:www\.|(?!www))[a-zA-Z0-9]+\.[^\s]{2,}|www\.[a-zA-Z0-9]+\.[^\s]{2,})\)/gi,
   imageRegex: /\.(gif|jpe?g|tiff?|png|webp|bmp|tga|psd|ai)$/i,
-  enhanceDefaultPaste: true,
   shouldPreserveSelectionAsTitle: false,
   enhanceDropEvents: true,
   websiteBlacklist: "",
@@ -70,20 +68,6 @@ export class AutoLinkTitleSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     this.renderLlmSettings(containerEl);
-
-    new Setting(containerEl)
-      .setName("Enhance Default Paste")
-      .setDesc(
-        "Fetch the link title when pasting a link in the editor with the default paste command"
-      )
-      .addToggle((val) =>
-        val
-          .setValue(this.plugin.settings.enhanceDefaultPaste)
-          .onChange(async (value) => {
-            this.plugin.settings.enhanceDefaultPaste = value;
-            await this.plugin.saveSettings();
-          })
-      );
 
     new Setting(containerEl)
       .setName("Enhance Drop Events")
@@ -179,17 +163,20 @@ export class AutoLinkTitleSettingTab extends PluginSettingTab {
       );
   }
 
-  // Primary title source: an OpenAI-compatible LLM that generates the title from
-  // the URL alone. When it isn't configured or fails, the plugin falls back to
-  // LinkPreview + the requestUrl scraper below.
+  // Primary title source: an OpenAI-compatible LLM that writes the title from the
+  // fetched page's own title, description and an excerpt (see fetchUrlTitle).
+  // When it isn't configured or fails, the plugin falls back to the page's title,
+  // then LinkPreview + the requestUrl scraper below.
   private renderLlmSettings(containerEl: HTMLElement): void {
     new Setting(containerEl)
       .setName("Title generation with an LLM")
       .setDesc(
         "Generate titles with any OpenAI-compatible chat API (OpenAI, Groq, " +
-          "Gemini's compat layer, …) instead of fetching the page. The URL is sent " +
-          "to the model (no page access); if it isn't configured or the request " +
-          "fails, the plugin falls back to LinkPreview and the scraper below."
+          "Gemini's compat layer, …). The page is fetched first (with the request " +
+          "headers below) and its title, description and a short excerpt are sent " +
+          "to the model. If the model isn't configured or the request fails, the " +
+          "page's own title is used; if the page can't be fetched, LinkPreview and " +
+          "the scraper below."
       )
       .setHeading();
 

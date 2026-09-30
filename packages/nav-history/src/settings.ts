@@ -106,14 +106,5 @@ export class NavHistorySettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
-
-		new Setting(containerEl)
-			.setName("Clear history")
-			.setDesc("Drop every recorded location and start over from the current file.")
-			.addButton((button) =>
-				button.setButtonText("Clear").onClick(() => {
-					this.plugin.clearHistory();
-				})
-			);
 	}
 }

@@ -9,7 +9,6 @@ const BODY_CLASSES: Record<keyof HideUIElementsSettings, string> = {
 	hideBacklinkStatus: 'hue-hide-backlink-status',
 	hideEditorStatus: 'hue-hide-editor-status',
 	hideSyncStatus: 'hue-hide-sync-status',
-	hideBookmarkStatus: 'hue-hide-bookmark-status',
 	hideCharacterCount: 'hue-hide-character-count',
 	hideFilePropertiesTab: 'hue-hide-file-properties-tab',
 	hideVaultName: 'hue-hide-vault-name',
@@ -37,7 +36,13 @@ export default class HideUIElementsPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<HideUIElementsSettings>);
+		// Only carry over known keys, so a removed option (e.g. `hideBookmarkStatus`)
+		// doesn't linger in data.json; save once if anything was dropped.
+		const saved = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+		const stale = Object.keys(saved).filter((key) => !(key in DEFAULT_SETTINGS));
+		for (const key of stale) delete saved[key];
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved as Partial<HideUIElementsSettings>);
+		if (stale.length > 0) await this.saveSettings();
 	}
 
 	async saveSettings() {

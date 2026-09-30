@@ -55,7 +55,7 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 	 * to defend it, and re-publishing one custom property is all a settings change costs.
 	 */
 	applySizing() {
-		document.body.toggleClass(SIZING_CLASS, this.settings.enabled);
+		document.body.addClass(SIZING_CLASS);
 		document.body.style.setProperty(WIDTH_VAR, `${this.settings.widthPx}px`);
 	}
 

@@ -39,13 +39,6 @@ export default class AutoLinkTitle extends Plugin {
     this.dropFunction = this.dropUrlWithTitle.bind(this);
 
     this.addCommand({
-      id: "auto-link-title-paste",
-      name: "Paste URL and auto fetch title",
-      editorCallback: (editor) => this.manualPasteUrlWithTitle(editor),
-      hotkeys: [],
-    });
-
-    this.addCommand({
       id: "auto-link-title-normal-paste",
       name: "Normal paste (no fetching behavior)",
       editorCallback: (editor) => this.normalPaste(editor),
@@ -107,56 +100,10 @@ export default class AutoLinkTitle extends Plugin {
     editor.replaceSelection(clipboardText);
   }
 
-  // Simulate standard paste but using editor.replaceSelection with clipboard text since we can't seem to dispatch a paste event.
-  async manualPasteUrlWithTitle(editor: Editor): Promise<void> {
-    const clipboardText = await navigator.clipboard.readText();
-
-    // Only attempt fetch if online
-    if (!navigator.onLine) {
-      editor.replaceSelection(clipboardText);
-      new Notice("No internet connection. Cannot fetch title.");
-      return;
-    }
-
-    if (clipboardText == null || clipboardText == "") return;
-
-    // If its not a URL, we return false to allow the default paste handler to take care of it.
-    // Similarly, image urls don't have a meaningful <title> attribute so downloading it
-    // to fetch the title is a waste of bandwidth.
-    if (!CheckIf.isUrl(clipboardText) || CheckIf.isImage(clipboardText)) {
-      editor.replaceSelection(clipboardText);
-      return;
-    }
-
-    // If it looks like we're pasting the url into a markdown link already, don't fetch title
-    // as the user has already probably put a meaningful title, also it would lead to the title
-    // being inside the link.
-    if (CheckIf.isMarkdownLinkAlready(editor) || CheckIf.isAfterQuote(editor)) {
-      editor.replaceSelection(clipboardText);
-      return;
-    }
-
-    // If url is pasted over selected text and setting is enabled, no need to fetch title,
-    // just insert a link
-    let selectedText = (EditorExtensions.getSelectedText(editor) || "").trim();
-    if (selectedText && this.settings.shouldPreserveSelectionAsTitle) {
-      editor.replaceSelection(`[${selectedText}](${clipboardText})`);
-      return;
-    }
-
-    // At this point we're just pasting a link in a normal fashion, fetch its title.
-    this.convertUrlToTitledLink(editor, clipboardText);
-    return;
-  }
-
   async pasteUrlWithTitle(
     clipboard: ClipboardEvent,
     editor: Editor
   ): Promise<void> {
-    if (!this.settings.enhanceDefaultPaste) {
-      return;
-    }
-
     if (clipboard.defaultPrevented) return;
 
     let clipboardText = clipboard.clipboardData?.getData("text/plain") ?? "";
@@ -429,7 +376,13 @@ export default class AutoLinkTitle extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // Only carry over known keys, so a removed option (e.g. `enhanceDefaultPaste`)
+    // doesn't linger in data.json; save once if anything was dropped.
+    const saved = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+    const stale = Object.keys(saved).filter((key) => !(key in DEFAULT_SETTINGS));
+    for (const key of stale) delete saved[key];
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+    if (stale.length > 0) await this.saveSettings();
   }
 
   async saveSettings() {

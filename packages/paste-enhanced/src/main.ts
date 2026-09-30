@@ -1,27 +1,11 @@
 import { Plugin } from "obsidian";
-import {
-	DEFAULT_SETTINGS,
-	PasteEnhancedSettings,
-	PasteEnhancedSettingTab,
-} from "./settings";
 import { isInCodeBlock, processPasteContent } from "./utils/pasteHandler";
 
 export default class PasteEnhancedPlugin extends Plugin {
-	settings: PasteEnhancedSettings;
-
-	async onload() {
-		await this.loadSettings();
-
-		// Register settings tab
-		this.addSettingTab(new PasteEnhancedSettingTab(this.app, this));
-
+	onload() {
 		// Register paste event listener
 		this.registerEvent(
 			this.app.workspace.on("editor-paste", (evt, editor, view) => {
-				if (!this.settings.enabled) {
-					return; // If plugin is disabled, don't process
-				}
-
 				// If the clipboard contains an image file, this is an image paste,
 				// not a text/code paste. Skip so the image-upload plugin can handle
 				// it — otherwise we'd also insert the original <img> as markdown,
@@ -100,16 +84,4 @@ export default class PasteEnhancedPlugin extends Plugin {
 	}
 
 	onunload() {}
-
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<PasteEnhancedSettings>
-		);
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
 }

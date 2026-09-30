@@ -5,7 +5,7 @@ import type StickyFindPlugin from "./main";
 export interface StickyFindSettings {
 	/** Intercept the platform find shortcut before the built-in editor search sees it. */
 	takeOverFind: boolean;
-	/** Remembered state of the Aa toggle. */
+	/** Remembered state of the Aa toggle — set from the find bar itself, not a settings row. */
 	matchCase: boolean;
 }
 
@@ -34,16 +34,6 @@ export class StickyFindSettingTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.takeOverFind).onChange(async (value) => {
 					this.plugin.settings.takeOverFind = value;
-					await this.plugin.saveSettings();
-				}),
-			);
-
-		new Setting(containerEl)
-			.setName("Match case")
-			.setDesc("Whether the find bar opens with case matching already switched on.")
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.matchCase).onChange(async (value) => {
-					this.plugin.settings.matchCase = value;
 					await this.plugin.saveSettings();
 				}),
 			);

@@ -2,7 +2,11 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import LineNumbersPlugin from "./main";
 
 export interface LineNumbersSettings {
-	/** Master on/off switch. When off, the gutter is removed entirely. */
+	/**
+	 * Master on/off switch, flipped by the "Toggle line numbers" command — there is no
+	 * settings row for it, since disabling the plugin does the same. When off, the
+	 * gutter is removed entirely.
+	 */
 	enabled: boolean;
 	/** Highlight the caret's line in the gutter. */
 	highlightActiveLine: boolean;
@@ -30,23 +34,6 @@ export class LineNumbersSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName("Enable line numbers")
-			.setDesc(
-				"Show a line-number gutter for the whole document in Source and " +
-					"Live Preview. Tip: turn off the core “Show line number” " +
-					"setting to avoid a duplicate gutter."
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.enabled)
-					.onChange(async (value) => {
-						this.plugin.settings.enabled = value;
-						await this.plugin.saveSettings();
-						this.plugin.refreshExtensions();
-					})
-			);
 
 		new Setting(containerEl)
 			.setName("Highlight active line")

@@ -222,20 +222,6 @@ export class VaultBackupSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl).setName("Status").setHeading();
 		this.renderStatus(containerEl);
-
-		new Setting(containerEl)
-			.setName("Back up now")
-			.setDesc("Runs the same pass the timer runs, regardless of the interval.")
-			.addButton((button) =>
-				button
-					.setButtonText("Back up now")
-					.setCta()
-					.onClick(() => {
-						void this.plugin.backupNow("manual").then(() => {
-							this.render();
-						});
-					}),
-			);
 	}
 
 	private renderStatus(containerEl: HTMLElement): void {

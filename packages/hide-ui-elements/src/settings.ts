@@ -11,7 +11,6 @@ export interface HideUIElementsSettings {
 	hideBacklinkStatus: boolean;
 	hideEditorStatus: boolean;
 	hideSyncStatus: boolean;
-	hideBookmarkStatus: boolean;
 	hideCharacterCount: boolean;
 	hideFilePropertiesTab: boolean;
 	hideVaultName: boolean;
@@ -25,7 +24,6 @@ export const DEFAULT_SETTINGS: HideUIElementsSettings = {
 	hideBacklinkStatus: true,
 	hideEditorStatus: true,
 	hideSyncStatus: true,
-	hideBookmarkStatus: true,
 	hideCharacterCount: true,
 	hideFilePropertiesTab: true,
 	hideVaultName: true,
@@ -123,16 +121,6 @@ export class HideUIElementsSettingTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.hideSyncStatus).onChange(async (value) => {
 					this.plugin.settings.hideSyncStatus = value;
-					await this.plugin.saveSettings();
-					this.plugin.applyStyles();
-				})
-			);
-
-		new Setting(containerEl)
-			.setName('Hide Bookmarks icon')
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.hideBookmarkStatus).onChange(async (value) => {
-					this.plugin.settings.hideBookmarkStatus = value;
 					await this.plugin.saveSettings();
 					this.plugin.applyStyles();
 				})

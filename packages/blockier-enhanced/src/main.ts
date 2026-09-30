@@ -88,7 +88,13 @@ export default class BlockierPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		// Only carry over known keys, so options this fork removed (e.g.
+		// `selectFullCodeBlock`) don't linger in data.json; save once if any were dropped.
+		const saved = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+		const stale = Object.keys(saved).filter((key) => !(key in DEFAULT_SETTINGS));
+		for (const key of stale) delete saved[key];
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+		if (stale.length > 0) await this.saveSettings();
 	}
 
 	async saveSettings() {

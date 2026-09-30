@@ -2,8 +2,6 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import ExcalidrawEnhancedPlugin from "./main";
 
 export interface ExcalidrawEnhancedSettings {
-	/** Master on/off switch for the note sizing. When off, Excalidraw's own size wins. */
-	enabled: boolean;
 	/**
 	 * How wide a drawing renders, in px. An explicit length on purpose — the embedded
 	 * SVG has no intrinsic size, so this is what decides how big it lands; see styles.css.
@@ -13,7 +11,6 @@ export interface ExcalidrawEnhancedSettings {
 }
 
 export const DEFAULT_SETTINGS: ExcalidrawEnhancedSettings = {
-	enabled: true,
 	widthPx: 900,
 };
 
@@ -28,20 +25,6 @@ export class ExcalidrawEnhancedSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName("Size drawings to the note")
-			.setDesc(
-				"Let an embedded drawing use the note's full width instead of the fixed " +
-					"width Excalidraw applies. Turn off to restore Excalidraw's own sizing.",
-			)
-			.addToggle((toggle) =>
-				toggle.setValue(this.plugin.settings.enabled).onChange(async (value) => {
-					this.plugin.settings.enabled = value;
-					await this.plugin.saveSettings();
-					this.plugin.applySizing();
-				}),
-			);
 
 		new Setting(containerEl)
 			.setName("Drawing width")

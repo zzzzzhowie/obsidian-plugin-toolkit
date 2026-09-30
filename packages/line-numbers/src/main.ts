@@ -129,7 +129,7 @@ export default class LineNumbersPlugin extends Plugin {
 
 	async loadSettings() {
 		// Only carry over known keys, so stale fields from older versions
-		// (e.g. a removed `mode` option) get dropped on the next save.
+		// (e.g. a removed `mode` option) get dropped — right away, by the save below.
 		const saved = (await this.loadData()) ?? {};
 		this.settings = {
 			enabled: saved.enabled ?? DEFAULT_SETTINGS.enabled,
@@ -138,6 +138,9 @@ export default class LineNumbersPlugin extends Plugin {
 			revealOnModifier:
 				saved.revealOnModifier ?? DEFAULT_SETTINGS.revealOnModifier,
 		};
+		if (Object.keys(saved as Record<string, unknown>).some((key) => !(key in this.settings))) {
+			await this.saveSettings();
+		}
 	}
 
 	async saveSettings() {
