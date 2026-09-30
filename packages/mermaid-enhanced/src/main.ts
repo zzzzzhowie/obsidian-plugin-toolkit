@@ -6,6 +6,7 @@ import {
 	Plugin,
 	setIcon,
 	setTooltip,
+	Platform,
 } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
@@ -186,10 +187,16 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			} catch (e) {
 				console.error("mermaid-enhanced: failed to fit a diagram", e);
 			}
-			try {
-				this.injectSlider(svg);
-			} catch (e) {
-				console.error("mermaid-enhanced: failed to add the size slider", e);
+			// No slider on a phone: a thumb-sized range control over a diagram mostly gets
+			// dragged by accident while scrolling, and there is no room for it beside the
+			// block's own buttons. The size a desktop set still applies — only the control
+			// to change it is left out.
+			if (!Platform.isMobile) {
+				try {
+					this.injectSlider(svg);
+				} catch (e) {
+					console.error("mermaid-enhanced: failed to add the size slider", e);
+				}
 			}
 		});
 	}
