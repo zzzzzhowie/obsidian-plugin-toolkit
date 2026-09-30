@@ -295,14 +295,32 @@ export class CommentsPanel extends ItemView {
 			const actions = box.createDiv({ cls: "nc-panel-edit-actions" });
 			actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.cancelEdit());
 			actions.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", () => this.saveEdit());
+			// Clicking into a comment is how it's edited, so it also happens when it was only
+			// being read. Leaving the box with nothing changed closes it again; with changes, it
+			// stays open until saved or cancelled. A tick later, because focus leaving the box
+			// may only be passing to its own buttons.
+			box.addEventListener("focusout", () => {
+				window.setTimeout(() => {
+					if (this.editInput !== input || box.contains(box.ownerDocument.activeElement)) return;
+					if (input.value.trim() === comment.body.trim()) this.cancelEdit();
+				}, 0);
+			});
 			window.setTimeout(() => input.focus());
 			return;
 		}
 
-		const body = item.createDiv({ cls: "nc-panel-body markdown-rendered" });
+		const body = item.createDiv({ cls: "nc-panel-body markdown-rendered is-editable" });
 		// Rendered like the note itself — images, mermaid, embeds — with links resolved
 		// relative to the note the comment is on.
 		void MarkdownRenderer.render(this.app, comment.body, body, file.path, scope);
+		// Click the text to edit it, as in Google Docs. What has a click of its own inside the
+		// comment keeps it, and a click that ends a text selection is someone copying.
+		body.addEventListener("click", (evt) => {
+			if ((evt.target as HTMLElement | null)?.closest("a, button, input, textarea, select, audio, video, iframe")) return;
+			const selection = body.ownerDocument.getSelection();
+			if (selection && !selection.isCollapsed && body.contains(selection.anchorNode)) return;
+			this.startEdit(file, comment.id);
+		});
 
 		const footer = item.createDiv({ cls: "nc-panel-footer" });
 		footer.createSpan({
@@ -310,12 +328,26 @@ export class CommentsPanel extends ItemView {
 			text: span === null ? "Commented text not found in this note" : formatWhen(comment.updatedAt),
 		});
 		const actions = footer.createDiv({ cls: "nc-panel-actions" });
-		iconButton(actions, "pencil", "Edit comment", () => {
-			this.editingId = comment.id;
-			this.focusedId = comment.id;
-			this.renderList(file);
-		});
 		iconButton(actions, "trash-2", "Delete comment", () => deleteWithUndo(this.host.store, file, comment.id));
+	}
+
+	/** An edit is open with changes that haven't been saved. */
+	hasUnsavedEdit(): boolean {
+		if (!this.editingId || !this.editInput || !this.file) return false;
+		const comment = this.host.store.get(this.file.path, this.editingId);
+		return !!comment && this.editInput.value.trim() !== comment.body.trim();
+	}
+
+	private startEdit(file: TFile, id: string): void {
+		// An edit with changes in it is never thrown away for another: it keeps the focus
+		// until it's saved or cancelled.
+		if (this.editingId !== id && this.hasUnsavedEdit()) {
+			this.editInput?.focus();
+			return;
+		}
+		this.editingId = id;
+		this.focusedId = id;
+		this.renderList(file);
 	}
 
 	private closeEditBox(): void {

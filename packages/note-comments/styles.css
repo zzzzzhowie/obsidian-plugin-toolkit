@@ -110,6 +110,20 @@
 	word-break: break-word;
 }
 
+/* Clicking the text is how a comment is edited (see renderItem), so it answers the pointer
+   the way a text field does. The negative margin keeps the text in line with the quote
+   while the tint reaches a little past it. */
+.nc-panel-body.is-editable {
+	cursor: text;
+	border-radius: var(--radius-s);
+	padding: var(--size-2-1) var(--size-4-1);
+	margin: 0 calc(-1 * var(--size-4-1));
+}
+
+.nc-panel-body.is-editable:hover {
+	background-color: var(--background-modifier-hover);
+}
+
 .nc-panel-body > :first-child {
 	margin-top: 0;
 }
@@ -130,6 +144,8 @@
    belongs in a comment box, so it's reined in here. The box grows with its text up to a
    point, then scrolls. */
 .nc-embedded-editor {
+	/* All of it takes a click, not just the lines of text (see mountEditor). */
+	cursor: text;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-s);
 	background-color: var(--background-primary);

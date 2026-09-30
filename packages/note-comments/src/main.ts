@@ -269,8 +269,13 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 
 	/** Put back whatever the sidebar showed before the panel came up. */
 	private async hidePanel(): Promise<void> {
-		// A comment being written is never thrown away by a stray click.
+		// A comment being written is never put away by a stray click, and neither is one being
+		// edited. An edit with nothing changed has already closed itself by the time the
+		// click arrives (it closes as focus leaves it), so a comment that was only being read
+		// doesn't hold the panel up.
 		if (this.liveDraft()) return;
+		const panel = this.panelLeaf()?.view;
+		if (panel instanceof CommentsPanel && panel.hasUnsavedEdit()) return;
 		// On a phone the sidebar is a drawer over the note, and it closes itself the moment
 		// the note is tapped. Revealing a tab here would open the drawer again instead.
 		if (Platform.isMobile) return;

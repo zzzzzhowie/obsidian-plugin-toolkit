@@ -248,6 +248,23 @@ function mountEditor(
 	cm.contentDOM.addEventListener("focusin", onFocusIn);
 	cm.contentDOM.addEventListener("focusout", onFocusOut);
 
+	// Only the lines of text take a click on their own. The rest of the box — the space under
+	// a short comment, the padding — belongs to wrappers the editor doesn't listen to, so a
+	// click there did nothing and the box seemed to accept focus only on its text. Anywhere
+	// in the box now puts the cursor at the nearest position, as a text field would. Mouse
+	// events rather than pointer events: on a phone they only follow a tap, not the start of
+	// a scroll, so the keyboard doesn't come up under a finger that's just scrolling past.
+	const onMouseDown = (evt: MouseEvent): void => {
+		if (evt.button !== 0 || evt.defaultPrevented) return;
+		if (cm.contentDOM.contains(evt.target as Node)) return;
+		// Otherwise the press would move focus to the page, out of the editor being focused.
+		evt.preventDefault();
+		const pos = cm.posAtCoords({ x: evt.clientX, y: evt.clientY }, false);
+		cm.focus();
+		cm.dispatch({ selection: { anchor: pos } });
+	};
+	host.addEventListener("mousedown", onMouseDown);
+
 	return {
 		get value() {
 			return cm.state.doc.toString();
@@ -260,6 +277,7 @@ function mountEditor(
 			popScope();
 			cm.contentDOM.removeEventListener("focusin", onFocusIn);
 			cm.contentDOM.removeEventListener("focusout", onFocusOut);
+			host.removeEventListener("mousedown", onMouseDown);
 			// Only unwrap if nothing has wrapped it since; otherwise leave the chain intact —
 			// with this editor gone, its guard simply lets every call through.
 			if (workspace.setActiveLeaf === guarded) workspace.setActiveLeaf = original;
