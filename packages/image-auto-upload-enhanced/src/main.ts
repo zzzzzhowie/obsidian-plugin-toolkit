@@ -42,7 +42,7 @@ export default class imageAutoUploadPlugin extends Plugin {
   picGoDeleter: PicGoDeleter;
 
   async loadSettings() {
-    this.settings = Object.assign(DEFAULT_SETTINGS, await this.loadData());
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
   }
 
   async saveSettings() {
@@ -140,7 +140,7 @@ export default class imageAutoUploadPlugin extends Plugin {
               const markdownUrl = markdownMatch[1];
               if (
                 markdownUrl &&
-                this.settings.uploadedImages.find(
+                (this.settings.uploadedImages ?? []).find(
                   (item: { imgUrl: string }) => item.imgUrl === markdownUrl
                 )
               ) {
@@ -160,7 +160,7 @@ export default class imageAutoUploadPlugin extends Plugin {
         .setTitle(t("Delete image using PicList"))
         .onClick(async () => {
           try {
-            const selectedItem = this.settings.uploadedImages.find(
+            const selectedItem = (this.settings.uploadedImages ?? []).find(
               (item: { imgUrl: string }) => item.imgUrl === imgPath
             );
             if (selectedItem) {
@@ -172,7 +172,7 @@ export default class imageAutoUploadPlugin extends Plugin {
                   editor.replaceSelection("");
                 }
                 this.settings.uploadedImages =
-                  this.settings.uploadedImages.filter(
+                  (this.settings.uploadedImages ?? []).filter(
                     (item: { imgUrl: string }) => item.imgUrl !== imgPath
                   );
                 this.saveSettings();
