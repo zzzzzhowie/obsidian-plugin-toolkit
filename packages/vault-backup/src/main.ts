@@ -77,8 +77,13 @@ export default class VaultBackupPlugin extends Plugin {
 
 		this.renderStatus();
 
-		// One wake-up loop drives both the startup run and the interval, so a
-		// settings change takes effect on the next tick without re-arming timers.
+		// Count the launch as the last attempt, so the interval runs from here. Left at 0,
+		// the first tick (30s in) would already find a backup "due" and run it ahead of
+		// the startup delay below, which only exists to let file sync settle first.
+		this.lastAttemptAt = Date.now();
+
+		// One wake-up loop drives the interval (and retries), so a settings change takes
+		// effect on the next tick without re-arming timers.
 		this.registerInterval(window.setInterval(() => this.tick(), TICK_MS));
 
 		// Vaults that are not themselves a git repository — a second vault that only
@@ -86,6 +91,8 @@ export default class VaultBackupPlugin extends Plugin {
 		// git calls at all. Nothing to opt out of, because nothing ever starts.
 		void this.refreshRepoState().then(() => {
 			if (!this.repoRoot || !this.isEnabledHere()) return;
+			// An interval of 0 means "only when I ask" — that includes not at launch.
+			if (this.settings.intervalMinutes <= 0) return;
 
 			const delay = Math.max(0, this.settings.startupDelaySeconds) * 1000;
 			const timer = window.setTimeout(() => {
