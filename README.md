@@ -48,6 +48,7 @@ pnpm dev:image-auto-upload-enhanced # Image Auto Upload Enhanced
 pnpm dev:mermaid-enhanced           # Mermaid Enhanced
 pnpm dev:line-numbers               # Line Numbers
 pnpm dev:nav-history                # Nav History
+pnpm dev:note-comments              # Note Comments
 ```
 
 Or use filter:
@@ -77,6 +78,7 @@ pnpm build:image-auto-upload-enhanced
 pnpm build:mermaid-enhanced
 pnpm build:line-numbers
 pnpm build:nav-history
+pnpm build:note-comments
 ```
 
 ## Lint
@@ -112,6 +114,9 @@ Show whole-document line numbers in the editor gutter (every line, not just fenc
 
 ### @obsidian-plugin-toolkit/nav-history
 VS Code style global Go Back / Go Forward (`Ctrl+-` / `Ctrl+Shift+-`). Unlike Obsidian's built-in per-tab `app:go-back`, this keeps one navigation stack for the whole workspace, restores the exact cursor position you left, and reopens a tab that was closed rather than taking over the one you are looking at.
+
+### @obsidian-plugin-toolkit/note-comments
+Select text and comment on it (`Cmd/Ctrl+Option/Alt+M`, or the editor menu). Commented passages are highlighted; clicking one opens a Comments panel in the right sidebar that lists the note's comments, and clicking elsewhere puts the previous tab back. Comments are written and edited in that panel, in a full Obsidian editor — images, mermaid and paste handlers such as the image uploader work there too (Enter saves, Shift+Enter is a new line). They are stored in the plugin's data file, so the Markdown is never touched: a comment is found again by its quoted text and surrounding context, not by a marker, and one whose text was rewritten stays in the panel, marked as not found. Editor-only (Live Preview and source); text inside rendered tables, callouts and embeds can't carry a comment yet.
 
 ## Tech Stack
 

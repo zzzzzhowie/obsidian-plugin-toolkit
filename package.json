@@ -39,7 +39,9 @@
         "dev:vault-backup": "pnpm --filter @obsidian-plugin-toolkit/vault-backup dev",
         "build:vault-backup": "pnpm --filter @obsidian-plugin-toolkit/vault-backup build",
         "dev:nav-history": "pnpm --filter @obsidian-plugin-toolkit/nav-history dev",
-        "build:nav-history": "pnpm --filter @obsidian-plugin-toolkit/nav-history build"
+        "build:nav-history": "pnpm --filter @obsidian-plugin-toolkit/nav-history build",
+        "dev:note-comments": "pnpm --filter @obsidian-plugin-toolkit/note-comments dev",
+        "build:note-comments": "pnpm --filter @obsidian-plugin-toolkit/note-comments build"
     },
     "keywords": [
         "obsidian",
