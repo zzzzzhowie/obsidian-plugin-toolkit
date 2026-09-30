@@ -65,6 +65,13 @@ export function defaultIgnorePatterns(configDir: string): string[] {
 		`${configDir}/plugins/*/main.js`,
 		`${configDir}/plugins/*/styles.css`,
 		`${configDir}/plugins/*/manifest.json`,
+		// The one plugin `data.json` worth naming individually. It is a list of the files
+		// you last opened, rewritten on every navigation — it was the single most committed
+		// path in this vault, appearing in 36 of 50 consecutive backups. Four real
+		// preferences (omittedPaths, omittedTags, updateOn, omitBookmarks) live in the same
+		// file and go with it; git cannot keep half a file, and four settings that take
+		// seconds to re-enter are worth trading for that much noise.
+		`${configDir}/plugins/recent-files-obsidian/data.json`,
 	];
 }
 
