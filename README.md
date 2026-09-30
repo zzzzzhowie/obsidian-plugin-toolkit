@@ -40,12 +40,12 @@ pnpm dev
 Run a specific plugin in development mode:
 
 ```bash
-pnpm dev:file-explorer              # File Explorer Enhancements
+pnpm dev:file-explorer              # File Explorer (Enhanced)
 pnpm dev:copy-path                  # Copy Path
-pnpm dev:paste-enhanced             # Paste Enhanced
+pnpm dev:paste-enhanced             # Paste (Enhanced)
 pnpm dev:hide-ui-elements           # Hide UI Elements
-pnpm dev:image-auto-upload-enhanced # Image Auto Upload Enhanced
-pnpm dev:mermaid-enhanced           # Mermaid Enhanced
+pnpm dev:image-auto-upload-enhanced # Image Auto Upload (Enhanced)
+pnpm dev:mermaid-enhanced           # Mermaid (Enhanced)
 pnpm dev:line-numbers               # Line Numbers
 pnpm dev:nav-history                # Nav History
 pnpm dev:note-comments              # Note Comments

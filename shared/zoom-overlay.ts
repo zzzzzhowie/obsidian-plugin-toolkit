@@ -52,7 +52,7 @@ const NOTE_CONTAINER = '.workspace-leaf-content[data-type="markdown"]';
  * content has its own click behaviour (an Excalidraw embed opens the drawing), the
  * modifier-click is taken over and the plain click is left alone.
  *
- * Shared by Mermaid Enhanced and Excalidraw Enhanced: the behaviour is meant to be
+ * Shared by Mermaid (Enhanced) and Excalidraw (Enhanced): the behaviour is meant to be
  * identical, and it used to be two copies that drifted the moment either was tuned.
  * Everything that legitimately differs is in {@link ZoomOverlayOptions}.
  */

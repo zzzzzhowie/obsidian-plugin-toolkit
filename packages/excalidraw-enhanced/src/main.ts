@@ -19,7 +19,7 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		this.addSettingTab(new ExcalidrawEnhancedSettingTab(this.app, this));
 
 		// Cmd/Ctrl-click a drawing to open a zoomable/pannable overlay; plain tap on
-		// mobile. The overlay itself is shared with Mermaid Enhanced; only the two
+		// mobile. The overlay itself is shared with Mermaid (Enhanced); only the two
 		// lines below are ours. `excalidraw-embedded-img` is the class Excalidraw
 		// stamps on whatever it rendered, so it covers all three preview types.
 		new ZoomOverlay(this, {

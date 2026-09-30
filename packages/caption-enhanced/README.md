@@ -1,4 +1,4 @@
-# Caption (enhanced)
+# Caption (Enhanced)
 
 Show elegant captions under images in both **Live Preview** and **Reading Mode** — for local images, wiki embeds (`![[img.png|caption]]`), and external image hosts (`![caption](https://...)`).
 

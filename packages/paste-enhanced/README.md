@@ -1,4 +1,4 @@
-# Paste Enhanced
+# Paste (Enhanced)
 
 An intelligent paste plugin for Obsidian that automatically detects your cursor context and formats pasted content accordingly.
 
@@ -63,7 +63,7 @@ Perfect for pasting Python, JavaScript, or any indentation-sensitive code.
 
 1. Open **Settings** in Obsidian
 2. Go to **Community Plugins** and disable Safe Mode
-3. Click **Browse** and search for "Paste Enhanced"
+3. Click **Browse** and search for "Paste (Enhanced)"
 4. Click **Install**, then **Enable**
 
 ### Manual Installation
@@ -72,7 +72,7 @@ Perfect for pasting Python, JavaScript, or any indentation-sensitive code.
 2. Create a folder in your vault: `.obsidian/plugins/paste-enhanced/`
 3. Copy the downloaded files into this folder
 4. Reload Obsidian
-5. Go to **Settings → Community Plugins** and enable "Paste Enhanced"
+5. Go to **Settings → Community Plugins** and enable "Paste (Enhanced)"
 
 ## Compatibility
 

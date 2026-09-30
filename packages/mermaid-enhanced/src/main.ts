@@ -456,7 +456,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const view = this.findMarkdownView(block);
 		const fence = view ? this.locateFenceLine(view, block) : null;
 		if (!view || fence === null) {
-			new Notice("Mermaid Enhanced: 滑块只在实时预览下可用");
+			new Notice("Mermaid (Enhanced): 滑块只在实时预览下可用");
 			return;
 		}
 		const editor = view.editor;
@@ -623,7 +623,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const view = this.findMarkdownView(block);
 		const fence = view ? this.locateFenceLine(view, block) : null;
 		if (!view || fence === null) {
-			new Notice("Mermaid Enhanced: 说明只能在实时预览下编辑");
+			new Notice("Mermaid (Enhanced): 说明只能在实时预览下编辑");
 			return;
 		}
 		const editor = view.editor;

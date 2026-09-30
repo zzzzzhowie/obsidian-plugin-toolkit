@@ -1,4 +1,4 @@
-# File Explorer Enhancements
+# File Explorer (Enhanced)
 
 Enhanced file explorer for Obsidian with three powerful features: pinned items, folder notes, and file count display.
 
@@ -65,11 +65,11 @@ See the number of files in each folder at a glance.
 
 - Automatically displayed on the right side of each folder
 - Shows total number of files (including subfolders)
-- Can be toggled in Settings → File Explorer Enhancements
+- Can be toggled in Settings → File Explorer (Enhanced)
 
 ## Settings
 
-Open **Settings → File Explorer Enhancements** to:
+Open **Settings → File Explorer (Enhanced)** to:
 
 - **Show folder notes**: Toggle folder note detection and display
 - **Show file count**: Toggle file count badges
@@ -81,7 +81,7 @@ Open **Settings → File Explorer Enhancements** to:
 
 1. Open **Settings** in Obsidian
 2. Go to **Community Plugins** and disable Safe Mode
-3. Click **Browse** and search for "File Explorer Enhancements"
+3. Click **Browse** and search for "File Explorer (Enhanced)"
 4. Click **Install**, then **Enable**
 
 ### Manual Installation
@@ -90,7 +90,7 @@ Open **Settings → File Explorer Enhancements** to:
 2. Create a folder in your vault: `.obsidian/plugins/file-explorer-enhancements/`
 3. Copy the downloaded files into this folder
 4. Reload Obsidian
-5. Go to **Settings → Community Plugins** and enable "File Explorer Enhancements"
+5. Go to **Settings → Community Plugins** and enable "File Explorer (Enhanced)"
 
 ## Compatibility
 

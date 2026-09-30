@@ -1,6 +1,6 @@
 {
 	"id": "excalidraw-enhanced",
-	"name": "Excalidraw Enhanced",
+	"name": "Excalidraw (Enhanced)",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "Enhance embedded Excalidraw drawings: render them at their own size in the note (with a height cap) and click to open a zoomable, pannable overlay.",
