@@ -1,16 +1,12 @@
 import AutoLinkTitle from "./main";
 import {
   App,
-  ButtonComponent,
-  ExtraButtonComponent,
   Notice,
   PluginSettingTab,
   Setting,
-  TextAreaComponent,
-  TextComponent,
 } from "obsidian";
-import type { HeaderRule } from "./scraper";
 import { testLlm } from "./llm-title";
+import { chromeCookiesFor, chromeCookiesSupported, retryChromeKey } from "./chrome-cookies";
 
 export interface AutoLinkTitleSettings {
   regex: RegExp;
@@ -22,9 +18,7 @@ export interface AutoLinkTitleSettings {
   enhanceDropEvents: boolean;
   websiteBlacklist: string;
   maximumTitleLength: number;
-  linkPreviewApiKey: string;
   useBetterPasteId: boolean;
-  headerRules: HeaderRule[];
   useLlm: boolean;
   llmBaseUrl: string;
   llmApiKey: string;
@@ -45,9 +39,7 @@ export const DEFAULT_SETTINGS: AutoLinkTitleSettings = {
   enhanceDropEvents: true,
   websiteBlacklist: "",
   maximumTitleLength: 0,
-  linkPreviewApiKey: "",
   useBetterPasteId: false,
-  headerRules: [],
   useLlm: true,
   llmBaseUrl: "https://api.openai.com/v1",
   llmApiKey: "",
@@ -126,7 +118,7 @@ export class AutoLinkTitleSettingTab extends PluginSettingTab {
           })
       );
 
-    this.renderHeaderRules(containerEl);
+    this.renderChromeCookies(containerEl);
 
     new Setting(containerEl)
       .setName("Use Better Fetching Placeholder")
@@ -141,42 +133,21 @@ export class AutoLinkTitleSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
-
-    new Setting(containerEl)
-      .setName("LinkPreview API Key")
-      .setDesc(
-        "API key for the LinkPreview.net service. Get one at https://my.linkpreview.net/access_keys"
-      )
-      .addText((text) =>
-        text
-          .setValue(this.plugin.settings.linkPreviewApiKey || "")
-          .onChange(async (value) => {
-            const trimmedValue = value.trim();
-            if (trimmedValue.length > 0 && trimmedValue.length !== 32) {
-              new Notice("LinkPreview API key must be 32 characters long");
-              this.plugin.settings.linkPreviewApiKey = "";
-            } else {
-              this.plugin.settings.linkPreviewApiKey = trimmedValue;
-            }
-            await this.plugin.saveSettings();
-          })
-      );
   }
 
   // Primary title source: an OpenAI-compatible LLM that writes the title from the
   // fetched page's own title, description and an excerpt (see fetchUrlTitle).
   // When it isn't configured or fails, the plugin falls back to the page's title,
-  // then LinkPreview + the requestUrl scraper below.
+  // then the requestUrl scraper.
   private renderLlmSettings(containerEl: HTMLElement): void {
     new Setting(containerEl)
       .setName("Title generation with an LLM")
       .setDesc(
         "Generate titles with any OpenAI-compatible chat API (OpenAI, Groq, " +
-          "Gemini's compat layer, …). The page is fetched first (with the request " +
-          "headers below) and its title, description and a short excerpt are sent " +
+          "Gemini's compat layer, …). The page is fetched first (with Chrome's " +
+          "cookies, below) and its title, description and a short excerpt are sent " +
           "to the model. If the model isn't configured or the request fails, the " +
-          "page's own title is used; if the page can't be fetched, LinkPreview and " +
-          "the scraper below."
+          "page's own title is used."
       )
       .setHeading();
 
@@ -263,82 +234,47 @@ export class AutoLinkTitleSettingTab extends PluginSettingTab {
       );
   }
 
-  // A per-rule form: each rule matches URLs by wildcard domain (left)
-  // and injects that rule's headers only into matching requests (right).
-  private renderHeaderRules(containerEl: HTMLElement): void {
+  // Intranet login cookies, read live from Chrome — see chrome-cookies.ts.
+  private renderChromeCookies(containerEl: HTMLElement): void {
+    if (!chromeCookiesSupported()) return;
+
     new Setting(containerEl)
-      .setName("Custom request headers")
+      .setName("Cookies from Chrome")
       .setDesc(
-        "Inject extra request headers per site — e.g. a Cookie or token for intranet " +
-          "pages that need auth before their title can be scraped. Match by domain/URL; " +
-          "`*` is a wildcard (e.g. `*.corp.com`), everything else is literal. A rule's " +
-          "headers are sent only to URLs it matches, so an internal cookie never leaks to " +
-          "public sites. Leave the match field empty to apply a rule to every request."
+        "Every link is fetched with the cookies Chrome would send to it, so intranet " +
+          "pages behind SSO return their real title. Read fresh for each link and kept in " +
+          "memory only — never saved. macOS asks for keychain access the first time " +
+          "after Obsidian starts."
       )
       .setHeading();
 
-    const list = containerEl.createDiv({ cls: "alt-rule-list" });
-
-    if (this.plugin.settings.headerRules.length === 0) {
-      list.createEl("p", {
-        text: 'No header rules yet. Click "Add rule" below to inject headers for specific sites.',
-        cls: "alt-rule-empty",
-      });
-    }
-
-    this.plugin.settings.headerRules.forEach((rule, index) => {
-      const row = list.createDiv({ cls: "alt-rule" });
-
-      // Left: wildcard match
-      const domain = new TextComponent(row);
-      domain.inputEl.addClass("alt-rule-domain");
-      domain
-        .setPlaceholder("*.corp.com")
-        .setValue(rule.pattern)
-        .onChange(async (value) => {
-          rule.pattern = value;
-          await this.plugin.saveSettings();
-        });
-
-      // Right: this rule's headers
-      const right = row.createDiv({ cls: "alt-rule-right" });
-      const headers = new TextAreaComponent(right);
-      headers.inputEl.addClass("alt-rule-headers");
-      headers
-        .setPlaceholder(
-          "Cookie: SESSION=abc; token=xyz\nX-Requested-With: XMLHttpRequest"
-        )
-        .setValue(rule.headers)
-        .onChange(async (value) => {
-          rule.headers = value;
-          await this.plugin.saveSettings();
-        });
-
-      // Trailing delete affordance — a small icon, not a heavy red block
-      const remove = new ExtraButtonComponent(row);
-      remove.extraSettingsEl.addClass("alt-rule-remove");
-      remove
-        .setIcon("trash")
-        .setTooltip("Delete rule")
-        .onClick(async () => {
-          this.plugin.settings.headerRules.splice(index, 1);
-          await this.plugin.saveSettings();
-          this.display();
-        });
-    });
-
-    new Setting(containerEl).addButton((btn) =>
-      btn
-        .setButtonText("Add rule")
-        .setCta()
-        .onClick(async () => {
-          this.plugin.settings.headerRules.push({
-            pattern: "",
-            headers: "",
-          });
-          await this.plugin.saveSettings();
-          this.display();
+    let testUrl = "";
+    new Setting(containerEl)
+      .setName("Test a link")
+      .setDesc("Paste an intranet URL to see how many cookies Chrome has for it and the title it gets.")
+      .addText((text) =>
+        text.setPlaceholder("https://…").onChange((value) => {
+          testUrl = value.trim();
         })
-    );
+      )
+      .addButton((btn) =>
+        btn.setButtonText("Test").onClick(async () => {
+          if (!testUrl) return;
+          btn.setButtonText("Testing…").setDisabled(true);
+          try {
+            retryChromeKey();
+            const cookies = await chromeCookiesFor(testUrl);
+            const title = await this.plugin.fetchUrlTitle(testUrl);
+            const source = cookies
+              ? `${cookies.count} cookies from Chrome`
+              : "no Chrome cookies for this site";
+            new Notice(`${source}\nTitle: ${title}`, 10000);
+          } catch (error) {
+            new Notice(`Chrome cookies — ${(error as Error).message}`, 12000);
+          } finally {
+            btn.setButtonText("Test").setDisabled(false);
+          }
+        })
+      );
   }
 }

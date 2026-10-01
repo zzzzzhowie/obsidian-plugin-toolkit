@@ -11,65 +11,6 @@ function notBlank(text: string | null | undefined): boolean {
   return !blank(text);
 }
 
-export interface HeaderRule {
-  /**
-   * Domain / URL matcher. `*` is a wildcard for any run of characters; every
-   * other character is literal. Matched unanchored, so a bare `corp.com` behaves
-   * like "contains". Empty matches every URL.
-   */
-  pattern: string;
-  /** This rule's headers, one per line: `Name: value`. */
-  headers: string;
-}
-
-/** Parse a rule's headers text into name/value pairs (value = everything after the first ":"). */
-function parseHeaderLines(raw: string): { name: string; value: string }[] {
-  return raw
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("#"))
-    .flatMap((line) => {
-      const sep = line.indexOf(":");
-      if (sep === -1) return [];
-      const name = line.slice(0, sep).trim();
-      const value = line.slice(sep + 1).trim();
-      if (blank(name)) return [];
-      return [{ name, value }];
-    });
-}
-
-/** Compile a wildcard pattern (`*` = any run of chars, everything else literal) to a RegExp. */
-function wildcardToRegExp(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const withWildcard = escaped.replace(/\\\*/g, ".*");
-  return new RegExp(withWildcard);
-}
-
-/** Whether a rule applies to `url`. Empty pattern matches all; matched unanchored. */
-function ruleMatches(rule: HeaderRule, url: string): boolean {
-  const pattern = rule.pattern.trim();
-  if (pattern === "") return true;
-  return wildcardToRegExp(pattern).test(url);
-}
-
-/**
- * Resolve the headers that apply to `url`. Rules are applied in order, so a
- * later rule overrides an earlier one for the same header name.
- */
-export function resolveHeaders(
-  url: string,
-  rules: HeaderRule[]
-): Record<string, string> {
-  const headers: Record<string, string> = {};
-  for (const rule of rules ?? []) {
-    if (!ruleMatches(rule, url)) continue;
-    for (const { name, value } of parseHeaderLines(rule.headers)) {
-      headers[name] = value;
-    }
-  }
-  return headers;
-}
-
 async function scrape(
   url: string,
   headers?: Record<string, string>
@@ -95,6 +36,9 @@ async function scrape(
     if (!contentType.includes("text/html")) return getUrlFinalSegment(url);
     const html = response.text;
 
+    const larkTitle = larkDocTitle(url, html);
+    if (larkTitle) return larkTitle;
+
     const doc = new DOMParser().parseFromString(html, "text/html");
     const title = doc.querySelector("title");
 
@@ -110,6 +54,36 @@ async function scrape(
     return title.innerText;
   } catch (ex) {
     console.error(ex);
+    return "";
+  }
+}
+
+/** Lark / Feishu hosts: docs, wiki, sheets, base… on any tenant subdomain. */
+const LARK_HOST = /(^|\.)(larkoffice\.com|feishu\.cn|larksuite\.com|feishu-pre\.cn)$/i;
+/**
+ * `meta: {"title": "…"` inside the page's inline data — `window.SERVER_DATA = Object({"meta":
+ * {"title":…` and `window.DATA = { …, meta: Object({"title":…`. Captures the raw JSON string.
+ */
+const LARK_META_TITLE = /\bmeta"?\s*:\s*(?:Object\()?\{\s*"title"\s*:\s*"((?:[^"\\]|\\.)*)"/;
+
+/**
+ * The document's own title for a Lark / Feishu page. Their HTML always says
+ * `<title>Docs</title>` (or Wiki, Sheets…) — the real title is only filled in by
+ * JavaScript, from the data the server inlines into the page. Read it from there.
+ * Empty for any other site, or when the page carries no such data (e.g. the login
+ * page a request without a session ends up on).
+ */
+export function larkDocTitle(url: string, html: string): string {
+  try {
+    if (!LARK_HOST.test(new URL(url).hostname)) return "";
+  } catch {
+    return "";
+  }
+  const match = LARK_META_TITLE.exec(html);
+  if (!match) return "";
+  try {
+    return (JSON.parse(`"${match[1]}"`) as string).trim();
+  } catch {
     return "";
   }
 }
@@ -136,8 +110,8 @@ export interface PageContext {
 /**
  * Fetch a page and pull out the signals an LLM needs to write a relevant title:
  * its real title, description, and a text excerpt. Returns null on fetch
- * failure, timeout, or non-HTML content. Uses the same header rules + timeout as
- * the scraper.
+ * failure, timeout, or non-HTML content. Uses the same headers (Chrome's cookies)
+ * and timeout as the scraper.
  */
 export async function fetchPageContext(
   url: string,
@@ -163,6 +137,7 @@ export async function fetchPageContext(
     const contentType = response.headers["content-type"] ?? "";
     if (!contentType.includes("text/html")) return null;
 
+    const larkTitle = larkDocTitle(url, response.text);
     const doc = new DOMParser().parseFromString(response.text, "text/html");
     doc.querySelectorAll("script, style, noscript").forEach((el) => el.remove());
 
@@ -170,6 +145,7 @@ export async function fetchPageContext(
       doc.querySelector(selector)?.getAttribute("content")?.trim() || "";
 
     const title =
+      larkTitle ||
       meta('meta[property="og:title"]') ||
       doc.querySelector("title")?.textContent?.trim() ||
       "";

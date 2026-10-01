@@ -1,8 +1,9 @@
 import { CheckIf } from "./checkif";
 import { EditorExtensions } from "./editor-enhancements";
 import { Editor, Plugin, Notice } from "obsidian";
-import getPageTitle, { resolveHeaders, fetchPageContext } from "./scraper";
+import getPageTitle, { fetchPageContext } from "./scraper";
 import { getTitleViaLlm } from "./llm-title";
+import { chromeCookiesFor } from "./chrome-cookies";
 import {
   AutoLinkTitleSettingTab,
   AutoLinkTitleSettings,
@@ -258,35 +259,10 @@ export default class AutoLinkTitle extends Plugin {
     return shortenedTitle;
   };
 
-  public async fetchUrlTitleViaLinkPreview(url: string): Promise<string> {
-    if (this.settings.linkPreviewApiKey.length !== 32) {
-      console.error(
-        "LinkPreview API key is not 32 characters long, please check your settings"
-      );
-      return "";
-    }
-
-    try {
-      const apiEndpoint = `https://api.linkpreview.net/?q=${encodeURIComponent(
-        url
-      )}`;
-      const response = await fetch(apiEndpoint, {
-        headers: {
-          "X-Linkpreview-Api-Key": this.settings.linkPreviewApiKey,
-        },
-      });
-      const data = await response.json();
-      return data.title;
-    } catch (error) {
-      console.error(error);
-      return "";
-    }
-  }
-
   async fetchUrlTitle(url: string): Promise<string> {
     try {
       let title = "";
-      const headers = resolveHeaders(url, this.settings.headerRules);
+      const headers = await this.requestHeaders(url);
 
       // Primary: fetch the page, then have an OpenAI-compatible LLM write a
       // concise title grounded in the page's real title/description/text (not
@@ -311,13 +287,9 @@ export default class AutoLinkTitle extends Plugin {
         }
       }
 
-      // Fallback: the previous default behavior — LinkPreview, then the
-      // requestUrl scraper (with any custom header rules applied).
+      // Fallback: the requestUrl scraper (same Chrome cookies).
       if (title === "") {
-        title = await this.fetchUrlTitleViaLinkPreview(url);
-        if (title === "") {
-          title = await getPageTitle(url, headers);
-        }
+        title = await getPageTitle(url, headers);
       }
 
       console.log(`Title: ${title}`);
@@ -329,6 +301,32 @@ export default class AutoLinkTitle extends Plugin {
       console.error(error);
       return "Error fetching title";
     }
+  }
+
+  /** Set once a Chrome cookie failure has been shown, so it isn't repeated on every paste. */
+  private chromeCookieErrorShown = false;
+
+  /** Request headers for fetching `url`: the login cookies Chrome holds for it, if any. */
+  private async requestHeaders(url: string): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {};
+    try {
+      const cookies = await chromeCookiesFor(url);
+      if (cookies) {
+        headers["Cookie"] = cookies.header;
+        console.debug(`auto-link-title: ${cookies.count} Chrome cookies for ${new URL(url).hostname}`);
+      }
+    } catch (error) {
+      // Still fetch — a public fallback title beats none — but say (once) why it's not logged in.
+      console.error("auto-link-title: couldn't read Chrome cookies", error);
+      if (!this.chromeCookieErrorShown) {
+        this.chromeCookieErrorShown = true;
+        new Notice(
+          `Auto Link Title: couldn't read Chrome cookies — ${(error as Error).message}\n` +
+            "Use Test in the plugin settings to try again."
+        );
+      }
+    }
+    return headers;
   }
 
   public getUrlFromLink(link: string): string {
