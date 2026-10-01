@@ -18,7 +18,6 @@ export interface AutoLinkTitleSettings {
   enhanceDropEvents: boolean;
   websiteBlacklist: string;
   maximumTitleLength: number;
-  useBetterPasteId: boolean;
   useLlm: boolean;
   llmBaseUrl: string;
   llmApiKey: string;
@@ -39,7 +38,6 @@ export const DEFAULT_SETTINGS: AutoLinkTitleSettings = {
   enhanceDropEvents: true,
   websiteBlacklist: "",
   maximumTitleLength: 0,
-  useBetterPasteId: false,
   useLlm: true,
   llmBaseUrl: "https://api.openai.com/v1",
   llmApiKey: "",
@@ -119,20 +117,6 @@ export class AutoLinkTitleSettingTab extends PluginSettingTab {
       );
 
     this.renderChromeCookies(containerEl);
-
-    new Setting(containerEl)
-      .setName("Use Better Fetching Placeholder")
-      .setDesc(
-        "Use a more readable placeholder when fetching the title of a link."
-      )
-      .addToggle((val) =>
-        val
-          .setValue(this.plugin.settings.useBetterPasteId)
-          .onChange(async (value) => {
-            this.plugin.settings.useBetterPasteId = value;
-            await this.plugin.saveSettings();
-          })
-      );
   }
 
   // Primary title source: an OpenAI-compatible LLM that writes the title from the

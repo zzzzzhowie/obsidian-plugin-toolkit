@@ -335,27 +335,13 @@ export default class AutoLinkTitle extends Plugin {
     return match?.[2] ?? link;
   }
 
+  /**
+   * Placeholder written while the title loads. The random suffix lets several links
+   * fetched at once each find their own placeholder again; if one is ever left behind,
+   * it stays visible and easy to delete.
+   */
   private getPasteId(): string {
-    var base = "Fetching Title";
-    if (this.settings.useBetterPasteId) {
-      return this.getBetterPasteId(base);
-    } else {
-      return `${base}#${this.createBlockHash()}`;
-    }
-  }
-
-  private getBetterPasteId(base: string): string {
-    // After every character, add 0, 1 or 2 invisible characters
-    // so that to the user it looks just like the base string.
-    // The number of combinations is 3^14 = 4782969
-    let result = "";
-    var invisibleCharacter = "\u200B";
-    var maxInvisibleCharacters = 2;
-    for (var i = 0; i < base.length; i++) {
-      var count = Math.floor(Math.random() * (maxInvisibleCharacters + 1));
-      result += base.charAt(i) + invisibleCharacter.repeat(count);
-    }
-    return result;
+    return `Fetching Title#${this.createBlockHash()}`;
   }
 
   // Custom hashid by @shabegom
