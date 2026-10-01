@@ -2,6 +2,7 @@
 	"name": "@obsidian-plugin-toolkit/mermaid-enhanced",
 	"version": "1.0.0",
 	"description": "Enhance Mermaid diagrams: fit tall diagrams to one screen (with a per-diagram size slider) and click to open a zoomable, pannable overlay.",
+	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

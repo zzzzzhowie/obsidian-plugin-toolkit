@@ -2,6 +2,7 @@
 	"name": "@obsidian-plugin-toolkit/paste-enhanced",
 	"version": "1.0.0",
 	"description": "Enhanced paste functionality for Obsidian",
+	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

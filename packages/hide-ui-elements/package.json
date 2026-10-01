@@ -2,6 +2,7 @@
 	"name": "@obsidian-plugin-toolkit/hide-ui-elements",
 	"version": "1.0.0",
 	"description": "Toggle visibility of sidebar tabs and status bar items.",
+	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

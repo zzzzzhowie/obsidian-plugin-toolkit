@@ -2,6 +2,7 @@
 	"name": "@obsidian-plugin-toolkit/note-comments",
 	"version": "1.0.0",
 	"description": "Select text, attach a comment to it, and see it again as a highlight with a hover card. Comments live beside the note, never in it.",
+	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

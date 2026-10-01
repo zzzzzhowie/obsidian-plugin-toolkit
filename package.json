@@ -48,7 +48,7 @@
         "plugins",
         "monorepo"
     ],
-    "author": "",
+    "author": "yeyan1996",
     "license": "MIT",
     "devDependencies": {
         "obsidian": "^1.13.1"

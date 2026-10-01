@@ -2,6 +2,7 @@
 	"name": "@obsidian-plugin-toolkit/nav-history",
 	"version": "1.0.0",
 	"description": "VS Code style global Go Back / Go Forward. One navigation stack across every tab and pane, remembering the exact cursor position you left.",
+	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

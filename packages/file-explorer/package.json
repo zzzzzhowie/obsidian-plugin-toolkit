@@ -10,7 +10,7 @@
 		"lint": "eslint . --ext .ts"
 	},
 	"keywords": [],
-	"author": "",
+	"author": "yeyan1996",
 	"license": "MIT",
 	"devDependencies": {
 		"@types/node": "^20.0.0",

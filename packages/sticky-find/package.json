@@ -2,6 +2,7 @@
 	"name": "@obsidian-plugin-toolkit/sticky-find",
 	"version": "1.0.0",
 	"description": "Find in the current file without collapsing rendered tables in Live Preview.",
+	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

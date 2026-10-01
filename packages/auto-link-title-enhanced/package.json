@@ -2,6 +2,7 @@
 	"name": "@obsidian-plugin-toolkit/auto-link-title-enhanced",
 	"version": "1.0.0",
 	"description": "Auto-fetch link titles when pasting URLs. Enhanced fork with requestUrl-only scraper and per-URL custom request headers.",
+	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

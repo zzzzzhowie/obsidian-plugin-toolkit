@@ -2,6 +2,7 @@
 	"name": "@obsidian-plugin-toolkit/excalidraw-enhanced",
 	"version": "1.0.0",
 	"description": "Enhance embedded Excalidraw drawings: render them at their own size in the note (with a height cap) and click to open a zoomable, pannable overlay.",
+	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {

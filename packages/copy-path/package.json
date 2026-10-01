@@ -2,6 +2,7 @@
 	"name": "@obsidian-plugin-toolkit/copy-path",
 	"version": "1.0.0",
 	"description": "Copy absolute path of current file with optional header anchor (cmd+option+C).",
+	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
