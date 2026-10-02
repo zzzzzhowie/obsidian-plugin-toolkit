@@ -2,3 +2,7 @@ packages:
   - 'packages/*'
   - 'build-tools'
 
+# Only image-auto-upload-enhanced depends on electron, and only for its types; its install
+# script would download the Electron binary, which nothing here runs.
+allowBuilds:
+  electron: false
