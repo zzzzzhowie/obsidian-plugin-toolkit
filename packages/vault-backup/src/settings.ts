@@ -72,6 +72,9 @@ export function defaultIgnorePatterns(configDir: string): string[] {
 		// file and go with it; git cannot keep half a file, and four settings that take
 		// seconds to re-enter are worth trading for that much noise.
 		`${configDir}/plugins/recent-files-obsidian/data.json`,
+		// Quick Open's recently opened list, for the same reason: rewritten on every file
+		// opened, and it holds nothing but that list.
+		`${configDir}/plugins/quick-open/data.json`,
 	];
 }
 
