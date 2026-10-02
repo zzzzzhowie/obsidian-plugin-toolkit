@@ -46,6 +46,15 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 	 */
 	private lastOtherTab: WorkspaceLeaf | null = null;
 	private draft: Draft | null = null;
+	/**
+	 * The comment a press landed on, read on mousedown before CodeMirror sees it. Pressing
+	 * into a line that Live Preview had collapsed makes it redraw that line — the markup is
+	 * revealed — before the button comes up, so the highlight under the pointer is replaced
+	 * and the click that follows arrives on the line instead. Judged by the click alone, the
+	 * first click on such a comment looked like a click elsewhere, and it took a second one,
+	 * with the line already open, to bring the comment up.
+	 */
+	private pressedId: string | undefined;
 
 	async onload(): Promise<void> {
 		this.store = new CommentStore(this);
@@ -104,6 +113,14 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 			}),
 		);
 
+		this.registerDomEvent(
+			document,
+			"mousedown",
+			(evt) => {
+				this.pressedId = evt.button === 0 ? highlightIdOf(evt.target) : undefined;
+			},
+			{ capture: true },
+		);
 		// Bubble phase, after CodeMirror has placed the cursor for this click.
 		this.registerDomEvent(document, "click", (evt) => this.onEditorClick(evt));
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.trackOtherTab()));
@@ -215,6 +232,8 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 	 * in a note's own text count — not the panel, not a table cell, not the gutter.
 	 */
 	private onEditorClick(evt: MouseEvent): void {
+		const pressedId = this.pressedId;
+		this.pressedId = undefined;
 		if (evt.button !== 0 || evt.defaultPrevented) return;
 		if (evt.metaKey || evt.ctrlKey || evt.altKey || evt.shiftKey) return;
 		const target = evt.target instanceof HTMLElement ? evt.target : null;
@@ -226,7 +245,7 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 		// A drag or a double-click that selected text ends in a click too. That is selecting —
 		// often to add a comment — not pointing at anything, so it moves nothing.
 		if (!view.state.selection.main.empty) return;
-		const id = target?.closest<HTMLElement>(".nc-highlight[data-nc-id]")?.dataset.ncId;
+		const id = highlightIdOf(target) ?? pressedId;
 		if (id && this.store.get(file.path, id)) void this.showComment(file, id);
 		else void this.hidePanel();
 	}
@@ -392,6 +411,12 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 		if (root === leftSplit) return leftSplit;
 		return null;
 	}
+}
+
+/** The comment whose highlight `target` is part of. */
+function highlightIdOf(target: EventTarget | null): string | undefined {
+	if (!(target instanceof HTMLElement)) return undefined;
+	return target.closest<HTMLElement>(".nc-highlight[data-nc-id]")?.dataset.ncId;
 }
 
 function cmOf(editor: Editor): EditorView | null {
