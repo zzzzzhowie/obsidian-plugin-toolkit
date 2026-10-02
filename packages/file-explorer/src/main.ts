@@ -10,12 +10,13 @@ import {
 	TFile,
 } from "obsidian";
 import { MyPluginSettings, DEFAULT_SETTINGS } from "./settings";
-import { getFolderFromNote } from "./utils";
+import { getFolderFromNote, getFolderNote } from "./utils";
 import { PinnedItemsManager } from "./pinned-items";
 import { FolderNoteManager } from "./folder-note";
 import { FileCountManager } from "./file-count";
 import { FileHiderManager } from "./hider";
 import { registerReuseTab } from "./reuse-tab";
+import { openInBrowserSupported, openInDefaultBrowser } from "./open-in-browser";
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
@@ -62,8 +63,31 @@ export default class MyPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on(
 				"file-menu",
-				(menu: Menu, file: TAbstractFile) => {
+				(menu: Menu, file: TAbstractFile, source: string) => {
 					this.addContextMenuItems(menu, file);
+					// Only from the file explorer's own right-click menu. A folder with a
+					// folder note stands for that note in the tree, so it opens the note.
+					const target =
+						file instanceof TFile
+							? file
+							: file instanceof TFolder
+								? getFolderNote(file, this.app)
+								: null;
+					if (
+						source === "file-explorer-context-menu" &&
+						target &&
+						openInBrowserSupported()
+					) {
+						menu.addItem((item) => {
+							// Beside Obsidian's "Open in default app" / "Reveal in Finder".
+							item.setTitle("Open in default browser")
+								.setIcon("globe")
+								.setSection("system")
+								.onClick(() => {
+									void openInDefaultBrowser(this.app, target);
+								});
+						});
+					}
 				},
 			),
 		);
