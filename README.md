@@ -49,6 +49,7 @@ pnpm dev:mermaid-enhanced           # Mermaid (Enhanced)
 pnpm dev:line-numbers               # Line Numbers
 pnpm dev:nav-history                # Nav History
 pnpm dev:note-comments              # Note Comments
+pnpm dev:quick-open                 # Quick Open
 ```
 
 Or use filter:
@@ -79,6 +80,7 @@ pnpm build:mermaid-enhanced
 pnpm build:line-numbers
 pnpm build:nav-history
 pnpm build:note-comments
+pnpm build:quick-open
 ```
 
 ## Lint
@@ -117,6 +119,9 @@ VS Code style global Go Back / Go Forward (`Ctrl+-` / `Ctrl+Shift+-`). Unlike Ob
 
 ### @obsidian-plugin-toolkit/note-comments
 Select text and comment on it (`Cmd/Ctrl+Option/Alt+M`, or the editor menu). Commented passages are highlighted; clicking one opens a Comments panel in the right sidebar that lists the note's comments, and clicking elsewhere puts the previous tab back. Comments are written and edited in that panel, in a full Obsidian editor — images, mermaid and paste handlers such as the image uploader work there too (Enter saves, Shift+Enter is a new line). They are stored in the plugin's data file, so the Markdown is never touched: a comment is found again by its quoted text and surrounding context, not by a marker — with formatting (whitespace, Markdown markup, punctuation) ignored, so reformatting a note doesn't lose its comments — and one whose words were actually rewritten stays in the panel, marked as not found. Editor-only (Live Preview and source); text inside rendered tables, callouts and embeds can't carry a comment yet.
+
+### @obsidian-plugin-toolkit/quick-open
+VS Code's Go to File on `Cmd/Ctrl+P` (the command palette moves to `Cmd/Ctrl+Shift+P`, as in VS Code). With nothing typed it lists recently opened files, most recent first; typing fuzzy-matches file names (or whole paths once the query has a `/`) and notes' `aliases` — an alias match shows as its own row, the alias with the note it stands for, as in Obsidian's switcher — recently opened matches first, then the rest of the vault. `name:42` opens at a line, `:42` goes to a line in the current note, `@` lists its headings. Enter opens — in the tab the file already has in the current group, or a new tab, never over the note you're in — and `Cmd/Ctrl+Enter` opens to the side. Pressing `P` again with `Cmd/Ctrl` held moves down the list, and letting go opens the selection. The recent list is shared between devices through the plugin's data.json: each device records when it last opened each file and copies are merged entry by entry (later time wins, removals included), so one device never overwrites another's list the way Obsidian's own recent list in workspace.json does. It starts from Obsidian's and the Recent Files plugin's lists, and vault-backup leaves it out of backups. On mobile it takes over the search button in the middle of the navbar; on a phone a file opens in the tab that already has it, else in the current tab, and there is no opening to the side.
 
 ## Tech Stack
 

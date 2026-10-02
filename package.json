@@ -41,7 +41,9 @@
         "dev:nav-history": "pnpm --filter @obsidian-plugin-toolkit/nav-history dev",
         "build:nav-history": "pnpm --filter @obsidian-plugin-toolkit/nav-history build",
         "dev:note-comments": "pnpm --filter @obsidian-plugin-toolkit/note-comments dev",
-        "build:note-comments": "pnpm --filter @obsidian-plugin-toolkit/note-comments build"
+        "build:note-comments": "pnpm --filter @obsidian-plugin-toolkit/note-comments build",
+        "dev:quick-open": "pnpm --filter @obsidian-plugin-toolkit/quick-open dev",
+        "build:quick-open": "pnpm --filter @obsidian-plugin-toolkit/quick-open build"
     },
     "keywords": [
         "obsidian",

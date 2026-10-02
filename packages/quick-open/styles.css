@@ -1,0 +1,87 @@
+/* Go to File rows: icon, name + folder, then the section label and row buttons. */
+
+.quick-open-item {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+/* The first row of the second section: a rule above it, as in VS Code. */
+.quick-open-item.is-section-start {
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.quick-open-icon {
+	display: flex;
+	flex-shrink: 0;
+	color: var(--text-muted);
+}
+
+.quick-open-icon svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
+.quick-open-text {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+/* Headings under `@`, indented by level. */
+.quick-open-text.is-indented {
+	padding-left: calc(var(--quick-open-indent, 0) * var(--size-4-4));
+}
+
+.quick-open-name {
+	color: var(--text-normal);
+}
+
+.quick-open-path {
+	margin-left: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.quick-open-aux {
+	display: flex;
+	flex-shrink: 0;
+	align-items: center;
+	gap: var(--size-2-1);
+}
+
+/* Marks an alias row, as the ↪ in Obsidian's own switcher does. */
+.quick-open-flair {
+	display: flex;
+	color: var(--text-faint);
+}
+
+.quick-open-flair svg {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.quick-open-label {
+	margin-right: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.quick-open-action {
+	padding: var(--size-2-1);
+}
+
+/* On desktop, row buttons show on the selected row and under the pointer, like VS Code's.
+   Not on mobile: there they are always shown. A tap on iOS that makes something appear
+   through a hover or selection change is taken as "hover", and only a second tap clicks —
+   which is what made every row need two taps. */
+body:not(.is-mobile) .quick-open-action {
+	visibility: hidden;
+}
+
+body:not(.is-mobile) .quick-open-item.is-selected .quick-open-action,
+body:not(.is-mobile) .quick-open-item:hover .quick-open-action {
+	visibility: visible;
+}

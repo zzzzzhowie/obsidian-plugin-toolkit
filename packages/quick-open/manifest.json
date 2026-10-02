@@ -1,0 +1,9 @@
+{
+	"id": "quick-open",
+	"name": "Quick Open",
+	"version": "1.2.0",
+	"minAppVersion": "1.0.0",
+	"description": "VS Code style Go to File (Cmd+P): recently opened files first, fuzzy search over the whole vault, :line and @heading.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}
