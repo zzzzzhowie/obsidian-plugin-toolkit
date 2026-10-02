@@ -20,6 +20,14 @@
 	gap: var(--size-4-2);
 }
 
+/* Save with nothing to save. Obsidian only dims a disabled button to 70%, which on the
+   accent colour still reads as clickable; grey it out like a plain button instead. */
+.nc-panel-edit-actions button.mod-cta:disabled {
+	background-color: var(--interactive-normal);
+	color: var(--text-faint);
+	box-shadow: none;
+}
+
 /* --- Comments panel ------------------------------------------------------------------- */
 
 .nc-panel {

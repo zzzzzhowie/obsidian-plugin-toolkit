@@ -110,6 +110,8 @@ export interface InputOptions {
 	file: TFile;
 	onSubmit(): void;
 	onCancel(): void;
+	/** The text changed — typed, pasted, or cleared. */
+	onChange?(): void;
 }
 
 /**
@@ -166,6 +168,7 @@ export function mountInput(app: App, owner: Component, parent: HTMLElement, opti
 	host.addClass("is-plain");
 	const textarea = host.createEl("textarea", { cls: "nc-panel-input", attr: { rows: "4", placeholder: options.placeholder } });
 	textarea.value = options.value;
+	textarea.addEventListener("input", () => options.onChange?.());
 	textarea.addEventListener("focus", pushScope);
 	textarea.addEventListener("blur", popScope);
 	return {
@@ -201,6 +204,9 @@ function mountEditor(
 				...super.buildLocalExtensions(),
 				placeholder(options.placeholder),
 				EditorView.editorAttributes.of({ class: "nc-embedded-cm" }),
+				EditorView.updateListener.of((update) => {
+					if (update.docChanged) options.onChange?.();
+				}),
 			];
 		}
 	}

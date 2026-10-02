@@ -216,19 +216,28 @@ export class CommentsPanel extends ItemView {
 		this.draftQuote = draft.quote;
 		const box = this.draftEl.createDiv({ cls: "nc-panel-draft" });
 		box.createDiv({ cls: "nc-panel-quote", text: truncate(draft.quote, 200) });
+		// Declared ahead of the box: the editor reports its first change while it's being
+		// mounted, before the button exists.
+		let save: HTMLButtonElement | null = null;
+		const syncSave = (): void => {
+			if (save) save.disabled = !hasText(input);
+		};
 		const input = mountInput(this.app, this, box, {
 			value: "",
 			placeholder: "Explain this passage…",
 			file,
-			onSubmit: () => this.host.saveDraft(input.value),
+			onSubmit: () => {
+				if (hasText(input)) this.host.saveDraft(input.value);
+			},
 			onCancel: () => this.host.cancelDraft(),
+			onChange: () => syncSave(),
 		});
 		this.draftInput = input;
 		const actions = box.createDiv({ cls: "nc-panel-edit-actions" });
 		actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.host.cancelDraft());
-		actions
-			.createEl("button", { text: "Save", cls: "mod-cta" })
-			.addEventListener("click", () => this.host.saveDraft(input.value));
+		save = actions.createEl("button", { text: "Save", cls: "mod-cta" });
+		save.addEventListener("click", () => this.host.saveDraft(input.value));
+		syncSave();
 	}
 
 	private closeDraftBox(): void {
@@ -284,17 +293,26 @@ export class CommentsPanel extends ItemView {
 
 		if (comment.id === this.editingId) {
 			const box = item.createDiv({ cls: "nc-panel-edit" });
+			let save: HTMLButtonElement | null = null;
+			const syncSave = (): void => {
+				if (save) save.disabled = !hasText(input);
+			};
 			const input = mountInput(this.app, this, box, {
 				value: comment.body,
 				placeholder: "Explain this passage…",
 				file,
-				onSubmit: () => this.saveEdit(),
+				onSubmit: () => {
+					if (hasText(input)) this.saveEdit();
+				},
 				onCancel: () => this.cancelEdit(),
+				onChange: () => syncSave(),
 			});
 			this.editInput = input;
 			const actions = box.createDiv({ cls: "nc-panel-edit-actions" });
 			actions.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.cancelEdit());
-			actions.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", () => this.saveEdit());
+			save = actions.createEl("button", { text: "Save", cls: "mod-cta" });
+			save.addEventListener("click", () => this.saveEdit());
+			syncSave();
 			// Clicking into a comment is how it's edited, so it also happens when it was only
 			// being read. Leaving the box with nothing changed closes it again; with changes, it
 			// stays open until saved or cancelled. A tick later, because focus leaving the box
@@ -369,4 +387,12 @@ export class CommentsPanel extends ItemView {
 		this.editingId = null;
 		this.render();
 	}
+}
+
+/**
+ * A comment has to say something. Saving an empty one is refused rather than quietly turned
+ * into a cancel or a no-op, so Save is greyed out and Enter does nothing until there's text.
+ */
+function hasText(input: CommentInput): boolean {
+	return input.value.trim().length > 0;
 }
