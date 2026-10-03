@@ -1,11 +1,31 @@
 import { Plugin } from "obsidian";
 import { isInCodeBlock, processPasteContent } from "./utils/pasteHandler";
 
+/** What Obsidian puts at the start of the HTML it copies out of a note. */
+const OBSIDIAN_COPY_MARK = "<!-- obsidian -->";
+
+/**
+ * Copied out of an Obsidian note: the clipboard then holds the note's own markdown (as
+ * text/plain and text/markdown) beside rendered HTML meant for other apps. Obsidian's own
+ * paste recognises this and pastes the markdown back as it was, so it's left to do that.
+ * Rebuilding it from the HTML instead lost whatever HTML doesn't keep — an embed like
+ * `![[report_2026-09-25.pdf]]` came back as its bare file name, escaped:
+ * `report\_2026-09-25.pdf`.
+ */
+function isObsidianCopy(data: DataTransfer | null): boolean {
+	if (!data) return false;
+	return data.getData("text/html").includes(OBSIDIAN_COPY_MARK) || data.types.includes("text/markdown");
+}
+
 export default class PasteEnhancedPlugin extends Plugin {
 	onload() {
 		// Register paste event listener
 		this.registerEvent(
 			this.app.workspace.on("editor-paste", (evt, editor, view) => {
+				// Another paste handler (the image uploader, the link titler) already took it.
+				if (evt.defaultPrevented) return;
+				if (isObsidianCopy(evt.clipboardData)) return;
+
 				// If the clipboard contains an image file, this is an image paste,
 				// not a text/code paste. Skip so the image-upload plugin can handle
 				// it — otherwise we'd also insert the original <img> as markdown,

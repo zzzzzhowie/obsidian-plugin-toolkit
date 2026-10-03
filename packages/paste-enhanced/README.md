@@ -9,6 +9,8 @@ An intelligent paste plugin for Obsidian that automatically detects your cursor 
 - **Code Block Preservation**: Preserves exact formatting when pasting into code blocks (indentation, line breaks)
 - **GFM Support**: Supports GitHub Flavored Markdown including tables, task lists, and strikethrough
 - **Auto-Link Plugin Compatible**: Works seamlessly with obsidian-auto-link-title plugin
+- **Leaves Obsidian's own copies alone**: text copied out of a note (Obsidian marks its HTML with `<!-- obsidian -->` and puts the markdown on the clipboard too) is left to Obsidian's paste, which puts the markdown back exactly — embeds such as `![[file.pdf]]`, wikilinks and callouts included
+- **Steps aside for other paste handlers**: a paste another plugin already handled (image upload, link titles) isn't processed again
 
 ## How It Works
 
