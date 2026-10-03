@@ -139,7 +139,6 @@
    siblings in paint order, so without z-index the assistant's reply would slide over the
    pinned prompt instead of under it. */
 .claudian-message-user.claudian-message-user {
-	--claudian-sticky-surface: var(--background-secondary);
 	position: sticky;
 	top: 0;
 	/* Claudian sets no top margin today; pin it so a future one can't open a gap. */
@@ -147,30 +146,47 @@
 	z-index: 1;
 }
 
-/* The bubble's tint is translucent (rgb(0 0 0 / 30%)), so pinned text would have the reply
-   scrolling visibly through it. Keep that exact tint as a background-image layered over an
-   opaque surface colour, which preserves the look and blocks what's underneath. (0,3,0)
-   beats Claudian's own `.claudian-message-user > .claudian-message-content` (0,2,0). */
+/* The prompt bubble. Claudian's is a 30% black wash with light text — a heavy grey slab on a
+   light theme. Here it's a light card instead: a surface a step brighter than the sidebar,
+   tinted faintly with the theme's accent, with a hairline border and the usual chat-bubble
+   corner. The surface must stay opaque — a pinned prompt has the reply scrolling under it —
+   so the tint is a background-image over a solid colour. (0,3,0) beats Claudian's own
+   `.claudian-message-user > .claudian-message-content` (0,2,0). */
 .claudian-message-user.claudian-message-user > .claudian-message-content {
+	color: var(--text-normal);
 	background-color: var(--claudian-sticky-surface);
-	background-image: linear-gradient(rgb(0 0 0 / 30%), rgb(0 0 0 / 30%));
+	background-image: linear-gradient(
+		hsla(var(--interactive-accent-hsl), 0.07),
+		hsla(var(--interactive-accent-hsl), 0.07)
+	);
+	border: 1px solid hsla(var(--interactive-accent-hsl), 0.18);
+	border-radius: 14px;
+	border-end-end-radius: 4px;
+	box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
 }
 
-/* Claudian can also be opened as a main-editor tab, where the leaf sits on the primary
-   surface rather than the sidebar's. Only the variable changes; the rules above follow. */
-.workspace-split.mod-root .claudian-message-user.claudian-message-user {
+/* Claudian's selection colour is white, for its dark bubble; on this one it would vanish. */
+.claudian-message-user.claudian-message-user ::selection {
+	background: var(--text-selection);
+}
+
+/* The sidebar sits on the secondary surface, so the bubble takes the primary one, a step
+   brighter. Claudian can also be opened as a main-editor tab, which sits on the primary
+   surface: there the bubble takes the secondary one. */
+.claudian-message-user.claudian-message-user {
 	--claudian-sticky-surface: var(--background-primary);
 }
 
-/* Only while a prompt is actually pinned (markPinnedPrompt sets this) does its bubble get
-   the separator, so an unpinned prompt sitting in the list keeps Claudian's own look.
+.workspace-split.mod-root .claudian-message-user.claudian-message-user {
+	--claudian-sticky-surface: var(--background-secondary);
+}
 
-   Deliberately just a hairline. Earlier versions also painted a fill around the pinned
-   prompt to hide the reply scrolling through the strip beside and above it, but the fill
-   blanked out that text instead — worse than the thing it was hiding. The bubble's own
-   opaque background plus this line is enough to tell the two apart. */
+/* Only while a prompt is actually pinned (markPinnedPrompt sets this) does its bubble lift:
+   a soft shadow, so it reads as floating over the reply scrolling under it rather than as
+   part of it. Only the bubble — earlier versions also painted a fill around the pinned
+   prompt to hide the reply in the strip beside it, and that blanked out the text instead. */
 .claudian-message-user.claudian-enhanced-pinned > .claudian-message-content {
-	box-shadow: 0 1px 0 0 var(--background-modifier-border);
+	box-shadow: var(--shadow-s);
 }
 
 /* A prompt that is stuck but has a later one stuck on top of it. They all pin at the same
