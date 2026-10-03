@@ -85,3 +85,137 @@ body:not(.is-mobile) .quick-open-item.is-selected .quick-open-action,
 body:not(.is-mobile) .quick-open-item:hover .quick-open-action {
 	visibility: visible;
 }
+
+/* --- Go to File on the empty new tab --------------------------------------------------- */
+
+/* Takes the tab's free space, above Obsidian's own links (which stay where the theme puts
+   them). The page itself doesn't scroll: the search box stays put and only the results
+   under it do. Sized from nothing (`flex-basis: 0`) and
+   with wrapping off: some themes let the empty state wrap, and a list taller than the tab
+   was then moved into a column of its own beside the links, at half the width. */
+.empty-state:has(> .quick-open-page) {
+	flex-wrap: nowrap;
+}
+
+.empty-state > .quick-open-page {
+	display: flex;
+	flex: 1 1 0;
+	flex-direction: column;
+	align-self: stretch;
+	width: 100%;
+	min-height: 0;
+	overflow: hidden;
+	padding: clamp(28px, 10vh, 112px) clamp(20px, 5vw, 64px) var(--size-4-6);
+	text-align: start;
+}
+
+.quick-open-page-inner {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	width: 100%;
+	max-width: 760px;
+	min-height: 0;
+	margin: 0 auto;
+}
+
+/* The search box: wide and tall, a field to type into rather than a filter. */
+.quick-open-page-search {
+	position: relative;
+	flex-shrink: 0;
+	margin-bottom: var(--size-4-4);
+}
+
+.quick-open-page-search-icon {
+	position: absolute;
+	top: 50%;
+	left: var(--size-4-4);
+	display: flex;
+	color: var(--text-faint);
+	transform: translateY(-50%);
+	pointer-events: none;
+}
+
+.quick-open-page-search-icon svg {
+	width: var(--icon-m);
+	height: var(--icon-m);
+}
+
+.quick-open-page-input[type="text"] {
+	width: 100%;
+	height: 48px;
+	padding: 0 var(--size-4-4) 0 calc(var(--size-4-4) + var(--icon-m) + var(--size-4-3));
+	font-size: var(--font-ui-large);
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-l);
+	box-shadow: var(--shadow-s);
+}
+
+.quick-open-page-input[type="text"]:focus {
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 3px hsla(var(--interactive-accent-hsl), 0.15);
+}
+
+/* The part that scrolls. Padded so a selected card's border and shadow aren't clipped at
+   its edges, and pulled back out by the same amount so the cards still line up with the box. */
+.quick-open-page-list {
+	display: flex;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	min-height: 0;
+	overflow-y: auto;
+	margin: 0 calc(-1 * var(--size-4-2));
+	padding: var(--size-4-1) var(--size-4-2) var(--size-4-2);
+}
+
+.quick-open-page-list > * {
+	flex-shrink: 0;
+}
+
+.quick-open-page-section {
+	margin: var(--size-4-3) var(--size-4-1) 0;
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--text-faint);
+}
+
+.quick-open-page-section:first-child {
+	margin-top: 0;
+}
+
+/* One card per file. */
+.quick-open-page-row {
+	padding: var(--size-4-3) var(--size-4-4);
+	background-color: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-l);
+	cursor: var(--cursor);
+	transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.quick-open-page-row .quick-open-name {
+	font-weight: var(--font-semibold);
+}
+
+.quick-open-page-row.is-selected {
+	background-color: var(--background-primary);
+	border-color: var(--interactive-accent);
+	box-shadow: var(--shadow-s);
+}
+
+.quick-open-page-when {
+	margin-right: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+	color: var(--text-faint);
+}
+
+.quick-open-page-empty {
+	padding: var(--size-4-6) 0;
+	text-align: center;
+	color: var(--text-faint);
+}

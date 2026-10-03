@@ -37,6 +37,7 @@ export class FileHistory {
 	private readonly removed = new Map<string, number>();
 	private readonly requestSave = debounce(() => void this.save(), SAVE_DELAY_MS, true);
 	private dirty = false;
+	private readonly listeners = new Set<() => void>();
 
 	constructor(private readonly plugin: Plugin) {}
 
@@ -69,7 +70,15 @@ export class FileHistory {
 		this.merge(data);
 		const after = this.serialize();
 		if (!sameAs(after, normalise(data))) this.changed();
-		return !sameAs(before, after);
+		const listChanged = !sameAs(before, after);
+		if (listChanged) this.notify();
+		return listChanged;
+	}
+
+	/** Call `listener` whenever the list changes. Returns the unsubscribe. */
+	onChange(listener: () => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
 	}
 
 	/** Nothing known yet, on any device. */
@@ -79,15 +88,20 @@ export class FileHistory {
 
 	/** Most recent first, only files that still exist. */
 	files(): TFile[] {
+		return this.entries().map((entry) => entry.file);
+	}
+
+	/** As `files()`, with when each was last opened (on any device). */
+	entries(): { file: TFile; openedAt: number }[] {
 		const listed = [...this.opened]
 			.filter(([path, at]) => at > (this.removed.get(path) ?? 0))
 			.sort((a, b) => b[1] - a[1]);
-		const files: TFile[] = [];
-		for (const [path] of listed) {
+		const entries: { file: TFile; openedAt: number }[] = [];
+		for (const [path, openedAt] of listed) {
 			const file = this.app.vault.getFileByPath(path);
-			if (file) files.push(file);
+			if (file) entries.push({ file, openedAt });
 		}
-		return files;
+		return entries;
 	}
 
 	record(file: TFile): void {
@@ -166,6 +180,11 @@ export class FileHistory {
 		this.prune();
 		this.dirty = true;
 		this.requestSave();
+		this.notify();
+	}
+
+	private notify(): void {
+		for (const listener of this.listeners) listener();
 	}
 
 	private prune(): void {

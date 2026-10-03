@@ -2,6 +2,7 @@ import { Platform, Plugin, TFile } from "obsidian";
 
 import { FileHistory } from "./history";
 import { QuickOpenModal } from "./modal";
+import { NewTabSearch } from "./new-tab";
 
 export default class QuickOpenPlugin extends Plugin {
 	private history!: FileHistory;
@@ -45,6 +46,19 @@ export default class QuickOpenPlugin extends Plugin {
 		);
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.history.rename(oldPath, file.path)));
 		this.registerEvent(this.app.vault.on("delete", (file) => this.history.delete(file.path)));
+		// Go to File on the empty new tab: set up when a tab appears, its results redrawn as the
+		// list changes, and its box focused when the tab is switched to.
+		const newTab = new NewTabSearch(this.app, this.history);
+		this.registerEvent(this.app.workspace.on("layout-change", () => newTab.refresh()));
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				newTab.refresh();
+				newTab.focus(leaf);
+			}),
+		);
+		this.register(this.history.onChange(() => newTab.refresh()));
+		this.register(() => newTab.detach());
+
 		this.registerEvent(
 			this.app.workspace.on("quit", (tasks) => {
 				tasks.add(() => this.history.flush());
@@ -56,6 +70,8 @@ export default class QuickOpenPlugin extends Plugin {
 			if (this.history.isEmpty) void this.history.seed();
 			const active = this.app.workspace.getActiveFile();
 			if (active instanceof TFile) this.history.record(active);
+			newTab.refresh();
+			newTab.focus(this.app.workspace.getMostRecentLeaf());
 		});
 	}
 

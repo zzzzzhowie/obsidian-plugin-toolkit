@@ -1,7 +1,7 @@
 {
 	"id": "yeyan-quick-open",
 	"name": "Quick Open",
-	"version": "1.2.1",
+	"version": "1.4.1",
 	"minAppVersion": "1.0.0",
 	"description": "VS Code style Go to File (Cmd+P): recently opened files first, fuzzy search over the whole vault, :line and @heading.",
 	"author": "yeyan1996",

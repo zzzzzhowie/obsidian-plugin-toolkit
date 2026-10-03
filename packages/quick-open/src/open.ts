@@ -7,14 +7,19 @@ import { type App, MarkdownView, Platform, type TFile, type WorkspaceLeaf, type 
  *   otherwise a new tab — Quick Open never replaces the note you're looking at (VS Code
  *   doesn't use a preview editor for it either). An empty tab is used rather than adding one
  *   beside it.
- * - Open to the side puts it in the group to the right of the active one, creating that
- *   group when there is none.
+ * - Cmd/Ctrl+Enter always opens a new tab in the active group, even for a file already open
+ *   — Obsidian's own meaning for it, not VS Code's (which opens to the side).
+ * - Open to the side (the row button) puts it in the group to the right of the active one,
+ *   creating that group when there is none.
  * - On a phone, where tabs live behind the tab switcher and a new one per file would pile
  *   up unseen, it goes to the tab that already has it, else into the current tab — as
  *   Obsidian's own switcher does there.
  */
-export async function openFile(app: App, file: TFile, toSide: boolean, line?: number, column?: number): Promise<void> {
-	const leaf = toSide ? sideLeaf(app, file) : mainLeaf(app, file);
+export type OpenIn = "current-group" | "new-tab" | "side";
+
+export async function openFile(app: App, file: TFile, where: OpenIn, line?: number, column?: number): Promise<void> {
+	const leaf =
+		where === "side" ? sideLeaf(app, file) : where === "new-tab" ? app.workspace.getLeaf("tab") : mainLeaf(app, file);
 	if (fileOf(leaf) !== file.path) await leaf.openFile(file);
 	app.workspace.setActiveLeaf(leaf, { focus: true });
 	if (line !== undefined) goToLine(leaf, line, column);
