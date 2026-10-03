@@ -53,6 +53,23 @@
 	box-shadow: none;
 }
 
+/* The same theme rule on the icon buttons under every prompt and reply (copy / fork /
+   rewind — replies use the prompts' `.claudian-user-msg-actions` toolbar too) and on the
+   copy button inside a reply's text. Claudian's resting rule for them (0,1,1) loses to the
+   theme's padding, but its :hover rule (0,2,1) wins — so a button was 40px wide until the
+   pointer reached it and 16px once it did, which moved it out from under the pointer, which
+   made it 40px again: the row shook left and right for as long as the pointer stayed
+   (measured, flipping every frame). Doubled classes hold them bare in every state, above
+   the theme's :active / :focus-visible (0,2,2) as well. */
+.claudian-user-msg-actions.claudian-user-msg-actions button,
+.claudian-user-msg-actions.claudian-user-msg-actions button:is(:hover, :focus-visible, :active),
+button.claudian-text-copy-btn.claudian-text-copy-btn,
+button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, :active) {
+	padding: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
 /* Root cause of wide tables / code blocks stretching the whole conversation:
    .claudian-message is a flex item in the .claudian-messages column, so it keeps
    the flex default min-width:auto and REFUSES to shrink below its content's
