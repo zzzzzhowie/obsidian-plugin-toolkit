@@ -34,6 +34,10 @@ export class NewTabSearch {
 
 	/** Give every empty tab its search, drop those whose tab has since opened something. */
 	refresh(): void {
+		// Desktop only. A phone's empty tab is left as Obsidian draws it: its navbar already has
+		// search and new-note buttons, and the page squeezed between the floating header and
+		// navbar never sat right there.
+		if (Platform.isMobile) return;
 		for (const [leaf, tab] of this.tabs) {
 			if (leaf.view.getViewType() !== "empty" || !tab.el.isConnected) {
 				tab.destroy();
