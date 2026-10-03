@@ -74,7 +74,7 @@ export function defaultIgnorePatterns(configDir: string): string[] {
 		`${configDir}/plugins/recent-files-obsidian/data.json`,
 		// Quick Open's recently opened list, for the same reason: rewritten on every file
 		// opened, and it holds nothing but that list.
-		`${configDir}/plugins/quick-open/data.json`,
+		`${configDir}/plugins/yeyan-quick-open/data.json`,
 	];
 }
 
