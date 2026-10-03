@@ -131,6 +131,7 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 			const hover = new CommentHover(this.app, this.store, this.host);
 			this.registerDomEvent(document, "mouseover", (evt) => hover.onMouseOver(evt));
 			this.registerDomEvent(document, "mousedown", (evt) => hover.onPress(evt), { capture: true });
+			this.registerDomEvent(document, "mouseup", (evt) => hover.onRelease(evt), { capture: true });
 			this.registerDomEvent(document, "wheel", (evt) => hover.onWheel(evt), { capture: true, passive: true });
 			this.registerEvent(this.app.workspace.on("active-leaf-change", () => hover.hide()));
 			this.register(() => hover.hide());

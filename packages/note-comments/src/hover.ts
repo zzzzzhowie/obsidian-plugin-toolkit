@@ -21,7 +21,9 @@ const EDGE_PX = 8;
  * up while the pointer moves into it, so a long comment can be scrolled and its links
  * followed. It goes when the pointer leaves the text and the card — typing doesn't put it
  * away — and on a press (a click on the text opens the panel), a scroll of the note (the text
- * moves out from under it), or a switch of tab. Desktop only: a touch screen has no hover.
+ * moves out from under it), or a switch of tab. Its text can be selected and copied: a drag
+ * that starts in the card keeps it up until the button is let go, wherever the pointer has
+ * wandered. Desktop only: a touch screen has no hover.
  */
 export class CommentHover {
 	private card: HTMLElement | null = null;
@@ -29,6 +31,8 @@ export class CommentHover {
 	private shownId: string | null = null;
 	private showTimer: number | null = null;
 	private hideTimer: number | null = null;
+	/** A press that began in the card is still held — selecting its text, usually. */
+	private selecting = false;
 
 	constructor(
 		private readonly app: App,
@@ -37,6 +41,9 @@ export class CommentHover {
 	) {}
 
 	onMouseOver(evt: MouseEvent): void {
+		// A drag selecting the card's text may stray past its edge, over the note or another
+		// comment; neither puts the card away or swaps it until the button is let go.
+		if (this.selecting) return;
 		const target = evt.target instanceof HTMLElement ? evt.target : null;
 		if (target && this.card?.contains(target)) {
 			this.cancelHide();
@@ -64,8 +71,18 @@ export class CommentHover {
 
 	/** A press anywhere but in the card puts it away — a click on the text opens the panel. */
 	onPress(evt: MouseEvent): void {
-		if (evt.target instanceof Node && this.card?.contains(evt.target)) return;
+		if (evt.target instanceof Node && this.card?.contains(evt.target)) {
+			this.selecting = evt.button === 0;
+			return;
+		}
 		this.hide();
+	}
+
+	/** The end of a press in the card: let go outside it and it goes, as if the pointer had just left. */
+	onRelease(evt: MouseEvent): void {
+		if (!this.selecting) return;
+		this.selecting = false;
+		if (!(evt.target instanceof Node && this.card?.contains(evt.target))) this.scheduleHide();
 	}
 
 	/** Scrolling the note moves the text out from under the card; scrolling the card doesn't. */
@@ -82,6 +99,7 @@ export class CommentHover {
 		this.card?.remove();
 		this.card = null;
 		this.shownId = null;
+		this.selecting = false;
 	}
 
 	private async show(path: string, id: string, mark: HTMLElement, x: number, y: number): Promise<void> {
