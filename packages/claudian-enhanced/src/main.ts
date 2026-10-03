@@ -1,4 +1,4 @@
-import { Plugin, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Plugin, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
@@ -167,6 +167,28 @@ interface ClaudianLinkedContent {
 interface ClaudianSelectionController {
 	hasSelection?: () => boolean;
 	showHighlight?: () => void;
+	/** The selection it carries into the next prompt. Public on the controller, as is the rest. */
+	storedSelection?: ClaudianStoredSelection | null;
+	/**
+	 * Until when its 250ms poll keeps a selection the editor no longer shows — its own grace
+	 * period for the reader moving to the composer. See syncBlockSelection.
+	 */
+	inputHandoffGraceUntil?: number | null;
+	updateIndicator?: () => void;
+	onUserSelectionChanged?: (() => void) | null;
+}
+
+/**
+ * A selection as Claudian carries it, in the shape it uses for reading mode: DOM ranges
+ * rather than an editor range. `startLine` is optional there; given, the prompt says which
+ * lines of the note the text is from.
+ */
+interface ClaudianStoredSelection {
+	notePath: string;
+	selectedText: string;
+	lineCount: number;
+	startLine?: number;
+	domRanges?: Range[];
 }
 
 /**
@@ -313,6 +335,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** Message lists a conversation is being restored into; our own scrolling leaves these alone. */
 	private restores = new Map<HTMLElement, Restore>();
 	private restoreSeq = 0;
+	/** The selection we handed Claudian for text inside a rendered block; see syncBlockSelection. */
+	private blockSelection: ClaudianStoredSelection | null = null;
+	private blockSelectionFrame: number | null = null;
 
 	async onload(): Promise<void> {
 		// Awaited rather than backgrounded: a restore that lost a race with this would
@@ -396,6 +421,18 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		});
 		// MutationObserver isn't auto-cleaned by Obsidian's register* helpers.
 		this.register(() => this.submitScrollObserver?.disconnect());
+		// Text selected inside a block Live Preview renders (a callout, a table); see
+		// syncBlockSelection. Once a frame at most — a drag fires this on every move.
+		this.registerDomEvent(document, "selectionchange", () => {
+			if (this.blockSelectionFrame !== null) return;
+			this.blockSelectionFrame = requestAnimationFrame(() => {
+				this.blockSelectionFrame = null;
+				this.syncBlockSelection();
+			});
+		});
+		this.register(() => {
+			if (this.blockSelectionFrame !== null) cancelAnimationFrame(this.blockSelectionFrame);
+		});
 		this.register(() => this.foldResizeObserver?.disconnect());
 		// Reuse a tab instead of stacking a new one per clicked link. See
 		// interceptLinkClicks.
@@ -1474,6 +1511,106 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		requestAnimationFrame(() => {
 			this.selfScrolling = false;
 		});
+	}
+
+	/**
+	 * Let Claudian see text selected inside a block that Live Preview renders — a callout, a
+	 * table. In the editor Claudian only asks the editor for its selection, and a selection
+	 * inside a rendered block isn't one: it's the page's own, inside an element the editor
+	 * stands in for its source, so the editor reports nothing and the 划词 went unnoticed.
+	 * Reading mode works because there Claudian reads the page selection instead, so this
+	 * hands it the same shape — plus the note lines the block's source covers.
+	 *
+	 * Claudian re-checks every 250ms, finds the editor selection empty and would drop it
+	 * again; its grace period, meant for the reader moving to the composer, holds it while it
+	 * is still selected. When it no longer is, the grace is lifted and Claudian's own rules
+	 * apply again — which keep it if the reader went to the composer.
+	 */
+	private syncBlockSelection(): void {
+		const controller = this.getSelectionController();
+		if (!controller || !("storedSelection" in controller)) return; // internals drifted
+		const found = this.selectionInRenderedBlock();
+		const ours = this.blockSelection !== null && controller.storedSelection === this.blockSelection;
+		if (!found) {
+			if (ours) controller.inputHandoffGraceUntil = null;
+			this.blockSelection = null;
+			return;
+		}
+		const current = ours ? controller.storedSelection : null;
+		if (
+			current &&
+			current.selectedText === found.selectedText &&
+			current.startLine === found.startLine &&
+			current.lineCount === found.lineCount
+		) {
+			return;
+		}
+		this.blockSelection = found;
+		controller.storedSelection = found;
+		controller.inputHandoffGraceUntil = Number.MAX_SAFE_INTEGER;
+		controller.updateIndicator?.();
+		controller.onUserSelectionChanged?.();
+	}
+
+	/** The page selection, when it lies inside a rendered block of the note being edited. */
+	private selectionInRenderedBlock(): ClaudianStoredSelection | null {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view?.file || view.getMode() !== "source") return null;
+		// Text the editor holds itself is Claudian's own business.
+		if (view.editor.getSelection().trim()) return null;
+		const cm = (view.editor as unknown as { cm?: EditorView }).cm;
+		const selection = cm?.dom.ownerDocument.getSelection();
+		const text = selection?.toString().trim();
+		if (!cm || !selection || !text || selection.rangeCount === 0) return null;
+		const { anchorNode, focusNode } = selection;
+		if (!anchorNode || !focusNode) return null;
+		if (!cm.contentDOM.contains(anchorNode) || !cm.contentDOM.contains(focusNode)) return null;
+		// Inside something the editor drew in place of its source.
+		const element = anchorNode instanceof Element ? anchorNode : anchorNode.parentElement;
+		const block = element?.closest<HTMLElement>('[contenteditable="false"]');
+		if (!block || !cm.contentDOM.contains(block)) return null;
+		const domRanges: Range[] = [];
+		for (let i = 0; i < selection.rangeCount; i++) domRanges.push(selection.getRangeAt(i).cloneRange());
+		const lines = this.sourceLinesOf(cm, block, text);
+		return {
+			notePath: view.file.path,
+			selectedText: text,
+			lineCount: lines?.count ?? text.split(/\r?\n/).length,
+			...(lines ? { startLine: lines.start } : {}),
+			domRanges,
+		};
+	}
+
+	/**
+	 * The note lines (1-based) that selected text inside a rendered block came from. The
+	 * block's source runs from the line the editor puts it at to the next blank line — where
+	 * a callout or a table ends. Within it, the first and last selected lines are matched
+	 * against the source with markup and spacing left out, since the rendered text has
+	 * neither; if the first can't be matched, the whole block is the honest answer.
+	 */
+	private sourceLinesOf(cm: EditorView, block: HTMLElement, text: string): { start: number; count: number } | null {
+		let pos: number;
+		try {
+			pos = cm.posAtDOM(block);
+		} catch {
+			return null;
+		}
+		const doc = cm.state.doc;
+		const first = doc.lineAt(pos).number;
+		let last = first;
+		while (last < doc.lines && doc.line(last + 1).text.trim() !== "") last++;
+		const bare = (s: string): string => s.replace(/[\s>*_`~=|#[\]]/g, "");
+		const selected = text.split(/\r?\n/).map(bare).filter(Boolean);
+		const head = selected[0]?.slice(0, 8);
+		const tail = selected[selected.length - 1]?.slice(-8);
+		const lineWith = (probe: string, from: number): number | null => {
+			for (let n = from; n <= last; n++) if (bare(doc.line(n).text).includes(probe)) return n;
+			return null;
+		};
+		const start = head ? lineWith(head, first) : null;
+		if (start === null) return { start: first, count: last - first + 1 };
+		const end = (tail ? lineWith(tail, start) : start) ?? last;
+		return { start, count: end - start + 1 };
 	}
 
 	/** Write down where the reader is in the conversation on screen, before it's swapped out. */
