@@ -262,3 +262,11 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
 	mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
 }
+
+/* A conversation coming back with its note is rebuilt out of sight and shown once it is
+   back on the reading spot (see settleScroll in main.ts) — otherwise the empty list showed
+   for a moment at the top, and then the rebuild was seen scrolling into place. Opacity
+   rather than visibility or display: the list must still lay out to be measured. */
+.claudian-messages.claudian-enhanced-restoring {
+	opacity: 0;
+}

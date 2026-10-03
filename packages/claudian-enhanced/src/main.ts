@@ -97,6 +97,15 @@ const NEW_SESSION_COMMAND = "realclaudian:new-session";
  * coming back on its own.
  */
 const REMEMBERED_NOTES = 5;
+/** Claudian's replies. Prompts are left out on purpose: they're sticky (see styles.css), so
+ *  where one is drawn says where it's pinned, not where it sits in the conversation. */
+const CLAUDIAN_REPLY = ".claudian-message[data-message-id]:not(.claudian-message-user)";
+/** On a message list while a returning conversation is rebuilt behind it; see settleScroll. */
+const RESTORING_CLS = "claudian-enhanced-restoring";
+/** Longest a rebuilt conversation stays hidden waiting for its height to settle (ms). */
+const REVEAL_MAX_MS = 600;
+/** How long the reading spot is held after a restore, against late-rendering content (ms). */
+const HOLD_SPOT_MS = 1500;
 /**
  * Where Claudian stores one `<conversationId>.meta.json` per conversation. The folder is a
  * hardcoded constant in its bundle (not a setting), and each meta already records the note
@@ -205,6 +214,31 @@ interface ClaudianPluginApi {
 	getCachedConversation?: (id: string) => unknown;
 }
 
+/**
+ * Where the reader was in a conversation: the reply at the top of the view and how far
+ * past its top they had scrolled. A reply rather than a pixel offset, because the list is
+ * rebuilt on the way back and its content renders in stages — a plain scrollTop lands
+ * somewhere else until everything above it has caught up. `scrollTop` is the fallback for
+ * a conversation with no replies yet.
+ */
+interface ScrollSpot {
+	atBottom: boolean;
+	replyId: string | null;
+	offset: number;
+	scrollTop: number;
+}
+
+/**
+ * A message list a conversation is being put back into. "armed": the switch has been asked
+ * for and the old conversation is still on screen; "hidden": Claudian has emptied the list
+ * and is rebuilding it out of sight; "holding": shown again, and kept on the reading spot
+ * while late content settles.
+ */
+interface Restore {
+	token: number;
+	phase: "armed" | "hidden" | "holding";
+}
+
 /** A note and the conversation it was last discussed in. */
 interface RememberedNote {
 	path: string;
@@ -274,6 +308,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * leaving a note, read when arriving at one; see rememberConversation / restoreConversationFor.
 	 */
 	private remembered: RememberedNote[] = [];
+	/** The reading spot in each conversation left behind this session, by conversation id. */
+	private spots = new Map<string, ScrollSpot>();
+	/** Message lists a conversation is being restored into; our own scrolling leaves these alone. */
+	private restores = new Map<HTMLElement, Restore>();
+	private restoreSeq = 0;
 
 	async onload(): Promise<void> {
 		// Awaited rather than backgrounded: a restore that lost a race with this would
@@ -653,6 +692,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// First note we've seen (fresh load, or Claudian just appeared): there is no
 		// previous conversation to clear.
 		if (previous !== null && previous !== path) {
+			this.saveScrollSpot();
 			this.rememberConversation(previous);
 			if (this.restoreConversationFor(path) || this.resetSessionForNoteChange()) return;
 		}
@@ -722,9 +762,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// otherwise leave the previous note's conversation sitting under this note with the
 		// fallback already skipped. Clear it then instead — but only if we're still on the
 		// note that asked, since another switch may have landed while it was loading.
-		manager.openConversation(entry.conversationId, { preferNewTab: false }).catch(() => {
-			if (this.lastOpenedPath === notePath) this.resetSessionForNoteChange();
-		});
+		const scroller = this.visibleEl<HTMLElement>(CLAUDIAN_MESSAGES);
+		const token = scroller ? this.beginRestore(scroller) : 0;
+		manager.openConversation(entry.conversationId, { preferNewTab: false }).then(
+			() => {
+				if (scroller) this.settleScroll(scroller, entry.conversationId, token);
+			},
+			() => {
+				if (scroller) this.endRestore(scroller, token);
+				if (this.lastOpenedPath === notePath) this.resetSessionForNoteChange();
+			},
+		);
 		return true;
 	}
 
@@ -1151,15 +1199,22 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			let queued = false;
 			let promptsChanged = false;
 			for (const record of records) {
+				this.hideIfRebuilding(record);
 				submitted ??= this.addedUserMessage(record);
 				streamed ??= this.messagesListOf(record.target);
 				queued ||= this.isInQueueRow(record.target);
 				promptsChanged ||= this.changesPromptContent(record);
 			}
 			if (promptsChanged) this.scheduleFold(container);
-			// Both scroll "the list this landed in" — there's one per conversation tab.
-			if (submitted) this.scrollToBottom(submitted.closest(CLAUDIAN_MESSAGES));
-			else if (streamed) this.followToBottom(streamed);
+			// Both scroll "the list this landed in" — there's one per conversation tab. Not a
+			// conversation being put back, though: settleScroll positions that, its re-rendered
+			// prompts aren't submits, and pinning it here is what used to move it.
+			const submittedList = submitted?.closest<HTMLElement>(CLAUDIAN_MESSAGES) ?? null;
+			if (submittedList) {
+				if (!this.restores.has(submittedList)) this.scrollToBottom(submittedList);
+			} else if (streamed && !this.restores.has(streamed)) {
+				this.followToBottom(streamed);
+			}
 			if (queued) this.handleQueueChange();
 		});
 		this.submitScrollObserver.observe(container, {
@@ -1416,6 +1471,146 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		scroller.scrollTop = scroller.scrollHeight;
 		this.lastScrollTop.set(scroller, scroller.scrollTop);
 		// The scroll event lands asynchronously, so hold the flag past this frame.
+		requestAnimationFrame(() => {
+			this.selfScrolling = false;
+		});
+	}
+
+	/** Write down where the reader is in the conversation on screen, before it's swapped out. */
+	private saveScrollSpot(): void {
+		const id = this.getActiveTab()?.conversationId;
+		const scroller = this.visibleEl<HTMLElement>(CLAUDIAN_MESSAGES);
+		// A list still being restored hasn't reached its spot yet; what it shows isn't news.
+		if (!id || !scroller || this.restores.has(scroller)) return;
+		const top = scroller.getBoundingClientRect().top;
+		const reply = Array.from(scroller.querySelectorAll<HTMLElement>(CLAUDIAN_REPLY)).find(
+			(el) => el.getBoundingClientRect().bottom > top,
+		);
+		const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+		this.spots.delete(id); // re-inserted last, so the oldest is first in line to go
+		this.spots.set(id, {
+			atBottom: distance <= REATTACH_PX,
+			replyId: reply?.dataset.messageId ?? null,
+			offset: reply ? reply.getBoundingClientRect().top - top : 0,
+			scrollTop: scroller.scrollTop,
+		});
+		// Oldest first; a Map tolerates deleting the key it is iterating on.
+		for (const oldest of this.spots.keys()) {
+			if (this.spots.size <= 20) break;
+			this.spots.delete(oldest);
+		}
+	}
+
+	private beginRestore(scroller: HTMLElement): number {
+		const token = ++this.restoreSeq;
+		scroller.removeClass(RESTORING_CLS);
+		this.restores.set(scroller, { token, phase: "armed" });
+		// Never leave a list invisible: if the switch is swallowed somewhere along the way.
+		window.setTimeout(() => this.endRestore(scroller, token), 5000);
+		return token;
+	}
+
+	private endRestore(scroller: HTMLElement, token: number): void {
+		if (this.restores.get(scroller)?.token !== token) return;
+		this.restores.delete(scroller);
+		scroller.removeClass(RESTORING_CLS);
+	}
+
+	/**
+	 * Hide a list the moment Claudian empties it to rebuild a returning conversation. Mutation
+	 * callbacks run before the next paint and Claudian rebuilds in one go, so the old
+	 * conversation stays on screen until then and the half-built one is never shown — no
+	 * jump to the top, no scrolling into place.
+	 */
+	private hideIfRebuilding(record: MutationRecord): void {
+		if (record.type !== "childList" || record.removedNodes.length === 0) return;
+		const scroller = record.target as HTMLElement;
+		const restore = this.restores.get(scroller);
+		if (restore?.phase !== "armed") return;
+		restore.phase = "hidden";
+		scroller.addClass(RESTORING_CLS);
+	}
+
+	/**
+	 * Put the reader back where they were once the returning conversation is in the list.
+	 *
+	 * Rendering doesn't end when Claudian's switch resolves: message content fills in over
+	 * the next frames, growing the list above and below the spot. So the spot is re-applied
+	 * every frame, the list stays hidden until its height has held still for a frame,
+	 * and the spot is held a while after that against anything that renders late — until
+	 * the reader touches the list, which hands it back to them.
+	 */
+	private settleScroll(scroller: HTMLElement, conversationId: string, token: number): void {
+		const spot = this.spots.get(conversationId) ?? null;
+		const start = performance.now();
+		let lastHeight = -1;
+		let steady = 0;
+		let touched = false;
+		const onInput = (): void => {
+			touched = true;
+		};
+		const doc = scroller.ownerDocument;
+		scroller.addEventListener("wheel", onInput, { passive: true });
+		scroller.addEventListener("touchstart", onInput, { passive: true });
+		scroller.addEventListener("pointerdown", onInput);
+		doc.addEventListener("keydown", onInput, true);
+		const finish = (): void => {
+			scroller.removeEventListener("wheel", onInput);
+			scroller.removeEventListener("touchstart", onInput);
+			scroller.removeEventListener("pointerdown", onInput);
+			doc.removeEventListener("keydown", onInput, true);
+			const ours = this.restores.get(scroller)?.token === token;
+			this.endRestore(scroller, token);
+			if (!ours) return;
+			// Streaming follows a list only while the reader is at its end.
+			const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+			if (distance <= REATTACH_PX) this.detached.delete(scroller);
+			else this.detached.add(scroller);
+		};
+		const step = (): void => {
+			const restore = this.restores.get(scroller);
+			// Superseded by a newer switch, or the tab moved on to something else.
+			if (restore?.token !== token || this.getActiveTab()?.conversationId !== conversationId) {
+				finish();
+				return;
+			}
+			if (!touched) this.applySpot(scroller, spot);
+			const height = scroller.scrollHeight;
+			steady = height === lastHeight ? steady + 1 : 0;
+			lastHeight = height;
+			const elapsed = performance.now() - start;
+			if (restore.phase !== "holding" && (steady >= 1 || elapsed > REVEAL_MAX_MS)) {
+				restore.phase = "holding";
+				scroller.removeClass(RESTORING_CLS);
+			}
+			if (touched || elapsed > HOLD_SPOT_MS) {
+				finish();
+				return;
+			}
+			requestAnimationFrame(step);
+		};
+		step();
+	}
+
+	/** Scroll to a saved spot; with none (not read here this session), to the end. */
+	private applySpot(scroller: HTMLElement, spot: ScrollSpot | null): void {
+		this.selfScrolling = true;
+		if (!spot || spot.atBottom) {
+			scroller.scrollTop = scroller.scrollHeight;
+		} else {
+			const reply = spot.replyId
+				? scroller.querySelector<HTMLElement>(
+						`.claudian-message[data-message-id="${CSS.escape(spot.replyId)}"]`,
+					)
+				: null;
+			if (reply) {
+				const drawnAt = reply.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+				scroller.scrollTop += drawnAt - spot.offset;
+			} else {
+				scroller.scrollTop = spot.scrollTop;
+			}
+		}
+		this.lastScrollTop.set(scroller, scroller.scrollTop);
 		requestAnimationFrame(() => {
 			this.selfScrolling = false;
 		});
