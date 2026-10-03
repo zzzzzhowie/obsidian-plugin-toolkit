@@ -317,6 +317,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private selfScrolling = false;
 	/** The prompt currently marked as pinned; re-marking the same one writes nothing. */
 	private pinnedPrompt: HTMLElement | null = null;
+	/** How far the pinned prompt is pushed up by the next one arriving; see markPinnedPrompt. */
+	private pinnedPush = 0;
 	/** Pending frame for the pinned-prompt pass, so scrolling schedules at most one. */
 	private pinnedFrame: number | null = null;
 	/** rAF handle for the next fold pass; see scheduleFold. */
@@ -458,6 +460,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (this.syncTimer !== null) window.clearTimeout(this.syncTimer);
 		if (this.pinnedFrame !== null) cancelAnimationFrame(this.pinnedFrame);
 		this.pinnedPrompt?.removeClass(PINNED_CLS);
+		this.pinnedPrompt?.style.removeProperty("transform");
 	}
 
 	private onEscapeCapture = (e: KeyboardEvent): void => {
@@ -1367,8 +1370,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * Every rect is read before any class is written, and nothing is written at all unless
-	 * the pinned prompt actually changed. Both matter:
+	 * Every rect is read before anything is written, and no class is written at all unless
+	 * the pinned prompt actually changed (the push below is a style, and only moves while
+	 * one prompt hands over to the next). Both matter:
 	 *
 	 * - interleaving reads and writes makes the browser re-run layout between each one, so
 	 *   a long conversation paid O(n) forced reflows per scroll — enough on its own to make
@@ -1404,18 +1408,42 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				pinnedIndex = index;
 			} else break;
 		}
-		if (this.pinnedPrompt === pinned) return;
-		this.pinnedPrompt?.removeClass(PINNED_CLS);
-		pinned?.addClass(PINNED_CLS);
-		this.pinnedPrompt = pinned;
-		// Everything before the pinned prompt is stuck underneath it. Hiding rather than
-		// unsticking keeps this free of jitter: visibility takes the buried prompts out of
-		// sight without touching layout, so nothing below them moves and the pinned one
-		// never has to be re-positioned. Re-adding a class the element already has is not
-		// an attribute change, so these passes stay quiet for the MutationObserver too.
-		for (const [index, prompt] of prompts.entries()) {
-			if (index < pinnedIndex) prompt.addClass(BURIED_CLS);
-			else prompt.removeClass(BURIED_CLS);
+		// The next prompt, on its way up, pushes the pinned one out ahead of it instead of
+		// sliding over it — as a list's section headers do. Every prompt sticks to the same
+		// edge of the same list, so CSS alone can only stack them: a header is pushed out by
+		// the end of its own section, and Claudian has no element per turn to be that
+		// section. So the pinned prompt is moved up by however far the next one has eaten
+		// into its height, which keeps its bottom edge on the next one's top. The rect's
+		// height rather than offsetHeight, which rounds and so pushed half a pixel early;
+		// a translate doesn't change the height. Under half a pixel counts as none.
+		const next = pinned ? prompts[pinnedIndex + 1] : undefined;
+		const eaten =
+			pinned && next
+				? pinned.getBoundingClientRect().height - (next.getBoundingClientRect().top - listTop)
+				: 0;
+		const push = eaten >= 0.5 ? eaten : 0;
+		if (this.pinnedPrompt !== pinned) {
+			this.pinnedPrompt?.removeClass(PINNED_CLS);
+			this.pinnedPrompt?.style.removeProperty("transform");
+			pinned?.addClass(PINNED_CLS);
+			this.pinnedPrompt = pinned;
+			this.pinnedPush = 0;
+			// Everything before the pinned prompt is stuck underneath it. Hiding rather than
+			// unsticking keeps this free of jitter: visibility takes the buried prompts out of
+			// sight without touching layout, so nothing below them moves and the pinned one
+			// never has to be re-positioned. Re-adding a class the element already has is not
+			// an attribute change, so these passes stay quiet for the MutationObserver too.
+			for (const [index, prompt] of prompts.entries()) {
+				if (index < pinnedIndex) prompt.addClass(BURIED_CLS);
+				else prompt.removeClass(BURIED_CLS);
+			}
+		}
+		// A style write, which the observer doesn't watch (it filters on `class`), and only
+		// while the hand-over is under way: in the steady state the push is 0 and stays 0.
+		if (pinned && push !== this.pinnedPush) {
+			if (push > 0) pinned.style.transform = `translateY(${-push}px)`;
+			else pinned.style.removeProperty("transform");
+			this.pinnedPush = push;
 		}
 	}
 
