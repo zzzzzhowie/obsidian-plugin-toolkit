@@ -66,6 +66,11 @@ export class CommentsPanel extends ItemView {
 		super(leaf);
 	}
 
+	/** Whether this panel was made by `host` — the plugin instance currently loaded. */
+	isFor(host: PanelHost): boolean {
+		return this.host === host;
+	}
+
 	getViewType(): string {
 		return COMMENTS_VIEW;
 	}

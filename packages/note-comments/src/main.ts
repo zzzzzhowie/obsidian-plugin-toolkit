@@ -142,6 +142,11 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 		// the stored key. A deleted note's comments are parked, not dropped.
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.store.rename(oldPath, file.path)));
 		this.registerEvent(this.app.vault.on("delete", (file) => this.store.trashPath(file.path)));
+		// A comments panel left open across a reload of this plugin keeps the view the old
+		// instance made — and with it the old, unloaded store, which never writes again.
+		// Comments added there then lived only in memory and were gone at the next restart.
+		// Rebuild any such panel so it belongs to this instance.
+		this.app.workspace.onLayoutReady(() => void this.rebuildForeignPanels());
 		this.app.workspace.onLayoutReady(() => {
 			// `create` fires for every file while the vault loads; only one appearing after
 			// that is a note coming back.
@@ -165,6 +170,15 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 				tasks.add(() => this.store.save());
 			}),
 		);
+	}
+
+	private async rebuildForeignPanels(): Promise<void> {
+		for (const leaf of this.app.workspace.getLeavesOfType(COMMENTS_VIEW)) {
+			if (leaf.view instanceof CommentsPanel && leaf.view.isFor(this)) continue;
+			const state = leaf.getViewState();
+			await leaf.setViewState({ type: "empty" });
+			await leaf.setViewState({ ...state, type: COMMENTS_VIEW });
+		}
 	}
 
 	/** Another device wrote data.json (it arrived through iCloud): fold it in, don't replace. */

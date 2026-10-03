@@ -47,6 +47,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * so a deleted note's comments are held for a while instead of dropped on the spot.
  */
 const TRASH_DAYS = 30;
+/** A read or write of data.json taking longer than this is given up on, so saving can't stall. */
+const WRITE_TIMEOUT_MS = 15_000;
 const TOMBSTONE_DAYS = 90;
 
 export class CommentStore {
@@ -243,6 +245,16 @@ export class CommentStore {
 	 */
 	mergeExternal(raw: unknown): void {
 		if (raw === null || raw === undefined || this.disposed) return;
+		const incoming = this.mergeIn(raw);
+		// What the other machine wrote is what is on disk now. Compare against it, so a merge
+		// that brings nothing new doesn't bounce the same file straight back.
+		this.lastWritten = JSON.stringify(incoming);
+		this.scheduleSave();
+		this.emit("*");
+	}
+
+	/** Fold `raw` (data.json as some device wrote it) into the store; returns it normalised. */
+	private mergeIn(raw: unknown): StoredData {
 		const incoming = normalise(raw);
 
 		for (const [id, at] of Object.entries(incoming.tombstones)) {
@@ -304,12 +316,7 @@ export class CommentStore {
 			const mine = this.data.trash[path];
 			if (!mine || parked.deletedAt > mine.deletedAt) this.data.trash[path] = parked;
 		}
-
-		// What the other machine wrote is what is on disk now. Compare against it, so a merge
-		// that brings nothing new doesn't bounce the same file straight back.
-		this.lastWritten = JSON.stringify(incoming);
-		this.scheduleSave();
-		this.emit("*");
+		return incoming;
 	}
 
 	/** Write now, one write in flight at a time; a change during a write triggers one more. */
@@ -323,17 +330,41 @@ export class CommentStore {
 			try {
 				do {
 					this.saveAgain = false;
-					const text = JSON.stringify(this.data);
-					if (text === this.lastWritten) continue;
-					if (!this.backedUp) await this.backup();
-					await this.plugin.saveData(this.data);
-					this.lastWritten = text;
+					await this.writeMerged();
 				} while (this.saveAgain);
+			} catch (error) {
+				console.error("Note comments: saving failed; the next change will try again", error);
 			} finally {
 				this.saving = null;
 			}
 		})();
 		return this.saving;
+	}
+
+	/**
+	 * One write: read what's on disk first and fold it in, then write the result.
+	 *
+	 * Writing this store as it is would be enough if every other device's write were always
+	 * merged in here first — but a phone doesn't reliably notice data.json arriving through
+	 * iCloud, and a store loaded before another device's comment was written knows nothing of
+	 * it. Its next write then replaced the file, comment gone, with nothing to show it ever
+	 * existed. Reading first means a write here can only add to what's there.
+	 *
+	 * Bounded in time: a write that never settles used to hold `saving` for good, and every
+	 * later change was quietly never written.
+	 */
+	private async writeMerged(): Promise<void> {
+		const onDisk: unknown = await withTimeout(this.plugin.loadData(), WRITE_TIMEOUT_MS);
+		// `undefined`: the file is there but won't parse (half-written by sync) — write ours.
+		if (onDisk !== null && onDisk !== undefined && JSON.stringify(normalise(onDisk)) !== this.lastWritten) {
+			this.mergeIn(onDisk);
+			this.emit("*");
+		}
+		const text = JSON.stringify(this.data);
+		if (text === this.lastWritten) return;
+		if (!this.backedUp) await this.backup();
+		await withTimeout(this.plugin.saveData(this.data), WRITE_TIMEOUT_MS);
+		this.lastWritten = text;
 	}
 
 	/** Coalesce a burst of changes (a folder rename, a merge) into one write. */
@@ -466,4 +497,20 @@ function movedPath(path: string, oldPath: string, newPath: string): string | nul
 	if (path === oldPath) return newPath;
 	if (path.startsWith(`${oldPath}/`)) return `${newPath}/${path.slice(oldPath.length + 1)}`;
 	return null;
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timer = window.setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms);
+		work.then(
+			(value) => {
+				window.clearTimeout(timer);
+				resolve(value);
+			},
+			(error: unknown) => {
+				window.clearTimeout(timer);
+				reject(error instanceof Error ? error : new Error(String(error)));
+			},
+		);
+	});
 }
