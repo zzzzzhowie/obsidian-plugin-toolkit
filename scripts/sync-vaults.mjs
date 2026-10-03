@@ -31,7 +31,10 @@ import { homedir } from "node:os";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
-const EXCLUDES = ["data.json"]; // per-vault personal config — never touched
+// Files a plugin writes at runtime, in its own folder: never part of a build, so --delete
+// would remove them. data.json is its settings / data; data.backup.json is the copy Note
+// Comments keeps of data.json before its first write each session — the sync was deleting it.
+const EXCLUDES = ["data.json", "data.backup.json"];
 
 // The vault OBSIDIAN_PLUGINS_DIR points to is the CSS-snippets source of truth.
 // OBSIDIAN_PLUGINS_DIR = <vault>/.obsidian/plugins, so the source snippets dir is
