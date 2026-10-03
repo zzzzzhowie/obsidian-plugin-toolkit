@@ -18,6 +18,9 @@ import { FileHiderManager } from "./hider";
 import { registerReuseTab } from "./reuse-tab";
 import { openInBrowserSupported, openInDefaultBrowser } from "./open-in-browser";
 
+/** The `file-menu` sources that get "Open in default browser". */
+const BROWSER_MENU_SOURCES = new Set(["file-explorer-context-menu", "tab-header", "more-options"]);
+
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
 	pinnedItemsManager: PinnedItemsManager;
@@ -65,8 +68,9 @@ export default class MyPlugin extends Plugin {
 				"file-menu",
 				(menu: Menu, file: TAbstractFile, source: string) => {
 					this.addContextMenuItems(menu, file);
-					// Only from the file explorer's own right-click menu. A folder with a
-					// folder note stands for that note in the tree, so it opens the note.
+					// From the file explorer, a tab's right-click menu and the note's "⋯" menu —
+					// the menus Obsidian itself puts file actions in. A folder with a folder
+					// note stands for that note in the tree, so it opens the note.
 					const target =
 						file instanceof TFile
 							? file
@@ -74,7 +78,7 @@ export default class MyPlugin extends Plugin {
 								? getFolderNote(file, this.app)
 								: null;
 					if (
-						source === "file-explorer-context-menu" &&
+						BROWSER_MENU_SOURCES.has(source) &&
 						target &&
 						openInBrowserSupported()
 					) {
