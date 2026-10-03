@@ -19,14 +19,14 @@ The guiding principle after a lot of iteration: **lean on Obsidian's native sele
 
 - **Toggle** — looks up the `claudian-view` leaf. If it's the visible tab, reveal the sidebar's `outline` leaf; otherwise reveal Claudian (or run `realclaudian:open-view` on the very first open).
 - **Never closes the dock** — uses `revealLeaf` to switch tabs and calls `WorkspaceSidedock.expand()` as a guard; it never detaches the leaf or collapses the sidebar.
-- **Focus** — polls for the *visible* `textarea.claudian-input` (Claudian keeps hidden composers for background tabs) and re-asserts focus until it sticks, beating Claudian's own post-render `rootEl.focus()`.
+- **Focus** — polls for the *visible* `.claudian-input` composer (Claudian keeps hidden composers for background tabs) and re-asserts focus until it sticks, beating Claudian's own post-render `rootEl.focus()`. Since Claudian 2.3 the composer is a CodeMirror host, so focus counts as held while it is anywhere inside it.
 - **Generation guard** — every press bumps a counter so a stale focus loop from a previous press bails, preventing rapid `⌘L` from stacking loops.
 - **Selection carry-over** — Claudian reads the selection only from the *active* `MarkdownView` via its own poll. When flipping to Outline we reveal the outline tab but immediately hand "active leaf" back to the note (`setActiveLeaf(note, { focus: false })`), so Claudian keeps seeing the note's selection and never drops the carried context. We do **not** touch the selection or draw any highlight — the visible highlight after `⌘L` is Claudian's own `.claudian-selection-highlight`.
 - **Esc to cancel** — a window-level capture-phase `keydown` listener collapses the editor selection and refocuses the editor. Claudian's selection poll keeps its context alive only while focus is inside its sidebar, so moving focus out is what makes it release the context, chip, and highlight (on its next ~250 ms poll).
 
 ## Notes
 
-- Depends on the Claudian plugin being installed and enabled. The view type (`claudian-view`), input selector (`textarea.claudian-input`), and open command (`realclaudian:open-view`) are Claudian internals — if a Claudian update changes them, update the constants at the top of `src/main.ts`.
+- Depends on the Claudian plugin being installed and enabled, built against Claudian 2.3.12. The view type (`claudian-view`), composer selector (`.claudian-input`), open command (`realclaudian:open-view`), and the reach into its tab manager / Linked content controller are Claudian internals — if a Claudian update changes them, update the constants and interfaces at the top of `src/main.ts`.
 - `styles.css` carries a single rule that blanks Claudian's `.claudian-selection-highlight` while the editor is focused, so it doesn't stack on top of the native selection during selecting. Native Obsidian selection is otherwise untouched.
 - Desktop only.
 

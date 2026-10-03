@@ -1,14 +1,24 @@
-import { Plugin, setIcon, WorkspaceLeaf } from "obsidian";
+import { Plugin, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
 const CLAUDIAN_VIEW = "claudian-view";
-/** The main chat composer inside that leaf (placeholder "How can i help you today?"). */
-const CLAUDIAN_INPUT = "textarea.claudian-input";
+/**
+ * The main chat composer inside that leaf, one per conversation tab. Since Claudian 2.3 it is
+ * a CodeMirror host `<div>`, not a `<textarea>`: focusing the host hands focus on to the
+ * editor's own `.cm-content` inside it, so "focused" means focus is *within* this element.
+ */
+const CLAUDIAN_INPUT = ".claudian-input";
 /** The scrollable message list (overflow-y:auto); one per conversation tab. */
 const CLAUDIAN_MESSAGES = ".claudian-messages";
-/** A user's own message bubble — appears the moment a prompt is submitted. */
+/**
+ * A user's own message — appears the moment a prompt is submitted. Since Claudian 2.3 this is
+ * a wrapper: the bubble (its background) is the `.claudian-message-content` inside it, and the
+ * action toolbar sits below the bubble in normal flow.
+ */
 const CLAUDIAN_USER_MESSAGE = ".claudian-message-user";
+/** The rendered prompt text inside the bubble — what a fold measures and clips. */
+const CLAUDIAN_PROMPT_TEXT = ".claudian-message-content > .claudian-text-block";
 /**
  * Marks the prompt currently pinned to the top of the list. Only while it's actually
  * pinned may the header styling paint outside the bubble — see markPinnedPrompt.
@@ -49,28 +59,36 @@ const FOLLOW_THRESHOLD_PX = 200;
  * deliberately scrolled up should need them to actually return to the end.
  */
 const REATTACH_PX = 24;
-/** Row above the composer; shows "⌐ Queued: …" for a prompt submitted mid-stream. */
-const CLAUDIAN_QUEUE_ROW = ".claudian-input-queue-row";
-/** The summary label inside that row (Claudian rebuilds it on every queue update). */
+/**
+ * Strip on top of the composer showing a prompt submitted mid-stream (queued, or a pending
+ * steer). Claudian shows/hides it by toggling `claudian-hidden` / `claudian-visible-flex`.
+ */
+const CLAUDIAN_QUEUE_ROW = ".claudian-input-queue-strip";
+/** The summary label inside that strip (Claudian rebuilds it on every queue update). */
 const CLAUDIAN_QUEUE_TEXT = ".claudian-queue-indicator-text";
 /**
  * Links inside a Claudian response. It renders vault links as `.internal-link` and
  * stamps its own file mentions with `.claudian-file-link`; both go through the same
- * click handler, which always opens a new tab (see interceptLinkClicks).
+ * click handler, which reveals a leaf already showing the file but otherwise opens a
+ * new tab (see interceptLinkClicks).
  */
 const CLAUDIAN_LINK = ".claudian-file-link, .internal-link";
 /**
- * Claudian's own per-prompt toolbar (copy / edit / rewind / fork). It is created *inside* the
- * user bubble, so a click there has to keep its own meaning — see interceptPinnedPromptClicks.
+ * Claudian's own per-prompt toolbar (copy / rewind / fork / timestamp). It is created *inside*
+ * the user message, so a click there has to keep its own meaning — see
+ * interceptPinnedPromptClicks. It also carries `claudian-message-actions`, which is what
+ * reveals it on hover.
  */
 const CLAUDIAN_USER_ACTIONS = ".claudian-user-msg-actions";
+const CLAUDIAN_USER_ACTIONS_CLS = "claudian-user-msg-actions claudian-message-actions";
 /** Claudian's own command that opens/reveals its view. */
 const OPEN_COMMAND = "realclaudian:open-view";
 /**
- * Claudian's own command that starts a fresh conversation *in the current tab* (no tab is
- * created or destroyed). Its createNew() resets the conversation, saves the old one to
- * history, and calls autoAttachActiveFile() — so the note we just switched to is attached
- * for us. Used to clear context on a note change; see resetSessionForNoteChange.
+ * Claudian's own "Replace current conversation" command: a fresh conversation *in the current
+ * tab* (no tab is created or destroyed). The old one stays in history, and the new one starts
+ * as a Linked content draft that follows the active note — so the note we just switched to is
+ * linked for us. Used to clear context on a note change; see resetSessionForNoteChange.
+ * Claudian disables it in its wide dual-pane layout, where this reports false.
  */
 const NEW_SESSION_COMMAND = "realclaudian:new-session";
 /**
@@ -84,6 +102,8 @@ const REMEMBERED_NOTES = 5;
  * hardcoded constant in its bundle (not a setting), and each meta already records the note
  * the conversation belongs to — which is what we seed our own memory from on first run, so
  * the feature works against conversations that predate it. See seedFromClaudianHistory.
+ * Since 2.3 the note is `linkedContentPath` and the recency `lastActivityAt`; older metas
+ * said `currentNote` / `updatedAt`, and both spellings are read.
  */
 const CLAUDIAN_SESSIONS_DIR = ".claudian/sessions";
 const SESSION_META_SUFFIX = ".meta.json";
@@ -106,7 +126,7 @@ interface AppWithCommands {
 /**
  * The bits of Claudian's active *conversation tab* state we read before clearing context.
  * `isStreaming` guards a reply in flight; `messages` tells us whether there's anything worth
- * clearing. Optional all the way down, same contract as {@link ClaudianFileContext}.
+ * clearing. Optional all the way down, same contract as {@link ClaudianLinkedContent}.
  */
 interface ClaudianTabState {
 	isStreaming?: boolean;
@@ -114,24 +134,19 @@ interface ClaudianTabState {
 }
 
 /**
- * Claudian's per-tab file-context manager (read/write reach into its internals). Property
+ * Claudian's per-tab Linked content controller — the note chip under the composer. Property
  * names survive minification, so we address them directly; every hop is optional so a
  * future Claudian build that renames these degrades to a no-op instead of throwing.
  *
- * `setCurrentNote(path)` is the seam we drive: it sets the path, attaches the file, and
- * re-renders the current-note chip — and, unlike `handleFileOpen`, it is NOT gated by
- * `isSessionStarted`, so it updates the chip mid-conversation (where file-open is frozen).
- * `state.currentNoteSent` is Claudian's "already sent the current note this turn" flag; the
- * submit path only embeds the note while it's false, so we clear it after a switch to let
- * the newly-attached note ride the next prompt once (submit re-sets it afterward).
+ * A conversation's note is no longer something we can move. While the tab is an unsent draft
+ * (`mode: "auto-draft"`) the chip follows the active note by itself; the first prompt locks
+ * it (`"locked"`) to that note for good, and Claudian throws if anything tries to change a
+ * locked one. So we only read the snapshot, plus `handleActiveFileChanged` — Claudian's own
+ * file-open hook, which re-points a draft and ignores anything else.
  */
-interface ClaudianFileContext {
-	currentNotePath?: string | null;
-	setCurrentNote?: (path: string) => void;
-	state?: {
-		detachFile?: (path: string) => void;
-		currentNoteSent?: boolean;
-	};
+interface ClaudianLinkedContent {
+	getSnapshot?: () => { mode?: string; path?: string | null };
+	handleActiveFileChanged?: (file: TFile | null, isActiveOwner: boolean) => void;
 }
 
 /**
@@ -160,7 +175,7 @@ interface ClaudianTab {
 	 */
 	hydrationState?: string;
 	state?: ClaudianTabState;
-	ui?: { fileContextManager?: ClaudianFileContext };
+	ui?: { linkedContentController?: ClaudianLinkedContent };
 	controllers?: { selectionController?: ClaudianSelectionController };
 }
 
@@ -171,12 +186,10 @@ interface ClaudianTab {
  * `preferNewTab: false` it first switches to a tab already holding that conversation,
  * then to another Claudian view holding it, and only otherwise swaps the conversation
  * into the *current* tab. So no path through it creates a tab, which is the whole point
- * — Claudian caps tabs at `maxTabs` (3 by default) and we never want to spend one.
+ * — this plugin keeps Claudian to the one tab it is already on.
  */
 interface ClaudianTabManager {
 	getActiveTab?: () => ClaudianTab | null;
-	/** Claudian's own tab cap: `settings.maxTabs ?? 3`, clamped to 3–10. See enforceSingleTab. */
-	getMaxTabs?: () => number;
 	openConversation?: (
 		id: string,
 		options: { preferNewTab: boolean },
@@ -196,6 +209,19 @@ interface ClaudianPluginApi {
 interface RememberedNote {
 	path: string;
 	conversationId: string;
+}
+
+/**
+ * The fields we read from one of Claudian's session metas. Both spellings of the note and of
+ * recency are listed — see CLAUDIAN_SESSIONS_DIR.
+ */
+interface SessionMeta {
+	id?: string;
+	linkedContentPath?: string;
+	currentNote?: string;
+	lastActivityAt?: number;
+	updatedAt?: number;
+	createdAt?: number;
 }
 
 /** Our own data.json. Most recently visited note first; at most REMEMBERED_NOTES entries. */
@@ -243,8 +269,6 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private expandedPrompts = new WeakSet<HTMLElement>();
 	/** Re-runs the fold pass when the panel resizes, since width changes how text wraps. */
 	private foldResizeObserver: ResizeObserver | null = null;
-	/** Set once Claudian's tab cap is ours, so the poll and a re-entry don't patch twice. */
-	private tabCapPinned = false;
 	/**
 	 * Notes we can put a conversation back for, most recently visited first. Written when
 	 * leaving a note, read when arriving at one; see rememberConversation / restoreConversationFor.
@@ -285,12 +309,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerDomEvent(window, "keydown", this.onEscapeCapture, {
 			capture: true,
 		});
-		// Keep Claudian's "current note" chip fresh without a manual ⌘L. Claudian only
-		// refreshes that chip off the `file-open` event; when the active leaf has been
+		// Keep Claudian's conversation in step with the open note without a manual ⌘L:
+		// switching notes brings that note's conversation back or starts a fresh one. A
+		// file-open alone isn't enough to notice the switch — when the active leaf has been
 		// sitting on Claudian's sidebar, Obsidian's active *file* stays frozen and no
-		// file-open fires, so switching notes leaves the chip stale. Re-asserting the
-		// note as the active leaf reproduces the exact transition ⌘L relies on and
-		// re-fires file-open. See syncCurrentNoteChip.
+		// file-open fires — so leaf changes are watched too. See syncCurrentNoteChip.
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => {
 				this.scheduleChipSync();
@@ -343,18 +366,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// first (it stops immediate propagation), and this never sees that click.
 		this.interceptPinnedPromptClicks();
 		// Cold-start fix. Claudian restores its last conversation together with *that
-		// conversation's* saved note. When that was a started/interrupted session,
-		// Claudian deliberately freezes the note (handleFileOpen's isSessionStarted
-		// gate), so it stays stuck on the old note even though a different note is open
-		// now — no file-open can dislodge it, and the active-leaf sync above is a no-op
-		// (the open note is already active, so no file-open fires). When the restored
-		// note genuinely mismatches the open note, start a fresh session: its createNew
-		// re-attaches the note we actually have open and the chip finally matches. We
-		// fire only on a real mismatch so a restart never discards a conversation whose
-		// note already matches. See reconcileChipOnStartup.
+		// conversation's* note, and a sent conversation is locked to it — so it stays on the
+		// old note even though a different note is open now, and the active-leaf sync above
+		// is a no-op (the open note is already active, so nothing changes). When the restored
+		// note genuinely mismatches the open note, treat it as arriving from that note: this
+		// note gets its own conversation back, or a fresh one that links the note we
+		// actually have open. We fire only on a real mismatch so a restart never discards a
+		// conversation whose note already matches. See reconcileChipOnStartup.
 		this.app.workspace.onLayoutReady(() => {
 			this.reconcileChipOnStartup(Date.now() + 8000);
-			this.enforceSingleTab(Date.now() + 8000);
 		});
 	}
 
@@ -458,10 +478,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		}
 		if (noteLeaf) this.keepNoteActive(noteLeaf, Date.now() + 900, gen);
 		this.stickyFocusInput(Date.now() + 1500, gen);
-		// Re-evaluate the current-note chip on every show. Clearing lastSyncedPath forces the
-		// sync past its debounce guard even when the open note hasn't changed, so a note
-		// frozen by a started/restored session snaps to the tab that's actually open. The
-		// sync settles after keepNoteActive stops re-asserting the note (see syncCurrentNoteChip).
+		// Re-evaluate the note on every show. Clearing lastSyncedPath forces the sync past its
+		// debounce guard even when the open note hasn't changed, so a note switched while
+		// Claudian was hidden is caught up now. The sync settles after keepNoteActive stops
+		// re-asserting the note (see syncCurrentNoteChip).
 		this.lastSyncedPath = null;
 		this.scheduleChipSync();
 	}
@@ -552,6 +572,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * re-assert focus until it holds for a short settle window or the deadline
 	 * passes. The tab is already revealed by the caller, so this never re-reveals
 	 * it (which would flicker the dock).
+	 *
+	 * Held means focus is anywhere *inside* the composer host: focusing the host makes
+	 * Claudian move focus on to its CodeMirror content, so the host itself is never the
+	 * active element. Comparing for equality would see focus as lost on every tick and
+	 * keep yanking it back for the whole window, fighting whatever is being typed.
 	 */
 	private stickyFocusInput(deadline: number, gen: number): void {
 		const settleMs = 150;
@@ -561,7 +586,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (gen !== this.gen) return; // superseded by a newer ⌘L
 			const input = this.visibleInput();
 			if (input) {
-				if (document.activeElement === input) {
+				if (input.contains(document.activeElement)) {
 					if (!heldSince) heldSince = Date.now();
 					if (Date.now() - heldSince >= settleMs) return; // focus held
 				} else {
@@ -588,12 +613,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * Point Claudian's current-note chip at the note that's actually open. Only runs while
-	 * Claudian is visible and the open note changed from the one we last synced —
+	 * Bring Claudian's conversation in line with the note that's actually open. Only runs
+	 * while Claudian is visible and the open note changed from the one we last synced —
 	 * `lastSyncedPath` just skips redundant work on active-leaf churn (the ⌘L reveal path
-	 * clears it to force a re-check). Unlike the old file-open re-fire, this writes the note
-	 * through `setCurrentNote` (see attachNoteToClaudian), which is ungated — so it also
-	 * refreshes the chip during a started conversation, where Claudian freezes file-open.
+	 * clears it to force a re-check).
 	 */
 	private syncCurrentNoteChip(): void {
 		const claudianLeaf = this.getClaudianLeaf();
@@ -618,28 +641,22 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * this always did. Either way the outgoing note's conversation is written down first, so
 	 * the note we're leaving can be returned to later.
 	 *
-	 * When neither branch takes (a reply is streaming, the conversation is empty and there's
-	 * nothing to clear, or Claudian's internals have drifted) we're left re-pointing the
-	 * attached note in place, the oldest fallback of the three.
+	 * Both settle the note themselves: a restored conversation is locked to its own note, and
+	 * a fresh one starts as a draft that links the active note. When neither branch takes (a
+	 * reply is streaming, the conversation is empty and there's nothing to clear, or
+	 * Claudian's internals have drifted) all that's left is nudging a draft onto this note —
+	 * a sent conversation's note can't be moved any more.
 	 */
 	private handleNoteChange(path: string): void {
 		const previous = this.lastOpenedPath;
 		this.lastOpenedPath = path;
 		// First note we've seen (fresh load, or Claudian just appeared): there is no
-		// previous conversation to clear, so only attach.
+		// previous conversation to clear.
 		if (previous !== null && previous !== path) {
 			this.rememberConversation(previous);
-			if (this.restoreConversationFor(path) || this.resetSessionForNoteChange()) {
-				// Both branches settle asynchronously and attach a note themselves —
-				// createNew() from `getActiveFile()`, a restored conversation from its own
-				// saved note — and neither is guaranteed to agree with the leaf we measured.
-				// Re-assert once it lands; attachNoteToClaudian is idempotent and null-safe,
-				// so this is a no-op whenever it already matches.
-				window.setTimeout(() => this.attachNoteToClaudian(path), 300);
-				return;
-			}
+			if (this.restoreConversationFor(path) || this.resetSessionForNoteChange()) return;
 		}
-		this.attachNoteToClaudian(path);
+		this.followNoteInDraft(path);
 	}
 
 	/**
@@ -730,7 +747,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 
 	/**
 	 * Load the note→conversation memory, seeding it from Claudian's own history the first
-	 * time. Claudian records a `currentNote` on every conversation, so the pairings we want
+	 * time. Claudian records the linked note on every conversation, so the pairings we want
 	 * already exist on disk — without this the feature would sit idle until you'd switched
 	 * notes enough times to rebuild what was already known.
 	 *
@@ -784,10 +801,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private async claudianNoteFor(conversationId: string): Promise<string | null> {
 		const path = `${CLAUDIAN_SESSIONS_DIR}/${conversationId}${SESSION_META_SUFFIX}`;
 		try {
-			const meta = JSON.parse(
-				await this.app.vault.adapter.read(path),
-			) as { currentNote?: string };
-			return meta.currentNote ?? null;
+			const meta = JSON.parse(await this.app.vault.adapter.read(path)) as SessionMeta;
+			return meta.linkedContentPath ?? meta.currentNote ?? null;
 		} catch {
 			return null;
 		}
@@ -809,17 +824,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		for (const file of (await adapter.list(CLAUDIAN_SESSIONS_DIR)).files) {
 			if (!file.endsWith(SESSION_META_SUFFIX)) continue;
 			try {
-				const meta = JSON.parse(await adapter.read(file)) as {
-					id?: string;
-					currentNote?: string;
-					updatedAt?: number;
-					createdAt?: number;
-				};
-				if (!meta.id || !meta.currentNote) continue;
+				const meta = JSON.parse(await adapter.read(file)) as SessionMeta;
+				const note = meta.linkedContentPath ?? meta.currentNote;
+				if (!meta.id || !note) continue;
 				metas.push({
-					path: meta.currentNote,
+					path: note,
 					conversationId: meta.id,
-					updatedAt: meta.updatedAt ?? meta.createdAt ?? 0,
+					updatedAt: meta.lastActivityAt ?? meta.updatedAt ?? meta.createdAt ?? 0,
 				});
 			} catch {
 				continue;
@@ -882,8 +893,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const path = this.activeNotePath();
 		if (path) this.forgetNote(path);
 		// An untouched tab already is the fresh start being asked for. Claudian's command
-		// would run createNew() regardless — filing the empty conversation into history and
-		// re-attaching the note — so reuse what's there and only spend a reset on a tab
+		// would start a new conversation regardless — filing the empty one into history and
+		// re-linking the note — so reuse what's there and only spend a reset on a tab
 		// that actually holds something.
 		if (this.tabHasContent()) {
 			(this.app as unknown as AppWithCommands).commands.executeCommandById(
@@ -955,47 +966,6 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return this.getTabManager()?.getActiveTab?.() ?? null;
 	}
 
-	/**
-	 * Hold Claudian to a single conversation tab.
-	 *
-	 * Its own cap can't express this: `getMaxTabs` reads `settings.maxTabs` but clamps the
-	 * result to 3–10, so the setting bottoms out at three. Overriding the method is what
-	 * actually pins it, and it's the one seam that covers every route to a new tab —
-	 * `createTab` checks it directly, `canCreateTab` and the fork-to-new-tab paths go
-	 * through it — so the button, the command and its hotkey all stop short together.
-	 * Nothing is broken by the cap: fork falls back to forking in the current tab (with
-	 * Claudian's own notice), and `openConversation` to swapping the conversation in place,
-	 * which is what this plugin already asks of it.
-	 *
-	 * Patched on the prototype rather than the instance because Claudian builds a fresh tab
-	 * manager whenever its view is recreated (a deferred leaf revealed, the panel reopened),
-	 * and an instance patch would quietly lapse there. Restored on unload.
-	 *
-	 * Restoring a workspace that had several tabs open keeps only the first — deliberate,
-	 * and the rest are still in Claudian's history.
-	 */
-	private enforceSingleTab(deadline: number): void {
-		const tick = (): void => {
-			if (this.tabCapPinned) return;
-			const manager = this.getTabManager();
-			if (manager) {
-				const proto = Object.getPrototypeOf(manager) as ClaudianTabManager;
-				const original = proto.getMaxTabs;
-				// Absent means a Claudian build renamed it; leave its own cap in place.
-				if (typeof original === "function") {
-					this.tabCapPinned = true;
-					proto.getMaxTabs = (): number => 1;
-					this.register(() => {
-						proto.getMaxTabs = original;
-					});
-				}
-				return;
-			}
-			if (Date.now() < deadline) window.setTimeout(tick, 150);
-		};
-		tick();
-	}
-
 	/** Claudian's tab manager for its view, or null when absent / internals renamed. */
 	private getTabManager(): ClaudianTabManager | null {
 		const view = this.getClaudianLeaf()?.view as unknown as {
@@ -1015,42 +985,34 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * Switch Claudian's attached current note to `path` in place — keeps the running
-	 * conversation, only re-points what the next prompt carries. Idempotent: bails when
-	 * Claudian is already on this note (so a fresh session Claudian synced itself, and our
-	 * own re-runs, cost nothing and never needlessly re-send the note). Detaching the
-	 * previously auto-attached note mirrors Claudian's own detach/attach idiom
-	 * (handleFileRenamed) so switch pills don't accumulate; files the user attached
-	 * mid-conversation are left alone. Clearing currentNoteSent lets the new note ride the
-	 * next prompt exactly once. All reaches are optional — missing internals → no-op.
+	 * Point an unsent draft's Linked content at `path`, for a note switch that Claudian's own
+	 * file-open hook missed. Goes through that same hook, so it inherits its rules: only a
+	 * draft that is still following the active note moves (a locked or hand-picked one stays
+	 * put), and an excluded or non-Markdown note links nothing. Idempotent; missing internals
+	 * → no-op.
 	 */
-	private attachNoteToClaudian(path: string): void {
-		const fcm = this.getFileContextManager();
-		if (!fcm || typeof fcm.setCurrentNote !== "function") return;
-		const current = fcm.currentNotePath ?? null;
-		if (current === path) return;
-		if (current) fcm.state?.detachFile?.(current);
-		fcm.setCurrentNote(path);
-		if (fcm.state) fcm.state.currentNoteSent = false;
+	private followNoteInDraft(path: string): void {
+		const linked = this.getLinkedContent();
+		if (typeof linked?.handleActiveFileChanged !== "function") return;
+		if (linked.getSnapshot?.().path === path) return;
+		const file = this.app.vault.getFileByPath(path);
+		if (file) linked.handleActiveFileChanged(file, true);
 	}
 
 	/**
-	 * After a cold start, re-point Claudian's restored note at the note we actually have open.
-	 * Claudian restores its last conversation together with *that conversation's* saved note
-	 * and, when it was a started session, freezes it — so it stays stuck on the old note even
-	 * though a different note is open now. attachNoteToClaudian re-points it in place (keeping
-	 * the restored conversation; no fresh session, nothing discarded), and no-ops when the
-	 * restored note already matches.
+	 * After a cold start, square Claudian's restored conversation with the note we actually
+	 * have open. Claudian restores its last conversation together with *that conversation's*
+	 * note, locked — so it stays on the old note even though a different note is open now.
 	 *
 	 * We poll until Claudian's view has mounted (composer present) *and* its restore has
 	 * populated a note — the restore is async and lands around mount, so reading too early
-	 * would see no note and act on the wrong (empty) state. If no note ever gets attached
+	 * would see no note and act on the wrong (empty) state. If no note ever gets linked
 	 * within the window (a conversation that genuinely carries none), we give up.
 	 */
 	private reconcileChipOnStartup(deadline: number): void {
 		const tick = (): void => {
 			if (this.claudianMounted() && this.restoredTabSettled()) {
-				const attached = this.attachedNotePath();
+				const attached = this.linkedNotePath();
 				if (attached !== null) {
 					const notePath = this.activeNotePath();
 					if (notePath) {
@@ -1100,21 +1062,18 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return tab.hydrationState === "ready" || tab.hydrationState === "failed";
 	}
 
-	/**
-	 * Claudian's per-tab file-context manager, or null if absent / internals renamed. Shared
-	 * by the read-only chip check and the in-place switch.
-	 */
-	private getFileContextManager(): ClaudianFileContext | null {
-		return this.getActiveTab()?.ui?.fileContextManager ?? null;
+	/** Claudian's Linked content controller for the active tab, or null if absent / renamed. */
+	private getLinkedContent(): ClaudianLinkedContent | null {
+		return this.getActiveTab()?.ui?.linkedContentController ?? null;
 	}
 
 	/**
-	 * The note Claudian currently has attached (vault-relative, forward slashes — same
-	 * shape as TFile.path, so it compares directly), or null when none is attached or the
+	 * The note the active tab's conversation is linked to (vault-relative, forward slashes —
+	 * same shape as TFile.path, so it compares directly), or null when none is linked or the
 	 * internal shape has drifted.
 	 */
-	private attachedNotePath(): string | null {
-		return this.getFileContextManager()?.currentNotePath ?? null;
+	private linkedNotePath(): string | null {
+		return this.getLinkedContent()?.getSnapshot?.().path ?? null;
 	}
 
 	/**
@@ -1397,13 +1356,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		for (const prompt of Array.from(
 			container.querySelectorAll<HTMLElement>(CLAUDIAN_USER_MESSAGE),
 		)) {
-			const content = prompt.querySelector<HTMLElement>(".claudian-message-content");
-			if (!content || content.scrollHeight === 0) continue;
-			const style = getComputedStyle(content);
+			// The text, not the bubble around it: the bubble carries its own padding and
+			// background, and clipping or fading it would cut the bubble rather than the text.
+			const text = prompt.querySelector<HTMLElement>(CLAUDIAN_PROMPT_TEXT);
+			if (!text || text.scrollHeight === 0) continue;
+			const style = getComputedStyle(text);
 			const line =
 				parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5 || 20;
 			// scrollHeight is the full content even while folded, so this is stable.
-			const long = content.scrollHeight > line * (FOLD_LINES + FOLD_SLACK_LINES);
+			const long = text.scrollHeight > line * (FOLD_LINES + FOLD_SLACK_LINES);
 			measured.push({ prompt, long });
 		}
 		for (const { prompt, long } of measured) {
@@ -1424,9 +1385,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private syncFoldToggle(prompt: HTMLElement, folded: boolean): void {
 		let toggle = prompt.querySelector<HTMLElement>(`.${FOLD_TOGGLE_CLS}`);
 		if (!toggle) {
+			// Created with Claudian's own classes when missing, so Claudian adopts it (it
+			// looks the toolbar up by class) and it reveals on hover like the real one.
 			const toolbar =
 				prompt.querySelector<HTMLElement>(CLAUDIAN_USER_ACTIONS) ??
-				prompt.createDiv({ cls: CLAUDIAN_USER_ACTIONS.slice(1) });
+				prompt.createDiv({ cls: CLAUDIAN_USER_ACTIONS_CLS });
 			// First in the row, ahead of Claudian's own actions.
 			toggle = toolbar.createSpan({ cls: FOLD_TOGGLE_CLS });
 			toolbar.prepend(toggle);
@@ -1722,9 +1685,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		);
 	}
 
-	/** The visible composer textarea — Claudian keeps hidden ones for background tabs. */
-	private visibleInput(): HTMLTextAreaElement | null {
-		return this.visibleEl<HTMLTextAreaElement>(CLAUDIAN_INPUT);
+	/** The visible composer — Claudian keeps hidden ones for background tabs. */
+	private visibleInput(): HTMLElement | null {
+		return this.visibleEl<HTMLElement>(CLAUDIAN_INPUT);
 	}
 
 	/**

@@ -20,79 +20,37 @@
 	border-radius: 0;
 }
 
-/* Hide the permission-mode chip (Safe / YOLO / PLAN) from the composer footer.
-   Claudian renders the whole control as .claudian-permission-toggle and the "YOLO"
-   text lives inside its .claudian-permission-label, so hiding the element removes the
-   chip entirely. This is display-only — the permission mode still applies; switch it
-   from Claudian's settings or its own command instead of from the footer.
+/* Hide the permission-mode chip from the composer toolbar. Claudian renders the whole
+   control as .claudian-permission-toggle (since 2.3 a toolbar chip anchor at the row's far
+   end), so hiding the element removes the chip entirely. This is display-only — the
+   permission mode still applies; switch it from Claudian's settings or its own command
+   instead of from the toolbar.
 
-   The class is doubled to (0,2,0) because Claudian's own stylesheet sets
-   `.claudian-permission-toggle { display: flex }` at the same (0,1,0) specificity. With
-   a single class the winner is whichever stylesheet loaded last, which is why the chip
-   kept reappearing between sessions — plugin CSS load order isn't fixed. Doubling wins
-   regardless of order. Claudian also toggles its own `.claudian-hidden` class on this
-   element, which we don't rely on either way. */
+   The class is doubled to (0,2,0) because Claudian gives the element `display: flex`
+   through a single class (today .claudian-toolbar-chip-anchor). With a single class the
+   winner is whichever stylesheet loaded last, which is why the chip kept reappearing
+   between sessions — plugin CSS load order isn't fixed. Doubling wins regardless of order. */
 .claudian-permission-toggle.claudian-permission-toggle {
 	display: none;
 }
 
-/* Make the composer toolbar adapt to the panel width instead of overflowing.
-   Two independent causes of the horizontal overflow, both handled here:
+/* The nav row above the composer (new tab / new conversation / history) rendered as
+   empty space. Since Claudian 2.3 these are real <button>s (they were <div>s before), and
+   the Primary theme pads every non-.clickable-icon button:
 
-   1. The visible controls (model / effort / context meter / …) sit in a single-line
-      flex row (Claudian sets no flex-wrap), so at narrow widths they run off the edge.
-      flex-wrap:wrap + min-width:0 lets them reflow onto extra lines and follow the
-      panel width. row-gap keeps the wrapped lines apart; horizontal spacing still comes
-      from Claudian's own per-control margins, so we don't add a column gap.
+     button:not(button.clickable-icon)          (0,1,2) → padding: var(--button-padding)
+     button:not(button.clickable-icon):active   (0,2,2) → background: var(--interactive-normal)
 
-   2. The pop-up menus (.claudian-model-dropdown, .claudian-external-context-dropdown —
-      that one is min-width:260px, etc.) are position:absolute but hidden with
-      opacity/visibility, NOT display:none — so they stay in the layout and jut past a
-      narrow panel, forcing a scrollbar even while invisible. overflow-x:clip caps the
-      row's horizontal box so they can't extend it; overflow-y stays visible so the
-      menus still pop upward (bottom:100%) as normal. */
-.claudian-input-toolbar {
-	flex-wrap: wrap;
-	row-gap: 4px;
-	min-width: 0;
-	max-width: 100%;
-	overflow-x: clip;
-	overflow-y: visible;
-}
-
-/* Queued-follow-up row ("⌐ Queued: …"): its edit / discard buttons render as empty
-   theme-styled pills instead of icons. Claudian styles them as bare 22px icon boxes
-   (.claudian-queue-indicator-icon-action { padding:0; background:transparent }, (0,1,0)),
-   but two element-level rules out-specify that class:
-
-     app.css        button:not(.clickable-icon)        (0,1,1) → background-color:var(--interactive-normal)
-     Primary theme  button:not(button.clickable-icon)  (0,2,1) → padding:var(--button-padding)
-
-   The padding is what empties them: 12px of horizontal padding inside a 22px-wide
-   inline-flex button leaves a 0px content box, so the 14px <svg> — a flex item, free
-   to shrink — computes to width:0 and nothing is drawn. The background rule is what
-   turns the leftover box into a visible white pill.
-
-   Doubling the class gives (0,3,0), which beats both regardless of stylesheet order
-   (plugin CSS vs. theme CSS load order isn't guaranteed across theme switches), and
-   flex:0 0 auto keeps the icon from being shrunk again by any future padding rule.
-   The :hover rule has to be doubled too — our (0,3,0) background would otherwise also
-   win during hover and leave the button with no hover feedback at all. */
-.claudian-queue-indicator-icon-action.claudian-queue-indicator-icon-action {
+   which out-specifies Claudian's own `button.claudian-input-nav-btn { padding: 0 }` (0,1,1).
+   12px of horizontal padding on each side of a 24px border-box button leaves a 0px content
+   box, so the 16px <svg> is squeezed to width 0 and nothing is drawn. Tripling the class
+   gives (0,3,0) / (0,4,0), which beats both regardless of stylesheet order; the background
+   and shadow are reset too so pressing or focusing a button doesn't paint a pill. */
+.claudian-input-nav-btn.claudian-input-nav-btn.claudian-input-nav-btn,
+.claudian-input-nav-btn.claudian-input-nav-btn.claudian-input-nav-btn:is(:hover, :focus-visible, :active) {
 	padding: 0;
 	background: transparent;
 	box-shadow: none;
-	border-radius: 4px;
-}
-
-.claudian-queue-indicator-icon-action.claudian-queue-indicator-icon-action:hover {
-	background: var(--background-modifier-hover);
-}
-
-.claudian-queue-indicator-icon-action.claudian-queue-indicator-icon-action svg {
-	flex: 0 0 auto;
-	width: 14px;
-	height: 14px;
 }
 
 /* Root cause of wide tables / code blocks stretching the whole conversation:
@@ -109,21 +67,12 @@
 }
 
 /* Not a flex item itself, but it's the block that must hand the capped width down
-   to tables/pre; without min-width:0 it would still resolve to its content width. */
+   to pre; without min-width:0 it would still resolve to its content width. Tables need
+   nothing of ours: Claudian lays them out full width and wraps their cells. */
 .claudian-message-content,
 .claudian-text-block {
 	min-width: 0;
 	max-width: 100%;
-}
-
-/* A <table> is shrink-to-fit (intrinsic width = content), so even inside a capped
-   parent it overflows. display:block drops that sizing and, with overflow-x:auto,
-   turns the table into its own horizontal scroller capped at the parent width. The
-   inner table layout is unaffected. */
-.claudian-message-content table {
-	display: block;
-	max-width: 100%;
-	overflow-x: auto;
 }
 
 /* Make every fenced code block scroll horizontally instead of overflowing/wrapping.
@@ -182,16 +131,13 @@
    always see which question you're reading the answer to (the reply is the long part; the
    prompt is what gives it context).
 
-   Claudian sets `position: relative` and a translucent `background` on this element at
-   (0,1,0), so both the class doubling and the opaque base below are load-order-proof —
-   the same reason the permission-chip rule above is doubled.
-
-   Two details make the pin itself work:
-   - the tint is translucent (rgba(0,0,0,0.3)), so pinned text would have the reply
-     scrolling visibly through it. Keep that exact tint as a background-image layered over
-     an opaque surface colour, which preserves the look and blocks what's underneath.
-   - a positioned element still loses to later siblings in paint order, so without z-index
-     the assistant's reply would slide over the pinned prompt instead of under it. */
+   The user message is a wrapper: the bubble is its .claudian-message-content, and Claudian's
+   action toolbar sits below the bubble in normal flow. The whole wrapper sticks, so the
+   bubble and its toolbar travel together. Claudian sets `position: relative` on the
+   wrapper at (0,1,0), so the class doubling is load-order-proof — the same reason the
+   permission-chip rule above is doubled. A positioned element still loses to later
+   siblings in paint order, so without z-index the assistant's reply would slide over the
+   pinned prompt instead of under it. */
 .claudian-message-user.claudian-message-user {
 	--claudian-sticky-surface: var(--background-secondary);
 	position: sticky;
@@ -199,24 +145,31 @@
 	/* Claudian sets no top margin today; pin it so a future one can't open a gap. */
 	margin-top: 0;
 	z-index: 1;
+}
+
+/* The bubble's tint is translucent (rgb(0 0 0 / 30%)), so pinned text would have the reply
+   scrolling visibly through it. Keep that exact tint as a background-image layered over an
+   opaque surface colour, which preserves the look and blocks what's underneath. (0,3,0)
+   beats Claudian's own `.claudian-message-user > .claudian-message-content` (0,2,0). */
+.claudian-message-user.claudian-message-user > .claudian-message-content {
 	background-color: var(--claudian-sticky-surface);
-	background-image: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3));
+	background-image: linear-gradient(rgb(0 0 0 / 30%), rgb(0 0 0 / 30%));
 }
 
 /* Claudian can also be opened as a main-editor tab, where the leaf sits on the primary
-   surface rather than the sidebar's. Only the variable changes; the rules below follow. */
+   surface rather than the sidebar's. Only the variable changes; the rules above follow. */
 .workspace-split.mod-root .claudian-message-user.claudian-message-user {
 	--claudian-sticky-surface: var(--background-primary);
 }
 
-/* Only while a prompt is actually pinned (markPinnedPrompt sets this) does it get the
-   separator, so an unpinned prompt sitting in the list keeps Claudian's own look.
+/* Only while a prompt is actually pinned (markPinnedPrompt sets this) does its bubble get
+   the separator, so an unpinned prompt sitting in the list keeps Claudian's own look.
 
    Deliberately just a hairline. Earlier versions also painted a fill around the pinned
    prompt to hide the reply scrolling through the strip beside and above it, but the fill
-   blanked out that text instead — worse than the thing it was hiding. The prompt's own
+   blanked out that text instead — worse than the thing it was hiding. The bubble's own
    opaque background plus this line is enough to tell the two apart. */
-.claudian-message-user.claudian-message-user.claudian-enhanced-pinned {
+.claudian-message-user.claudian-enhanced-pinned > .claudian-message-content {
 	box-shadow: 0 1px 0 0 var(--background-modifier-border);
 }
 
@@ -230,11 +183,13 @@
 	visibility: hidden;
 }
 
-/* Hide the "New tab" button (square-plus) from the composer nav row. With the tab cap
-   pinned to one (see enforceSingleTab) it can no longer do anything, and it sits directly
-   left of "New conversation" (square-pen) — the one that clears the current conversation in
-   place, which is what's actually wanted. Leaving a dead button next to it only invites the
-   misclick that made every note switch look like it opened a new session.
+/* Hide the "New tab" button (square-plus) from the composer nav row. This plugin keeps
+   Claudian to one conversation tab, and the button sits directly left of "New
+   conversation" (square-pen) — the one that clears the current conversation in place,
+   which is what's actually wanted. Leaving it there only invites the misclick that made
+   every note switch look like it opened a new session. (Claudian 2.3 dropped its tab cap,
+   so there is no setting left to stop extra tabs; with this button gone and its "New"
+   command unbound, a second tab only comes from asking for one.)
 
    Doubled to (0,2,0) for the same reason as the permission chip above: Claudian styles the
    button through .claudian-input-nav-btn at (0,1,0), and a single class would win or lose on
@@ -264,10 +219,11 @@
    pinned, because the pinned box is also the prompt's slot in the list — shrinking it at
    the moment it pins would pull the reply up under the reader.
 
-   `6lh` is FOLD_LINES in main.ts, measured in the content's own line height, which is what
-   the script compares against. The fade says there is more; it masks the text only, so the
-   opaque sticky surface behind it is untouched. */
-.claudian-message-user.claudian-enhanced-folded .claudian-message-content {
+   `6lh` is FOLD_LINES in main.ts, measured in the text's own line height, which is what
+   the script compares against. The fade says there is more. It is applied to the text
+   block inside the bubble, not the bubble: a mask fades an element's background along with
+   its text, and on the bubble that would fade the opaque sticky surface too. */
+.claudian-message-user.claudian-enhanced-folded > .claudian-message-content > .claudian-text-block {
 	max-height: 6lh;
 	overflow: hidden;
 	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
