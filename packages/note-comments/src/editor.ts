@@ -93,8 +93,8 @@ export class EditorHost implements StoreListener {
 	}
 
 	extension(): Extension {
-		// No hover card: a comment is read in the comments panel, which a click on the
-		// highlighted text brings up (see the plugin's click handling).
+		// The highlight only marks the text. Reading the comment is the plugin's: a card on
+		// hover (hover.ts), the panel on a click (its click handling).
 		return [this.field, ViewPlugin.define((view) => new CommentsView(view, this))];
 	}
 

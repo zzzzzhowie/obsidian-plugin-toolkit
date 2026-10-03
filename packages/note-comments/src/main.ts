@@ -11,6 +11,7 @@ import {
 
 import { type Span, trimSpan } from "./anchor";
 import { EditorHost } from "./editor";
+import { CommentHover } from "./hover";
 import { COMMENTS_VIEW, CommentsPanel, type PanelHost } from "./panel";
 import { CommentStore } from "./store";
 
@@ -123,6 +124,17 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 		);
 		// Bubble phase, after CodeMirror has placed the cursor for this click.
 		this.registerDomEvent(document, "click", (evt) => this.onEditorClick(evt));
+
+		// Reading a comment without opening the panel: a card while the pointer rests on its
+		// text. A touch screen has no hover.
+		if (!Platform.isMobile) {
+			const hover = new CommentHover(this.app, this.store, this.host);
+			this.registerDomEvent(document, "mouseover", (evt) => hover.onMouseOver(evt));
+			this.registerDomEvent(document, "mousedown", (evt) => hover.onPress(evt), { capture: true });
+			this.registerDomEvent(document, "wheel", (evt) => hover.onWheel(evt), { capture: true, passive: true });
+			this.registerEvent(this.app.workspace.on("active-leaf-change", () => hover.hide()));
+			this.register(() => hover.hide());
+		}
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.trackOtherTab()));
 		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.trackOtherTab()));
 
