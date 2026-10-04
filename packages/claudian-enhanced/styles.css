@@ -247,20 +247,63 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	cursor: default;
 }
 
-/* Fold a long prompt to a readable header (foldLongPrompts decides which, and adds the
-   expand/collapse toggle to its action toolbar). Folded everywhere rather than only while
-   pinned, because the pinned box is also the prompt's slot in the list — shrinking it at
-   the moment it pins would pull the reply up under the reader.
+/* Fold a long prompt to a readable header (foldLongPrompts decides which, and puts the
+   expand/collapse button in its bubble). Folded everywhere rather than only while pinned,
+   because the pinned box is also the prompt's slot in the list — shrinking it at the
+   moment it pins would pull the reply up under the reader.
 
-   `6lh` is FOLD_LINES in main.ts, measured in the text's own line height, which is what
-   the script compares against. The fade says there is more. It is applied to the text
-   block inside the bubble, not the bubble: a mask fades an element's background along with
-   its text, and on the bubble that would fade the opaque sticky surface too. */
+   `3lh` is FOLD_LINES in main.ts, measured in the text's own line height, which is what
+   the script compares against. The last line it keeps fades out to the right, under the
+   button sitting over its end: one mask layer keeps every line above it whole, the other
+   fades that line. Applied to the text block inside the bubble, not the bubble: a mask
+   fades an element's background along with its text, and on the bubble that would fade
+   the opaque sticky surface too. */
 .claudian-message-user.claudian-enhanced-folded > .claudian-message-content > .claudian-text-block {
-	max-height: 6lh;
+	max-height: 3lh;
 	overflow: hidden;
-	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
-	mask-image: linear-gradient(to bottom, #000 calc(100% - 2lh), transparent);
+	-webkit-mask-image: linear-gradient(#000, #000),
+		linear-gradient(to right, #000 calc(100% - 56px), transparent calc(100% - 20px));
+	mask-image: linear-gradient(#000, #000),
+		linear-gradient(to right, #000 calc(100% - 56px), transparent calc(100% - 20px));
+	-webkit-mask-size: 100% calc(100% - 1lh), 100% 1lh;
+	mask-size: 100% calc(100% - 1lh), 100% 1lh;
+	-webkit-mask-position: top, bottom;
+	mask-position: top, bottom;
+	-webkit-mask-repeat: no-repeat;
+	mask-repeat: no-repeat;
+}
+
+/* The button: a small pill in the bubble's bottom-right corner (the bubble is Claudian's
+   positioned box), centred on the last line — over its faded end while folded. Expanded,
+   the bubble keeps a strip at the bottom for it, so it sits under the text, not over it. */
+.claudian-message-user .claudian-enhanced-fold-toggle {
+	position: absolute;
+	right: 10px;
+	bottom: 9px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 24px;
+	border-radius: 999px;
+	color: var(--text-muted);
+	background-color: var(--background-primary);
+	box-shadow: 0 1px 3px rgb(0 0 0 / 14%), 0 0 0 1px rgb(0 0 0 / 4%);
+	cursor: pointer;
+	user-select: none;
+}
+
+.claudian-message-user .claudian-enhanced-fold-toggle:hover {
+	color: var(--text-normal);
+}
+
+.claudian-message-user .claudian-enhanced-fold-toggle svg {
+	width: 16px;
+	height: 16px;
+}
+
+.claudian-message-user.claudian-enhanced-foldable:not(.claudian-enhanced-folded) > .claudian-message-content {
+	padding-bottom: 38px;
 }
 
 /* A conversation coming back with its note is rebuilt out of sight and shown once it is

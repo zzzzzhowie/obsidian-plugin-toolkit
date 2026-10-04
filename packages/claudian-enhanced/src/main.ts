@@ -35,15 +35,15 @@ const BURIED_CLS = "claudian-enhanced-buried";
 const FOLDABLE_CLS = "claudian-enhanced-foldable";
 /** Marks a foldable prompt that is currently collapsed. */
 const FOLDED_CLS = "claudian-enhanced-folded";
-/** The expand/collapse control added to a long prompt's action toolbar. */
+/** The expand/collapse button in a long prompt's bubble, at its bottom-right corner. */
 const FOLD_TOGGLE_CLS = "claudian-enhanced-fold-toggle";
-/** Lines a folded prompt keeps — styles.css says `6lh`; keep the two together. */
-const FOLD_LINES = 6;
+/** Lines a folded prompt keeps — styles.css says `3lh`; keep the two together. */
+const FOLD_LINES = 3;
 /**
- * Only fold when at least this many lines would disappear. Folding a prompt that is one
- * line over the limit hides a single line behind a toggle, which costs more than it saves.
+ * Only fold when more than this many lines would disappear. Folding a prompt that is one
+ * line over the limit hides a single line behind a button, which costs more than it saves.
  */
-const FOLD_SLACK_LINES = 2;
+const FOLD_SLACK_LINES = 1;
 /**
  * How far above the bottom still counts as "following the stream" (px). Claudian's own
  * autoscroll uses 20px, which is tighter than the height a single render step adds — we
@@ -76,11 +76,9 @@ const CLAUDIAN_LINK = ".claudian-file-link, .internal-link";
 /**
  * Claudian's own per-prompt toolbar (copy / rewind / fork / timestamp). It is created *inside*
  * the user message, so a click there has to keep its own meaning — see
- * interceptPinnedPromptClicks. It also carries `claudian-message-actions`, which is what
- * reveals it on hover.
+ * interceptPinnedPromptClicks.
  */
 const CLAUDIAN_USER_ACTIONS = ".claudian-user-msg-actions";
-const CLAUDIAN_USER_ACTIONS_CLS = "claudian-user-msg-actions claudian-message-actions";
 /** Claudian's own command that opens/reveals its view. */
 const OPEN_COMMAND = "realclaudian:open-view";
 /**
@@ -1497,23 +1495,20 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * The expand/collapse control, as one more action in Claudian's own toolbar under the
-	 * prompt — so it looks and reveals exactly like copy / rewind / fork. The pinned-prompt
-	 * click handler already stands aside for anything in that toolbar, so toggling never
-	 * doubles as a jump to the turn. The icon is only rewritten when the state flips.
+	 * The expand/collapse control: a small round button in the bubble's bottom-right
+	 * corner, over the end of the last line it keeps, with a chevron — always shown, since
+	 * it is the only sign there is more. Not a <button>: the theme pads every button, which
+	 * is what made the toolbar's icons shake; and the pinned-prompt click handler stands
+	 * aside for it, so expanding never doubles as a jump to the turn. Claudian refills the
+	 * bubble when a prompt is edited, which takes this with it; the fold pass that follows
+	 * puts it back. The icon is only rewritten when the state flips.
 	 */
 	private syncFoldToggle(prompt: HTMLElement, folded: boolean): void {
-		let toggle = prompt.querySelector<HTMLElement>(`.${FOLD_TOGGLE_CLS}`);
+		const bubble = prompt.querySelector<HTMLElement>(":scope > .claudian-message-content");
+		if (!bubble) return;
+		let toggle = bubble.querySelector<HTMLElement>(`:scope > .${FOLD_TOGGLE_CLS}`);
 		if (!toggle) {
-			// Created with Claudian's own classes when missing, so Claudian adopts it (it
-			// looks the toolbar up by class) and it reveals on hover like the real one.
-			const toolbar =
-				prompt.querySelector<HTMLElement>(CLAUDIAN_USER_ACTIONS) ??
-				prompt.createDiv({ cls: CLAUDIAN_USER_ACTIONS_CLS });
-			// First in the row, ahead of Claudian's own actions.
-			toggle = toolbar.createSpan({ cls: FOLD_TOGGLE_CLS });
-			toolbar.prepend(toggle);
-			toggle.addEventListener("click", (event) => {
+			const flip = (event: Event): void => {
 				event.preventDefault();
 				event.stopPropagation();
 				const collapse = !prompt.hasClass(FOLDED_CLS);
@@ -1521,12 +1516,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				else this.expandedPrompts.add(prompt);
 				prompt.toggleClass(FOLDED_CLS, collapse);
 				this.syncFoldToggle(prompt, collapse);
+			};
+			toggle = bubble.createDiv({ cls: FOLD_TOGGLE_CLS, attr: { role: "button", tabindex: "0" } });
+			toggle.addEventListener("click", flip);
+			toggle.addEventListener("keydown", (event) => {
+				if (event.key === "Enter" || event.key === " ") flip(event);
 			});
 		}
 		const state = folded ? "folded" : "expanded";
 		if (toggle.dataset.state === state) return;
 		toggle.dataset.state = state;
-		setIcon(toggle, folded ? "unfold-vertical" : "fold-vertical");
+		setIcon(toggle, folded ? "chevron-down" : "chevron-up");
 		toggle.setAttribute("aria-label", folded ? "Expand prompt" : "Collapse prompt");
 	}
 
@@ -1885,7 +1885,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				if (
 					target.closest(CLAUDIAN_USER_ACTIONS) ??
 					target.closest(CLAUDIAN_LINK) ??
-					target.closest("button")
+					target.closest(`button, .${FOLD_TOGGLE_CLS}`)
 				) {
 					return;
 				}
