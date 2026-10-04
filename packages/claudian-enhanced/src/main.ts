@@ -758,6 +758,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			(note) => note.conversationId === conversationId,
 		);
 		if (owner && owner.path !== notePath) return;
+		// Nor is a conversation written down for a note it isn't linked to. One started with
+		// no note — from the graph view — was otherwise filed under whichever note was left
+		// next, and coming back to that note brought the graph conversation back instead.
+		if (!this.conversationBelongsTo(conversationId, notePath)) return;
 		const existing = this.remembered.find((note) => note.path === notePath);
 		if (existing?.conversationId === conversationId && this.remembered[0] === existing) {
 			return; // already on file, already newest — nothing to write
@@ -788,14 +792,21 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			return false;
 		}
 		if (tab.state?.isStreaming) return false;
-		// Already showing it (came back without ever leaving the conversation) — count it as
-		// restored so the caller doesn't clear the very thing we wanted to keep.
-		if (tab.conversationId === entry.conversationId) return true;
-		if (!this.conversationExists(entry.conversationId)) {
+		// Gone, or not this note's after all — a pairing written down before the check in
+		// rememberConversation existed. Either way it's dropped, and the note gets a fresh
+		// conversation instead. Checked before "already showing it": a wrong pairing is just
+		// as wrong when its conversation happens to be the one on screen.
+		if (
+			!this.conversationExists(entry.conversationId) ||
+			!this.conversationBelongsTo(entry.conversationId, notePath)
+		) {
 			this.remembered = this.remembered.filter((note) => note !== entry);
 			void this.persistMemory();
 			return false;
 		}
+		// Already showing it (came back without ever leaving the conversation) — count it as
+		// restored so the caller doesn't clear the very thing we wanted to keep.
+		if (tab.conversationId === entry.conversationId) return true;
 		// Reported as restored synchronously, so a hydration that fails afterwards would
 		// otherwise leave the previous note's conversation sitting under this note with the
 		// fallback already skipped. Clear it then instead — but only if we're still on the
@@ -829,6 +840,24 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const lookup = view?.plugin?.getCachedConversation;
 		if (typeof lookup !== "function") return true;
 		return lookup.call(view.plugin, id) != null;
+	}
+
+	/**
+	 * Whether a conversation belongs to this note, as Claudian records it: the note it is
+	 * linked to. A conversation started with no note (from the graph view, say) is linked to
+	 * none and belongs to no note. Answers "yes" when the lookup or the record isn't there to
+	 * ask, for the same reason as conversationExists: this exists to catch a wrong pairing,
+	 * not to switch the feature off when Claudian's internals move.
+	 */
+	private conversationBelongsTo(id: string, notePath: string): boolean {
+		const view = this.getClaudianLeaf()?.view as unknown as {
+			plugin?: ClaudianPluginApi;
+		};
+		const lookup = view?.plugin?.getCachedConversation;
+		if (typeof lookup !== "function") return true;
+		const conversation = lookup.call(view.plugin, id) as { linkedContentPath?: string | null } | null;
+		if (!conversation) return true;
+		return (conversation.linkedContentPath ?? null) === notePath;
 	}
 
 	/**
