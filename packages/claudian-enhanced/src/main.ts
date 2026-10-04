@@ -1,4 +1,4 @@
-import { MarkdownView, Plugin, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
@@ -338,6 +338,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** The selection we handed Claudian for text inside a rendered block; see syncBlockSelection. */
 	private blockSelection: ClaudianStoredSelection | null = null;
 	private blockSelectionFrame: number | null = null;
+	/** Pushed while Claudian's image preview is open, so Escape closes it; see watchImagePreview. */
+	private previewScope: Scope | null = null;
 
 	async onload(): Promise<void> {
 		// Awaited rather than backgrounded: a restore that lost a race with this would
@@ -421,6 +423,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		});
 		// MutationObserver isn't auto-cleaned by Obsidian's register* helpers.
 		this.register(() => this.submitScrollObserver?.disconnect());
+		this.watchImagePreview();
 		// Text selected inside a block Live Preview renders (a callout, a table); see
 		// syncBlockSelection. Once a frame at most — a drag fires this on every move.
 		this.registerDomEvent(document, "selectionchange", () => {
@@ -1668,6 +1671,43 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (start === null) return { start: first, count: last - first + 1 };
 		const end = (tail ? lineWith(tail, start) : start) ?? last;
 		return { start, count: end - start + 1 };
+	}
+
+	/**
+	 * Let Escape close Claudian's image preview.
+	 *
+	 * The preview listens for Escape on the document, in the bubble phase. Obsidian's keymap
+	 * gets the key first, on the window in the capture phase, and asks the active view's
+	 * scope — Claudian's, after a click on the image — whose Escape handler closes its
+	 * menus or interrupts a running reply and reports the key handled whatever it did. Obsidian
+	 * then stops the event there: the preview never heard it, and a reply in progress was
+	 * cut off instead. While a preview is open, a scope of ours sits on top and takes Escape
+	 * to close it, through the preview's own close button so Claudian tidies up as usual.
+	 */
+	private watchImagePreview(): void {
+		const body = document.body;
+		const sync = (): void => {
+			const open = body.querySelector(":scope > .claudian-image-modal-overlay") !== null;
+			if (open && !this.previewScope) {
+				const scope = new Scope(this.app.scope);
+				scope.register([], "Escape", () => {
+					body.querySelector<HTMLElement>(".claudian-image-modal-overlay .claudian-image-modal-close")?.click();
+					return false;
+				});
+				this.app.keymap.pushScope(scope);
+				this.previewScope = scope;
+			} else if (!open && this.previewScope) {
+				this.app.keymap.popScope(this.previewScope);
+				this.previewScope = null;
+			}
+		};
+		const observer = new MutationObserver(sync);
+		observer.observe(body, { childList: true });
+		this.register(() => {
+			observer.disconnect();
+			if (this.previewScope) this.app.keymap.popScope(this.previewScope);
+			this.previewScope = null;
+		});
 	}
 
 	/** Write down where the reader is in the conversation on screen, before it's swapped out. */
