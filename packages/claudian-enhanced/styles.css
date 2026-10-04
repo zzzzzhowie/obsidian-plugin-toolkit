@@ -129,6 +129,22 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	padding: 0;
 }
 
+/* A quote, in a prompt or a reply — Claudian's Quote button puts one in front of the
+   question. Obsidian draws a blockquote only under .markdown-rendered, so here it got the
+   browser's bare default: a 1em gap above and below, a 40px indent on both sides and no
+   bar. Drawn as the theme draws one in a note, with a narrower indent for the bubble and
+   muted text, so the quoted words stand apart from the question under them. */
+.claudian-message-content blockquote {
+	margin: 0 0 8px;
+	padding: 0 0 0 var(--size-4-3);
+	border-inline-start: var(--blockquote-border-thickness) solid var(--blockquote-border-color);
+	color: var(--text-muted);
+}
+
+.claudian-message-content blockquote:last-child {
+	margin-bottom: 0;
+}
+
 /* Block math (\[ … \]) renders as a MathJax mjx-container[display="true"], which is a
    block that MathJax centers. A formula wider than the chat panel then overflows — and
    because it's centered, the overflow spills off BOTH sides, leaving the left half at a
