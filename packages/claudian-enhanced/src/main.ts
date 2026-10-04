@@ -59,6 +59,10 @@ const FOLLOW_THRESHOLD_PX = 200;
  * deliberately scrolled up should need them to actually return to the end.
  */
 const REATTACH_PX = 24;
+/** The jump-to-latest button, over the bottom of a conversation; see syncJumpButton. */
+const JUMP_BTN_CLS = "claudian-enhanced-jump-latest";
+/** How far from the end the conversation has to be before that button shows (px). */
+const JUMP_SHOW_PX = 160;
 /**
  * Strip on top of the composer showing a prompt submitted mid-stream (queued, or a pending
  * steer). Claudian shows/hides it by toggling `claudian-hidden` / `claudian-visible-flex`.
@@ -309,6 +313,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * tab keeps its own answer, and held weakly so a closed tab's list can be collected.
 	 */
 	private detached = new WeakSet<HTMLElement>();
+	/** Each message list's jump-to-latest button, made the first time it's needed. */
+	private jumpButtons = new WeakMap<HTMLElement, HTMLElement>();
 	/** Last scrollTop seen per list, to tell an upward move from a downward one. */
 	private lastScrollTop = new WeakMap<HTMLElement, number>();
 	/** Set while we move a list ourselves, so our own pin isn't read as the reader scrolling. */
@@ -1284,6 +1290,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				if (!this.restores.has(submittedList)) this.scrollToBottom(submittedList);
 			} else if (streamed && !this.restores.has(streamed)) {
 				this.followToBottom(streamed);
+				// A reply growing below a reader who scrolled up moves the end further away
+				// without a scroll event; one following it is pinned, so this hides nothing.
+				this.syncJumpButton(streamed);
 			}
 			if (queued) this.handleQueueChange();
 		});
@@ -1369,6 +1378,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const scroller = event.target as HTMLElement | null;
 		if (!scroller?.matches?.(CLAUDIAN_MESSAGES)) return;
 		this.schedulePinnedPrompt(scroller);
+		this.syncJumpButton(scroller);
 		const top = scroller.scrollTop;
 		const previous = this.lastScrollTop.get(scroller) ?? top;
 		this.lastScrollTop.set(scroller, top);
@@ -1848,6 +1858,40 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		requestAnimationFrame(() => {
 			this.selfScrolling = false;
 		});
+	}
+
+	/**
+	 * Show the jump-to-latest button while the conversation is scrolled away from its end,
+	 * as chat apps do: a round arrow over the bottom of the list, which takes the reader back
+	 * down and puts them back on a reply that's still streaming. Made on first need, in the
+	 * list's wrapper (Claudian's positioned box around it) rather than the list, so it stays
+	 * put while the list scrolls. Written only when it changes — scroll events come fast.
+	 * Not a <button>: the theme pads those, which is what made the toolbar icons shake.
+	 */
+	private syncJumpButton(scroller: HTMLElement): void {
+		const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+		const show = distance > JUMP_SHOW_PX;
+		let button = this.jumpButtons.get(scroller);
+		if (!button) {
+			const wrapper = scroller.parentElement;
+			if (!show || !wrapper) return;
+			const jump = (event: Event): void => {
+				event.preventDefault();
+				this.detached.delete(scroller);
+				scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
+			};
+			button = wrapper.createDiv({
+				cls: JUMP_BTN_CLS,
+				attr: { role: "button", tabindex: "0", "aria-label": "Jump to latest" },
+			});
+			setIcon(button, "arrow-down");
+			button.addEventListener("click", jump);
+			button.addEventListener("keydown", (event) => {
+				if (event.key === "Enter" || event.key === " ") jump(event);
+			});
+			this.jumpButtons.set(scroller, button);
+		}
+		if (button.hasClass("is-shown") !== show) button.toggleClass("is-shown", show);
 	}
 
 	private followToBottom(scroller: HTMLElement): void {
