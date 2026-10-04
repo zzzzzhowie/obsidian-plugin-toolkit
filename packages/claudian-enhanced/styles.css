@@ -117,6 +117,18 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	max-width: 100%;
 }
 
+/* The code inside a code block, in a prompt or a reply. Primary styles every `code` as
+   inline code — `body code { background: var(--inline-code-bg); color:
+   var(--inline-code-color) }` (0,0,2) — and relies on Obsidian's markdown containers to
+   undo that inside a <pre>, which Claudian's messages aren't. So each line of a block got
+   an off-white bar (an inline element's background is drawn line by line) and red text.
+   Here the block's own <pre> decides both again. */
+.claudian-messages pre > code {
+	background: none;
+	color: inherit;
+	padding: 0;
+}
+
 /* Block math (\[ … \]) renders as a MathJax mjx-container[display="true"], which is a
    block that MathJax centers. A formula wider than the chat panel then overflows — and
    because it's centered, the overflow spills off BOTH sides, leaving the left half at a
