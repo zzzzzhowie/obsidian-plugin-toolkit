@@ -1,4 +1,4 @@
-import { type App, Keymap, MarkdownView, Platform, SuggestModal } from "obsidian";
+import { type App, type Hotkey, Keymap, MarkdownView, Platform, SuggestModal } from "obsidian";
 
 import type { FileHistory } from "./history";
 import { goToLine, openFile, type OpenIn } from "./open";
@@ -27,6 +27,28 @@ interface Chooser {
 	useSelectedItem(evt: Event): boolean;
 }
 
+const COMMAND_PALETTE = "command-palette:open";
+
+/** The parts of Obsidian's hotkey and command registries used to hand over to the palette. */
+interface AppInternals {
+	hotkeyManager?: {
+		getHotkeys(id: string): Hotkey[] | undefined;
+		getDefaultHotkeys(id: string): Hotkey[] | undefined;
+	};
+	commands: { executeCommandById(id: string): boolean };
+}
+
+/**
+ * The command palette's hotkeys as they are set now: the user's own if any, else the
+ * default. Plain Mod+P is left out — inside this modal it means "next", and it is the
+ * palette's default only until this plugin's Go to File is given it.
+ */
+function paletteHotkeys(app: App): Hotkey[] {
+	const manager = (app as unknown as AppInternals).hotkeyManager;
+	const hotkeys = manager?.getHotkeys(COMMAND_PALETTE) ?? manager?.getDefaultHotkeys(COMMAND_PALETTE) ?? [];
+	return hotkeys.filter((hotkey) => !(hotkey.key.toUpperCase() === "P" && hotkey.modifiers.join() === "Mod"));
+}
+
 /** A touch that moved further than this was scrolling the list, not tapping a row. */
 const TAP_SLOP_PX = 10;
 /** Held longer than this, it's a long-press, not a tap. */
@@ -50,6 +72,8 @@ export class QuickOpenModal extends SuggestModal<Item> {
 	};
 
 	private readonly search: Search;
+	/** Watches for another modal opening over this one; see onOpen. */
+	private otherModals: MutationObserver | null = null;
 
 	constructor(
 		app: App,
@@ -82,6 +106,17 @@ export class QuickOpenModal extends SuggestModal<Item> {
 			this.list.moveDown(evt);
 			return false;
 		});
+		// The command palette's own hotkey switches to it, as Cmd/Ctrl+Shift+P does from VS
+		// Code's Go to File. A modal's keys stop at the modal — Obsidian's hotkeys never see
+		// them — and unlike Settings the palette has no app-menu item to fall back on, so
+		// unhandled, the press went to whatever menu item did have it.
+		for (const hotkey of paletteHotkeys(app)) {
+			this.scope.register(hotkey.modifiers, hotkey.key, () => {
+				this.close();
+				(app as unknown as AppInternals).commands.executeCommandById(COMMAND_PALETTE);
+				return false;
+			});
+		}
 	}
 
 	/**
@@ -96,6 +131,22 @@ export class QuickOpenModal extends SuggestModal<Item> {
 	onOpen(): void {
 		void super.onOpen();
 		this.modalEl.win.addEventListener("keyup", this.onKeyUp, true);
+		// Any other modal opening (Settings from Cmd/Ctrl+, the command palette, a plugin's
+		// prompt…) takes over: this one goes, rather than staying open underneath. Watched
+		// for in the DOM, not by forwarding hotkeys — a modal's keys don't reach Obsidian's
+		// hotkeys, and several of these come through the app menu instead; forwarding them
+		// all would also let Cmd/Ctrl+B and the like edit the note behind. Every modal is a
+		// `.modal-container` added to the body; menus, notices and popovers aren't.
+		const own = this.containerEl;
+		this.otherModals = new MutationObserver((records) => {
+			const opened = records.some((record) =>
+				Array.from(record.addedNodes).some(
+					(node) => node !== own && node.nodeType === Node.ELEMENT_NODE && (node as Element).classList.contains("modal-container"),
+				),
+			);
+			if (opened) this.close();
+		});
+		this.otherModals.observe(own.doc.body, { childList: true });
 		if (Platform.isMobile) {
 			this.resultContainerEl.addEventListener("touchstart", this.onTouchStart, { passive: true });
 			this.resultContainerEl.addEventListener("touchend", this.onTouchEnd, { passive: false });
@@ -104,6 +155,8 @@ export class QuickOpenModal extends SuggestModal<Item> {
 	}
 
 	onClose(): void {
+		this.otherModals?.disconnect();
+		this.otherModals = null;
 		this.modalEl.win.removeEventListener("keyup", this.onKeyUp, true);
 		this.resultContainerEl.removeEventListener("touchstart", this.onTouchStart);
 		this.resultContainerEl.removeEventListener("touchend", this.onTouchEnd);
