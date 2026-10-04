@@ -344,6 +344,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** The selection we handed Claudian for text inside a rendered block; see syncBlockSelection. */
 	private blockSelection: ClaudianStoredSelection | null = null;
 	private blockSelectionFrame: number | null = null;
+	/** Selection controllers whose change callback holdCellSelection has wrapped. */
+	private readonly heldControllers = new WeakSet<ClaudianSelectionController>();
 	/** Pushed while Claudian's image preview is open, so Escape closes it; see watchImagePreview. */
 	private previewScope: Scope | null = null;
 
@@ -430,15 +432,21 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// MutationObserver isn't auto-cleaned by Obsidian's register* helpers.
 		this.register(() => this.submitScrollObserver?.disconnect());
 		this.watchImagePreview();
-		// Text selected inside a block Live Preview renders (a callout, a table); see
-		// syncBlockSelection. Once a frame at most — a drag fires this on every move.
-		this.registerDomEvent(document, "selectionchange", () => {
+		// Text selected inside a block Live Preview renders (a callout, a table), or a table's
+		// cells; see syncBlockSelection. Once a frame at most — a drag fires this on every move.
+		const syncSoon = (): void => {
 			if (this.blockSelectionFrame !== null) return;
 			this.blockSelectionFrame = requestAnimationFrame(() => {
 				this.blockSelectionFrame = null;
 				this.syncBlockSelection();
 			});
-		});
+		};
+		this.registerDomEvent(document, "selectionchange", syncSoon);
+		// Cells are selected by class, not as text, so the page selection doesn't move when
+		// they are: look again once the pointer or a key is let go. After a tick — four clicks
+		// select the whole table in a timeout of Obsidian's own.
+		this.registerDomEvent(document, "pointerup", () => window.setTimeout(syncSoon), { capture: true });
+		this.registerDomEvent(document, "keyup", () => window.setTimeout(syncSoon), { capture: true });
 		this.register(() => {
 			if (this.blockSelectionFrame !== null) cancelAnimationFrame(this.blockSelectionFrame);
 		});
@@ -1589,7 +1597,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * inside a rendered block isn't one: it's the page's own, inside an element the editor
 	 * stands in for its source, so the editor reports nothing and the 划词 went unnoticed.
 	 * Reading mode works because there Claudian reads the page selection instead, so this
-	 * hands it the same shape — plus the note lines the block's source covers.
+	 * hands it the same shape — plus the note lines the block's source covers. Cells selected
+	 * in a table go the same way (see tableCellSelection).
 	 *
 	 * Claudian re-checks every 250ms, finds the editor selection empty and would drop it
 	 * again; its grace period, meant for the reader moving to the composer, holds it while it
@@ -1599,7 +1608,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private syncBlockSelection(): void {
 		const controller = this.getSelectionController();
 		if (!controller || !("storedSelection" in controller)) return; // internals drifted
-		const found = this.selectionInRenderedBlock();
+		this.holdCellSelection(controller);
+		const found = this.tableCellSelection() ?? this.selectionInRenderedBlock();
 		const ours = this.blockSelection !== null && controller.storedSelection === this.blockSelection;
 		if (!found) {
 			if (ours) controller.inputHandoffGraceUntil = null;
@@ -1615,11 +1625,88 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		) {
 			return;
 		}
+		this.adoptSelection(controller, found);
+		controller.onUserSelectionChanged?.();
+	}
+
+	/** Make `found` the selection Claudian carries, held past its poll's checks. */
+	private adoptSelection(controller: ClaudianSelectionController, found: ClaudianStoredSelection): void {
 		this.blockSelection = found;
 		controller.storedSelection = found;
 		controller.inputHandoffGraceUntil = Number.MAX_SAFE_INTEGER;
 		controller.updateIndicator?.();
-		controller.onUserSelectionChanged?.();
+	}
+
+	/**
+	 * Keep selected cells Claudian's selection against its own poll. Clicking a cell four
+	 * times, or dragging out of the cell being edited, leaves text selected in that cell's
+	 * editor too — hidden while the cells are selected, but the editor reports it, so every
+	 * 250ms Claudian took it over the cells and then said so through onUserSelectionChanged.
+	 * That is where the cells are put back, in the same task, before anything is drawn.
+	 */
+	private holdCellSelection(controller: ClaudianSelectionController): void {
+		if (this.heldControllers.has(controller)) return;
+		this.heldControllers.add(controller);
+		const notify = controller.onUserSelectionChanged;
+		controller.onUserSelectionChanged = () => {
+			if (controller.storedSelection !== this.blockSelection) {
+				const cells = this.tableCellSelection();
+				if (cells) this.adoptSelection(controller, cells);
+			}
+			notify?.call(controller);
+		};
+		this.register(() => {
+			controller.onUserSelectionChanged = notify;
+		});
+	}
+
+	/**
+	 * The cells selected in a Live Preview table of the note being edited. Dragging across
+	 * cells, or clicking one four times, selects them by class, so the page has nothing to
+	 * report and the editor at most the text left selected in one cell (see
+	 * holdCellSelection). The text is the selected columns of the selected rows as the note's
+	 * source has them — a Dataview cell as its query, not its result — and the lines are
+	 * those rows' lines.
+	 */
+	private tableCellSelection(): ClaudianStoredSelection | null {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view?.file || view.getMode() !== "source") return null;
+		const cm = (view.editor as unknown as { cm?: EditorView }).cm;
+		// Not a table the editor's own selection takes in whole (`is-selected`): that one is
+		// Claudian's business, like any other text the editor holds.
+		const table = cm?.contentDOM.querySelector<HTMLElement>(".cm-table-widget.has-selection:not(.is-selected)");
+		if (!cm || !table) return null;
+		const cells = Array.from(table.querySelectorAll<HTMLTableCellElement>("th.is-selected, td.is-selected"));
+		if (cells.length === 0) return null;
+		const rowsOf = cells.map((cell) => (cell.parentElement as HTMLTableRowElement).rowIndex);
+		const colsOf = cells.map((cell) => cell.cellIndex);
+		const [minCol, maxCol] = [Math.min(...colsOf), Math.max(...colsOf)];
+		let pos: number;
+		try {
+			pos = cm.posAtDOM(table);
+		} catch {
+			return null;
+		}
+		const doc = cm.state.doc;
+		const first = doc.lineAt(pos).number;
+		// Row 0 is the header; the delimiter line under it isn't a row of the table.
+		const lineOf = (row: number): number => Math.min(first + (row === 0 ? 0 : row + 1), doc.lines);
+		const start = lineOf(Math.min(...rowsOf));
+		const end = lineOf(Math.max(...rowsOf));
+		const width = table.querySelector("tr")?.cells.length ?? 0;
+		const whole = minCol === 0 && maxCol >= width - 1;
+		const lines: string[] = [];
+		for (let n = start; n <= end; n++) {
+			const text = doc.line(n).text;
+			lines.push(whole ? text : `| ${tableRowCells(text).slice(minCol, maxCol + 1).join(" | ")} |`);
+		}
+		return {
+			notePath: view.file.path,
+			selectedText: lines.join("\n"),
+			lineCount: end - start + 1,
+			startLine: start,
+			domRanges: [],
+		};
 	}
 
 	/** The page selection, when it lies inside a rendered block of the note being edited. */
@@ -2193,4 +2280,29 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (side === "right") this.app.workspace.rightSplit.expand();
 		else if (side === "left") this.app.workspace.leftSplit.expand();
 	}
+}
+
+/**
+ * A Markdown table row's cells, trimmed. A `|` splits cells unless it's escaped — as it is
+ * in a link's alias inside a table — and the pipes at either end bound the row rather than
+ * add an empty cell.
+ */
+function tableRowCells(row: string): string[] {
+	const cells: string[] = [];
+	let cell = "";
+	for (let i = 0; i < row.length; i++) {
+		const ch = row.charAt(i);
+		if (ch === "\\" && i + 1 < row.length) {
+			cell += ch + row.charAt(++i);
+		} else if (ch === "|") {
+			cells.push(cell);
+			cell = "";
+		} else {
+			cell += ch;
+		}
+	}
+	cells.push(cell);
+	if (cells.length > 1 && cells[0]?.trim() === "") cells.shift();
+	if (cells.length > 1 && cells[cells.length - 1]?.trim() === "") cells.pop();
+	return cells.map((c) => c.trim());
 }
