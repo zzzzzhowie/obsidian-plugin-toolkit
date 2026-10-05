@@ -1090,8 +1090,23 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * the command into a no-op instead of degrading it to always resetting.
 	 */
 	private tabHasContent(): boolean {
-		const messages = this.getActiveTabState()?.messages;
-		return Array.isArray(messages) ? messages.length > 0 : true;
+		return this.conversationStarted() || !Array.isArray(this.getActiveTabState()?.messages);
+	}
+
+	/**
+	 * Whether the active tab's conversation has been started — sent at least once, so it's
+	 * locked to its note and a note switch has to replace it.
+	 *
+	 * The messages on screen don't settle it. Claude Code keeps a conversation's history in
+	 * ~/.claude on the machine that ran it, and only Claudian's record of it is in the vault,
+	 * so a conversation from another Mac opens here with nothing in it: an empty pane, still
+	 * locked to its note. Counted as empty, it was left in place and its note's chip stayed
+	 * under every note opened after it. Claudian gives a tab a conversation id at its first
+	 * prompt and not before, so that is the test, with the messages as a fallback.
+	 */
+	private conversationStarted(): boolean {
+		const tab = this.getActiveTab();
+		return Boolean(tab?.conversationId) || Boolean(tab?.state?.messages?.length);
 	}
 
 	/** Drop a deleted note (and, for a folder, everything under it) from the memory. */
@@ -1110,13 +1125,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * Returns whether it actually happened, so the caller can fall back.
 	 *
 	 * Declines while a reply is streaming (never cut off a running response) and when the
-	 * conversation has no messages (nothing to clear — resetting would only churn the tab
-	 * and drop an attached note the user just set up).
+	 * conversation hasn't been started (nothing to clear — resetting would only churn the
+	 * tab and drop an attached note the user just set up).
 	 */
 	private resetSessionForNoteChange(): boolean {
 		const state = this.getActiveTabState();
 		if (!state || state.isStreaming) return false;
-		if (!state.messages?.length) return false;
+		if (!this.conversationStarted()) return false;
 		return (this.app as unknown as AppWithCommands).commands.executeCommandById(
 			NEW_SESSION_COMMAND,
 		);
