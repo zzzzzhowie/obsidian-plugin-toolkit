@@ -1,0 +1,9 @@
+{
+	"id": "yeyan-sidebar-guard",
+	"name": "Sidebar Guard",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Cmd/Ctrl+W never closes a sidebar panel (Claudian, Outline, Backlinks…): with one active it closes your tab in the main area instead, as in VS Code. Notes opened in a sidebar still close as usual.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}

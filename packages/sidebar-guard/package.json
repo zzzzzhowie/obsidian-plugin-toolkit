@@ -1,0 +1,33 @@
+{
+	"name": "@obsidian-plugin-toolkit/sidebar-guard",
+	"version": "1.0.0",
+	"description": "Cmd/Ctrl+W never closes a sidebar panel (Claudian, Outline, Backlinks…): with one active it closes your tab in the main area instead, as in VS Code. Notes opened in a sidebar still close as usual.",
+	"author": "yeyan1996",
+	"main": "main.js",
+	"type": "module",
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+		"version": "node version-bump.mjs && git add manifest.json versions.json",
+		"lint": "eslint ."
+	},
+	"keywords": [],
+	"license": "0-BSD",
+	"devDependencies": {
+		"@types/node": "^20.0.0",
+		"esbuild": "0.25.5",
+		"eslint-plugin-obsidianmd": "0.1.9",
+		"globals": "14.0.0",
+		"tslib": "2.4.0",
+		"typescript": "5.8.3",
+		"typescript-eslint": "8.35.1",
+		"@eslint/js": "9.30.1",
+		"jiti": "2.6.1"
+	},
+	"dependencies": {
+		"obsidian": "latest"
+	},
+	"peerDependencies": {
+		"obsidian": ">=1.0.0"
+	}
+}

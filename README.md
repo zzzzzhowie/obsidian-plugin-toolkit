@@ -50,6 +50,7 @@ pnpm dev:line-numbers               # Line Numbers
 pnpm dev:nav-history                # Nav History
 pnpm dev:note-comments              # Note Comments
 pnpm dev:quick-open                 # Quick Open
+pnpm dev:sidebar-guard              # Sidebar Guard
 ```
 
 Or use filter:
@@ -81,6 +82,7 @@ pnpm build:line-numbers
 pnpm build:nav-history
 pnpm build:note-comments
 pnpm build:quick-open
+pnpm build:sidebar-guard
 ```
 
 ## Lint
@@ -122,6 +124,9 @@ Select text and comment on it (`Cmd/Ctrl+Option/Alt+M`, or the editor menu). Com
 
 ### @obsidian-plugin-toolkit/quick-open
 VS Code's Go to File on `Cmd/Ctrl+P` (the command palette moves to `Cmd/Ctrl+Shift+P`, as in VS Code). With nothing typed it lists recently opened files, most recent first; typing fuzzy-matches file names (or whole paths once the query has a `/`) and notes' `aliases` — an alias match shows as its own row, the alias with the note it stands for, as in Obsidian's switcher — recently opened matches first, then the rest of the vault. `name:42` opens at a line, `:42` goes to a line in the current note, `@` lists its headings. Enter opens — in the tab the file already has in the current group, or a new tab, never over the note you're in — and `Cmd/Ctrl+Enter` always opens a new tab (Obsidian's meaning rather than VS Code's; a row button opens to the side). Pressing `P` again with `Cmd/Ctrl` held moves down the list, and letting go opens the selection. The recent list is shared between devices through the plugin's data.json: each device records when it last opened each file and copies are merged entry by entry (later time wins, removals included), so one device never overwrites another's list the way Obsidian's own recent list in workspace.json does. It starts from Obsidian's and the Recent Files plugin's lists, and vault-backup leaves it out of backups. An empty new tab becomes the same search inline — a search box (focused when the tab is switched to) over the recent files, one card per file; Enter or a click opens the file there, Cmd/Ctrl+Enter or Cmd/Ctrl-click in a new tab. On mobile it takes over the search button in the middle of the navbar; on a phone a file opens in the tab that already has it, else in the current tab, and there is no opening to the side.
+
+### @obsidian-plugin-toolkit/sidebar-guard
+`Cmd/Ctrl+W` never closes a sidebar panel. Obsidian's "Close current tab" closes whichever tab is active, and a panel (Claudian, Outline, Backlinks…) is a tab like any other — click into one, press the key meaning the note, and the panel goes, then the next one, until the sidebar is empty. With a panel active the key now closes your tab in the main area instead, as in VS Code. A note opened in a sidebar still closes as usual, and a panel is still closed from its tab's menu. It wraps the command rather than the key, so it follows whatever hotkey "Close current tab" has.
 
 ## Tech Stack
 
