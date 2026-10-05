@@ -93,6 +93,8 @@ const OPEN_COMMAND = "realclaudian:open-view";
  * Claudian disables it in its wide dual-pane layout, where this reports false.
  */
 const NEW_SESSION_COMMAND = "realclaudian:new-session";
+/** Core "New tab" (⌘T) — what clear-tab's hotkey does when the pointer isn't over Claudian. */
+const NEW_TAB_COMMAND = "workspace:new-tab";
 /**
  * How many notes keep a conversation on file. Beyond this the least recently visited note
  * is forgotten — its conversation still exists in Claudian's own history, it just stops
@@ -153,11 +155,13 @@ interface ClaudianTabState {
  * (`mode: "auto-draft"`) the chip follows the active note by itself; the first prompt locks
  * it (`"locked"`) to that note for good, and Claudian throws if anything tries to change a
  * locked one. So we only read the snapshot, plus `handleActiveFileChanged` — Claudian's own
- * file-open hook, which re-points a draft and ignores anything else.
+ * file-open hook, which re-points a draft and ignores anything else — and `resetAutoDraft`,
+ * which puts a draft back to following (see followNoteInDraft).
  */
 interface ClaudianLinkedContent {
 	getSnapshot?: () => { mode?: string; path?: string | null };
 	handleActiveFileChanged?: (file: TFile | null, isActiveOwner: boolean) => void;
+	resetAutoDraft?: () => void;
 }
 
 /**
@@ -348,6 +352,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private readonly heldControllers = new WeakSet<ClaudianSelectionController>();
 	/** Pushed while Claudian's image preview is open, so Escape closes it; see watchImagePreview. */
 	private previewScope: Scope | null = null;
+	/** Whether the pointer last rested over Claudian's view; decides what clear-tab's key does. */
+	private pointerOverClaudian = false;
 
 	async onload(): Promise<void> {
 		// Awaited rather than backgrounded: a restore that lost a race with this would
@@ -367,10 +373,26 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// never been prompted has no id to write), so leaving and coming back would restore
 		// exactly what the user cleared. Drive its command and drop the note in one act, so
 		// one key means the note genuinely starts over.
+		//
+		// One key, two meanings, picked by where the pointer is: over Claudian it clears the
+		// tab, anywhere else it opens a new tab, same as ⌘T. The
+		// pointer rather than focus, because clicking a sidebar never moves DOM focus off
+		// <body>. Core "Create new note" (file-explorer:new-file) must stay unbound in
+		// hotkeys.json so it doesn't race us for ⌘N.
 		this.addCommand({
 			id: "clear-tab",
-			name: "Clear current tab",
+			// "Claudian" is a proper noun (the plugin's name), so it stays capitalized.
+			// eslint-disable-next-line obsidianmd/ui/sentence-case
+			name: "New tab, or clear Claudian's tab when the pointer is over it",
 			checkCallback: (checking: boolean) => {
+				if (!this.pointerOverClaudian) {
+					if (!checking) {
+						(this.app as unknown as AppWithCommands).commands.executeCommandById(
+							NEW_TAB_COMMAND,
+						);
+					}
+					return true;
+				}
 				const tab = this.getActiveTab();
 				if (!tab || tab.state?.isStreaming) return false;
 				if (checking) return true;
@@ -378,6 +400,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				return true;
 			},
 		});
+		this.registerDomEvent(
+			document,
+			"pointerover",
+			(e) => {
+				const target = e.target instanceof Element ? e.target : null;
+				this.pointerOverClaudian = !!target?.closest(
+					`.workspace-leaf-content[data-type="${CLAUDIAN_VIEW}"]`,
+				);
+			},
+			{ capture: true },
+		);
 		// Escape cancels a live 划词 (see onEscapeCapture). Listened for on window in
 		// the capture phase so it runs regardless of where focus currently sits.
 		this.registerDomEvent(window, "keydown", this.onEscapeCapture, {
@@ -1126,7 +1159,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private followNoteInDraft(path: string): void {
 		const linked = this.getLinkedContent();
 		if (typeof linked?.handleActiveFileChanged !== "function") return;
-		if (linked.getSnapshot?.().path === path) return;
+		const snapshot = linked.getSnapshot?.();
+		if (snapshot?.path === path) return;
+		// A draft linked to no note at all stops following for good: Claudian makes it a
+		// hand-picked "none" when the note it followed is deleted (or its chip's × is clicked),
+		// and a hand-picked draft never moves again — so after a new note was made and deleted,
+		// every note opened since showed "Linked content: None". Arriving at a note is a fresh
+		// start here (a conversation with messages is replaced outright), so an empty draft
+		// follows the note again. A note picked by hand is still left where it was put.
+		if (snapshot?.mode === "explicit-draft" && snapshot.path === null) linked.resetAutoDraft?.();
 		const file = this.app.vault.getFileByPath(path);
 		if (file) linked.handleActiveFileChanged(file, true);
 	}
