@@ -1,4 +1,4 @@
-import { type App, FileSystemAdapter, Notice, Platform, type TFile } from "obsidian";
+import { type App, FileSystemAdapter, type Menu, type MenuItem, Notice, Platform, type TFile } from "obsidian";
 
 /**
  * "Open in default browser" for a file in the file explorer. Obsidian's own "Open in default
@@ -18,6 +18,26 @@ function nodeRequire<T>(id: string): T {
 
 export function openInBrowserSupported(): boolean {
 	return Platform.isDesktopApp && Platform.isMacOS;
+}
+
+/** A menu's own list of its items, in the order each section lays them out. Not in the typings. */
+type MenuWithItems = Menu & { items?: Array<{ section?: string }> };
+
+/**
+ * Move `item` to straight after the first item before it in its section. For a file that is
+ * Obsidian's "Open in default app", which it adds before any plugin sees the menu, with
+ * "Reveal in Finder" after it; a menu keeps a section's items in the order they were added,
+ * so appended, ours came after both. This keeps the two "Open in default …" together. For a
+ * folder there is no "Open in default app", and it stays after "Reveal in Finder".
+ */
+export function placeAfterSectionStart(menu: Menu, item: MenuItem, section: string): void {
+	const items = (menu as MenuWithItems).items;
+	if (!Array.isArray(items)) return;
+	const at = items.indexOf(item as unknown as { section?: string });
+	const first = items.findIndex((other, index) => index < at && other.section === section);
+	if (at < 0 || first < 0 || first === at - 1) return;
+	const [moved] = items.splice(at, 1);
+	if (moved) items.splice(first + 1, 0, moved);
 }
 
 export async function openInDefaultBrowser(app: App, file: TFile): Promise<void> {

@@ -16,7 +16,7 @@ import { FolderNoteManager } from "./folder-note";
 import { FileCountManager } from "./file-count";
 import { FileHiderManager } from "./hider";
 import { registerReuseTab } from "./reuse-tab";
-import { openInBrowserSupported, openInDefaultBrowser } from "./open-in-browser";
+import { openInBrowserSupported, openInDefaultBrowser, placeAfterSectionStart } from "./open-in-browser";
 
 /** The `file-menu` sources that get "Open in default browser". */
 const BROWSER_MENU_SOURCES = new Set(["file-explorer-context-menu", "tab-header", "more-options"]);
@@ -83,13 +83,14 @@ export default class MyPlugin extends Plugin {
 						openInBrowserSupported()
 					) {
 						menu.addItem((item) => {
-							// Beside Obsidian's "Open in default app" / "Reveal in Finder".
+							// Right under Obsidian's "Open in default app", above "Reveal in Finder".
 							item.setTitle("Open in default browser")
 								.setIcon("globe")
 								.setSection("system")
 								.onClick(() => {
 									void openInDefaultBrowser(this.app, target);
 								});
+							placeAfterSectionStart(menu, item, "system");
 						});
 					}
 				},
