@@ -45,7 +45,9 @@
         "dev:quick-open": "pnpm --filter @obsidian-plugin-toolkit/quick-open dev",
         "build:quick-open": "pnpm --filter @obsidian-plugin-toolkit/quick-open build",
         "dev:sidebar-guard": "pnpm --filter @obsidian-plugin-toolkit/sidebar-guard dev",
-        "build:sidebar-guard": "pnpm --filter @obsidian-plugin-toolkit/sidebar-guard build"
+        "build:sidebar-guard": "pnpm --filter @obsidian-plugin-toolkit/sidebar-guard build",
+        "dev:drafts": "pnpm --filter @obsidian-plugin-toolkit/drafts dev",
+        "build:drafts": "pnpm --filter @obsidian-plugin-toolkit/drafts build"
     },
     "keywords": [
         "obsidian",

@@ -1,0 +1,56 @@
+/* The drafts folder is out of sight in the file explorer: drafts are reached from their tabs,
+   "Open draft…", and Quick Open's recent list. */
+.nav-folder:has(> .nav-folder-title[data-path="_drafts"]) {
+	display: none;
+}
+
+/* A draft has no name yet — the one it gets on saving is its first line — so neither the
+   inline title nor the "_drafts /" in front of the header's title is shown. */
+.drafts-is-draft .inline-title,
+.drafts-is-draft .view-header-title-parent {
+	display: none;
+}
+
+/* The faint line over an empty draft, as VS Code writes over an untitled file. An empty
+   document is a single line holding only a <br>; the text comes from --drafts-hint, which
+   carries the hotkey "Save current file" actually has. */
+.drafts-is-draft .cm-content > .cm-line:only-child:has(> br:only-child)::before {
+	content: var(--drafts-hint);
+	position: absolute;
+	color: var(--text-faint);
+	pointer-events: none;
+}
+
+/* --- Save draft ------------------------------------------------------------------------ */
+
+.drafts-save-form {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-3);
+}
+
+.drafts-save-field {
+	display: grid;
+	grid-template-columns: 4.5em 1fr;
+	align-items: center;
+	gap: var(--size-4-3);
+}
+
+.drafts-save-label {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.drafts-save-field input {
+	width: 100%;
+}
+
+.drafts-save-error {
+	margin-top: var(--size-4-2);
+	color: var(--text-error);
+	font-size: var(--font-ui-small);
+}
+
+.drafts-save-error:empty {
+	display: none;
+}

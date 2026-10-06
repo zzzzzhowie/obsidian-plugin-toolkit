@@ -51,6 +51,7 @@ pnpm dev:nav-history                # Nav History
 pnpm dev:note-comments              # Note Comments
 pnpm dev:quick-open                 # Quick Open
 pnpm dev:sidebar-guard              # Sidebar Guard
+pnpm dev:drafts                     # Drafts
 ```
 
 Or use filter:
@@ -83,6 +84,7 @@ pnpm build:nav-history
 pnpm build:note-comments
 pnpm build:quick-open
 pnpm build:sidebar-guard
+pnpm build:drafts
 ```
 
 ## Lint
@@ -127,6 +129,9 @@ VS Code's Go to File on `Cmd/Ctrl+P` (the command palette moves to `Cmd/Ctrl+Shi
 
 ### @obsidian-plugin-toolkit/sidebar-guard
 `Cmd/Ctrl+W` never closes a sidebar panel. Obsidian's "Close current tab" closes whichever tab is active, and a panel (Claudian, Outline, Backlinks…) is a tab like any other — click into one, press the key meaning the note, and the panel goes, then the next one, until the sidebar is empty. With a panel active the key now closes your tab in the main area instead, as in VS Code. A note opened in a sidebar still closes as usual, and a panel is still closed from its tab's menu. It wraps the command rather than the key, so it follows whatever hotkey "Close current tab" has.
+
+### @obsidian-plugin-toolkit/drafts
+VS Code's untitled files. "New draft" (`Cmd/Ctrl+N` through Claudian (Enhanced), and the first button on an empty tab) opens a blank note that isn't anywhere in the vault yet, so jotting something down no longer leaves an `Untitled.md` behind. `Cmd/Ctrl+S` in a draft asks for a name — its first line, to start with — and a folder, and moves it there, links and attachments included; in any other note it saves as usual. Closing a draft with text in it asks Save / Don't save / Cancel (Enter saves, `Cmd+D` doesn't); a blank one is just discarded, and one left behind any other way is kept and reopened with "Open draft…". Drafts are real notes in a hidden `_drafts/` folder, so every editor plugin works in them; the folder is hidden from the file explorer, added to Excluded files (search, graph) and left out of vault-backup's backups.
 
 ## Tech Stack
 

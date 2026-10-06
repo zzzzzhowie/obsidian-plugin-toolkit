@@ -1,0 +1,9 @@
+{
+	"id": "yeyan-drafts",
+	"name": "Drafts",
+	"version": "1.0.0",
+	"minAppVersion": "1.6.6",
+	"description": "VS Code style untitled notes: a new draft lives out of sight until Cmd/Ctrl+S saves it into the vault under a name and folder you pick, and closing an unsaved one asks Save or Don't save.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}
