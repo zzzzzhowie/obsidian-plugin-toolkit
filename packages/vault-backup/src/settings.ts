@@ -75,6 +75,9 @@ export function defaultIgnorePatterns(configDir: string): string[] {
 		// Quick Open's recently opened list, for the same reason: rewritten on every file
 		// opened, and it holds nothing but that list.
 		`${configDir}/plugins/yeyan-quick-open/data.json`,
+		// Drafts' unsaved notes. Whatever is worth keeping gets saved into the vault proper,
+		// and is backed up from there; the rest is scratch, rewritten on every keystroke.
+		"_drafts/",
 	];
 }
 
