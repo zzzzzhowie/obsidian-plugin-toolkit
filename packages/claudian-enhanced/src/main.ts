@@ -93,7 +93,11 @@ const OPEN_COMMAND = "realclaudian:open-view";
  * Claudian disables it in its wide dual-pane layout, where this reports false.
  */
 const NEW_SESSION_COMMAND = "realclaudian:new-session";
-/** Core "New tab" (⌘T) — what clear-tab's hotkey does when the pointer isn't over Claudian. */
+/**
+ * What clear-tab's hotkey does when the pointer isn't over Claudian: a new draft (the Drafts
+ * plugin, VS Code's ⌘N), or core "New tab" (⌘T) without it.
+ */
+const NEW_DRAFT_COMMAND = "yeyan-drafts:new-draft";
 const NEW_TAB_COMMAND = "workspace:new-tab";
 /**
  * How many notes keep a conversation on file. Beyond this the least recently visited note
@@ -375,7 +379,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// one key means the note genuinely starts over.
 		//
 		// One key, two meanings, picked by where the pointer is: over Claudian it clears the
-		// tab, anywhere else it opens a new tab, same as ⌘T. The
+		// tab, anywhere else it opens a new draft (Drafts), or a new tab like ⌘T without it.
+		// Both live here rather than as two bindings of ⌘N because Obsidian runs only the first
+		// command bound to a key, whether or not it applies. The
 		// pointer rather than focus, because clicking a sidebar never moves DOM focus off
 		// <body>. Core "Create new note" (file-explorer:new-file) must stay unbound in
 		// hotkeys.json so it doesn't race us for ⌘N.
@@ -383,13 +389,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			id: "clear-tab",
 			// "Claudian" is a proper noun (the plugin's name), so it stays capitalized.
 			// eslint-disable-next-line obsidianmd/ui/sentence-case
-			name: "New tab, or clear Claudian's tab when the pointer is over it",
+			name: "New draft, or clear Claudian's tab when the pointer is over it",
 			checkCallback: (checking: boolean) => {
 				if (!this.pointerOverClaudian) {
 					if (!checking) {
-						(this.app as unknown as AppWithCommands).commands.executeCommandById(
-							NEW_TAB_COMMAND,
-						);
+						const { commands } = this.app as unknown as AppWithCommands;
+						if (!commands.executeCommandById(NEW_DRAFT_COMMAND)) {
+							commands.executeCommandById(NEW_TAB_COMMAND);
+						}
 					}
 					return true;
 				}
