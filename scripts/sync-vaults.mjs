@@ -14,15 +14,20 @@
 // CSS snippets: the vault that OBSIDIAN_PLUGINS_DIR points to (the "default"
 // vault) is the source of truth for `.obsidian/snippets/*.css`. Its snippets are
 // mirrored (rsync --delete) into every other target vault, so appearance CSS
-// stays identical everywhere. `appearance.json` is NOT touched — each vault keeps
-// its own enabled-snippets list and theme.
+// stays identical everywhere.
+//
+// Vault settings: theme and appearance, hotkeys, core plugins and the editor options
+// in app.json are kept the same across the target vaults, setting by setting — a
+// setting changed in any vault is carried to the others (see syncSettings below).
+// Which community plugins are enabled, and each plugin's data.json, stay per vault.
 //
 // Usage (run AFTER `pnpm build`):
 //   node scripts/sync-vaults.mjs                 # all vaults in obsidian.json
 //   node scripts/sync-vaults.mjs MyVault         # only vaults matching name/path
 //   node scripts/sync-vaults.mjs /path/to/vault  # an explicit vault path
+//   node scripts/sync-vaults.mjs --dry-run       # print the settings changes, write nothing
 
-import { readFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,6 +54,7 @@ function sourceSnippetsDir() {
 }
 
 const filters = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const DRY_RUN = process.argv.includes("--dry-run");
 
 // ---- target vaults ----------------------------------------------------------
 function allVaults() {
@@ -121,6 +127,11 @@ if (!targets.length) {
 	console.error("No target vaults matched.");
 	process.exit(1);
 }
+if (DRY_RUN) {
+	syncSettings(targets);
+	console.log("Dry run: nothing written, plugins and snippets not copied.");
+	process.exit(0);
+}
 console.log(`Plugins: ${plugins.length} | Target vaults: ${targets.length}\n`);
 
 for (const vault of targets) {
@@ -148,7 +159,8 @@ for (const vault of targets) {
 
 // ---- CSS snippets (Obsidian Appearance) -------------------------------------
 // Mirror the source vault's snippets/ into every other target vault. The source
-// vault itself is skipped (it's the truth). appearance.json is left untouched.
+// vault itself is skipped (it's the truth). Which snippets are enabled is in
+// appearance.json, kept in step by syncSettings.
 const srcSnippets = sourceSnippetsDir();
 if (!srcSnippets) {
 	console.warn("⚠️  OBSIDIAN_PLUGINS_DIR not found in .env — CSS snippets not synced.");
@@ -171,4 +183,115 @@ if (!srcSnippets) {
 	console.log("");
 }
 
+syncSettings(targets);
+
 console.log("Done.");
+
+// ---- Vault settings (theme, hotkeys, core plugins, editor options) ----------
+// Merged setting by setting against a snapshot of what the last sync left in every vault
+// (STATE_PATH): a setting a vault has changed since is carried to the others, one nobody
+// changed stays. Not "newest file wins": Obsidian rewrites app.json, appearance.json and
+// core-plugins.json on every start, so a file's mtime says nothing about who changed
+// what, and restarting a vault would push its old settings over a newer change. Only when
+// two vaults changed the same setting differently does the more recently written file win.
+//
+// A vault the snapshot doesn't know yet (first run, or a new vault) takes the merged
+// settings without voting — so a fresh vault's defaults never overwrite the others. On
+// the very first run there's no snapshot: a setting set in one vault and unset in the
+// other is taken as set; set differently, the more recently written file wins.
+//
+// Obsidian picks up app.json, appearance.json and hotkeys.json while running;
+// core-plugins.json is read at startup, so a core plugin switched on or off elsewhere
+// takes effect the next time the vault opens.
+function syncSettings(vaults) {
+	const FILES = ["app.json", "appearance.json", "hotkeys.json", "core-plugins.json"];
+	// Settings about a vault's own folders, not how Obsidian behaves: left as each vault has them.
+	const OWN = {
+		"app.json": new Set(["userIgnoreFilters", "attachmentFolderPath", "newFileLocation", "newFileFolderPath"]),
+	};
+	const STATE_PATH = join(REPO_ROOT, ".cache/vault-settings-sync.json");
+	if (vaults.length < 2) return;
+
+	const state = existsSync(STATE_PATH) ? JSON.parse(readFileSync(STATE_PATH, "utf8")) : { vaults: [], files: {} };
+	const known = new Set(state.vaults);
+	const next = { vaults: [...new Set([...state.vaults, ...vaults])], files: { ...state.files } };
+	console.log(`Vault settings across ${vaults.length} vaults${DRY_RUN ? " (dry run)" : ""}\n`);
+
+	for (const file of FILES) {
+		const own = OWN[file] ?? new Set();
+		const copies = [];
+		let unreadable = false;
+		for (const vault of vaults) {
+			const path = join(vault, ".obsidian", file);
+			if (!existsSync(path)) {
+				copies.push({ vault, path, data: null, mtime: 0 });
+				continue;
+			}
+			try {
+				copies.push({ vault, path, data: JSON.parse(readFileSync(path, "utf8")), mtime: statSync(path).mtimeMs });
+			} catch {
+				console.warn(`⚠️  ${basename(vault)}/${file} isn't valid JSON — ${file} not synced.`);
+				unreadable = true;
+			}
+		}
+		if (unreadable) continue;
+
+		const base = state.files[file];
+		// Most recently written first, so it wins a conflict.
+		const voters = copies
+			.filter((c) => c.data && (!base || known.has(c.vault)))
+			.sort((a, b) => b.mtime - a.mtime);
+		const keys = new Set([...Object.keys(base ?? {}), ...voters.flatMap((c) => Object.keys(c.data))]);
+		const merged = {};
+		for (const key of keys) {
+			if (own.has(key)) continue;
+			const changed = base
+				? voters.filter((c) => !same(c.data[key], base[key]))
+				: voters.filter((c) => c.data[key] !== undefined);
+			const value = changed.length ? changed[0].data[key] : base?.[key];
+			if (value !== undefined) merged[key] = value;
+		}
+		next.files[file] = merged;
+
+		for (const { vault, path, data } of copies) {
+			const current = data ?? {};
+			// The file's own key order, then anything new; a vault's own settings kept.
+			const out = {};
+			for (const key of Object.keys(current)) {
+				if (own.has(key)) out[key] = current[key];
+				else if (key in merged) out[key] = merged[key];
+			}
+			for (const key of Object.keys(merged)) if (!(key in out)) out[key] = merged[key];
+			const diff = [...new Set([...Object.keys(current), ...Object.keys(out)])].filter(
+				(key) => !same(current[key], out[key])
+			);
+			if (!diff.length) continue;
+			console.log(`==> ${basename(vault)}/${file}: ${diff.join(", ")}`);
+			// A fresh write, not a copy that keeps the source's mtime: Obsidian reloads app.json
+			// and appearance.json only when the file is newer than its last read.
+			if (!DRY_RUN) writeFileSync(path, JSON.stringify(out, null, 2));
+		}
+	}
+
+	if (!DRY_RUN) {
+		mkdirSync(dirname(STATE_PATH), { recursive: true });
+		writeFileSync(STATE_PATH, JSON.stringify(next, null, 2));
+	}
+	console.log("");
+}
+
+/** Equal as JSON, whatever the key order. */
+function same(a, b) {
+	return canonical(a) === canonical(b);
+}
+
+function canonical(value) {
+	if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+	if (value && typeof value === "object") {
+		return `{${Object.keys(value)
+			.sort()
+			.map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`)
+			.join(",")}}`;
+	}
+	return JSON.stringify(value);
+}

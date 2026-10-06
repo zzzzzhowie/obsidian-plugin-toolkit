@@ -59,3 +59,6 @@ data.json
 # Local config (contains personal paths)
 .env
 
+
+# sync-vaults: snapshot of the vaults' shared settings from the last sync (personal)
+.cache/
