@@ -13,6 +13,12 @@ interface AppWithCommands {
 	commands: { commands: Record<string, Command | undefined> };
 }
 
+/** The workspace's own record of the active file, and its way of announcing a new one. */
+interface WorkspaceInternals {
+	lastActiveFile?: unknown;
+	requestActiveLeafEvents?: () => void;
+}
+
 /**
  * Keep Cmd/Ctrl+W off the sidebar panels.
  *
@@ -32,6 +38,23 @@ interface AppWithCommands {
 export default class SidebarGuardPlugin extends Plugin {
 	onload(): void {
 		this.app.workspace.onLayoutReady(() => this.guardCloseCommand());
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.announceActiveFile()));
+	}
+
+	/**
+	 * Tell the sidebar when the note it shows is closed from under it.
+	 *
+	 * Obsidian announces a new active file (`file-open`) only when the active tab changes. With a
+	 * panel active — clicked into, or the one Cmd+W left active above — closing the note behind
+	 * it changes no active tab, so nothing is announced: Outline, Backlinks, Outgoing links and
+	 * the word count kept showing the closed note over an empty tab. When the file Obsidian
+	 * last announced is no longer the active one, its own announcement is asked for again,
+	 * so everything that follows the active file hears it the usual way.
+	 */
+	private announceActiveFile(): void {
+		const workspace = this.app.workspace as unknown as WorkspaceInternals;
+		if (!("lastActiveFile" in workspace) || typeof workspace.requestActiveLeafEvents !== "function") return;
+		if (workspace.lastActiveFile !== this.app.workspace.getActiveFile()) workspace.requestActiveLeafEvents();
 	}
 
 	private guardCloseCommand(): void {
