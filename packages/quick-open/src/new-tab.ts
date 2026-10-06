@@ -1,6 +1,7 @@
 import { type App, Keymap, Platform, Scope, setIcon, type WorkspaceLeaf } from "obsidian";
 
 import type { FileHistory } from "./history";
+import { NewTabActions } from "./new-tab-actions";
 import { openFile, type OpenIn } from "./open";
 import { renderItem } from "./rows";
 import { type FileItem, type Item, Search } from "./search";
@@ -76,6 +77,7 @@ class TabSearch {
 	private readonly input: HTMLInputElement;
 	private readonly list: HTMLElement;
 	private readonly scope: Scope;
+	private readonly actions: NewTabActions | null;
 	private items: FileItem[] = [];
 	private rows: HTMLElement[] = [];
 	private selected = 0;
@@ -99,6 +101,9 @@ class TabSearch {
 			attr: { type: "text", placeholder: "Search files", spellcheck: "false", autocapitalize: "off" },
 		});
 		this.list = inner.createDiv({ cls: "quick-open-page-list" });
+		// Obsidian's own buttons under it (New note, Go to file…), with their shortcuts.
+		const actionList = host.querySelector<HTMLElement>(".empty-state-action-list");
+		this.actions = actionList ? new NewTabActions(app, actionList) : null;
 
 		this.input.addEventListener("input", () => {
 			this.selected = 0;
@@ -191,6 +196,7 @@ class TabSearch {
 
 	destroy(): void {
 		this.popScope();
+		this.actions?.destroy();
 		this.el.remove();
 	}
 

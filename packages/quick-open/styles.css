@@ -219,3 +219,31 @@ body:not(.is-mobile) .quick-open-item:hover .quick-open-action {
 	text-align: center;
 	color: var(--text-faint);
 }
+
+/* The empty tab's buttons show their shortcut in key caps, as VS Code's empty editor does
+   (new-tab-actions.ts); Obsidian's own plain-text copy of it gives way to them. */
+.empty-state-action:has(> .quick-open-keys) > .empty-state-hotkey {
+	display: none;
+}
+
+/* Pushed to the button's far end, so the keys line up in a column as VS Code's do. */
+.quick-open-keys {
+	display: inline-flex;
+	gap: 3px;
+	margin-inline-start: auto;
+	padding-inline-start: var(--size-4-4);
+}
+
+.quick-open-key {
+	min-width: 1.6em;
+	padding: 0 var(--size-2-2);
+	font-family: inherit;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.6;
+	text-align: center;
+	color: var(--text-muted);
+	background-color: var(--background-modifier-hover);
+	border: 1px solid var(--background-modifier-border);
+	border-bottom-width: 2px;
+	border-radius: var(--radius-s);
+}
