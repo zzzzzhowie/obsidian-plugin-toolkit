@@ -199,6 +199,8 @@ interface ClaudianSelectionController {
 	 */
 	inputHandoffGraceUntil?: number | null;
 	updateIndicator?: () => void;
+	/** What the next prompt goes with: the context Claudian reads off this as it sends. */
+	getContext?: () => ClaudianSelectionContext | null;
 	onUserSelectionChanged?: (() => void) | null;
 }
 
@@ -383,8 +385,13 @@ interface StoredData {
 function liveSelection(message: ClaudianMessage | undefined): SentSelection | null | undefined {
 	const context = message?.executionInput?.context;
 	if (!context || Object.keys(context).length === 0) return undefined;
-	const selection =
-		context.editorSelection ?? context.selections?.find((item) => item.kind === "editor")?.selection;
+	return sentLines(
+		context.editorSelection ?? context.selections?.find((item) => item.kind === "editor")?.selection,
+	);
+}
+
+/** The note lines a selection context names, or null for one that isn't a 划词. */
+function sentLines(selection: ClaudianSelectionContext | null | undefined): SentSelection | null {
 	if (selection?.mode !== "selection" || !selection.notePath || !selection.startLine) return null;
 	return {
 		path: selection.notePath,
@@ -485,6 +492,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private sentSelections = new Map<string, SentSelection | null>();
 	/** Passes in a row that found a prompt not filled in yet; see tagSentSelections. */
 	private tagRetries = 0;
+	/** Whether the last pass found a prompt not filled in yet, so a reply streaming looks again. */
+	private tagsPending = false;
+	/** Fresh prompts already tagged from the composer while Claude Code takes the turn. */
+	private readonly provisionallyTagged = new WeakSet<HTMLElement>();
 	/** Claude Code session files already read for sentSelections, with the mtime read. */
 	private readSessions = new Map<string, number>();
 	private tagFrame: number | null = null;
@@ -1731,9 +1742,21 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		let unfilled = false;
 		for (const bubble of bubbles) {
 			const message = messages.get(bubble.dataset.messageId ?? "");
-			// Drawn before Claudian has put the message in its list: a fresh prompt, a moment old.
-			if (!message) {
+			// A fresh prompt, not filled in yet: drawn before Claudian has put the message in its
+			// list, or before Claude Code has taken the turn. Claudian gives the message what it
+			// was sent with (`executionInput`) and the session file's id for it only then, and
+			// the session file doesn't have it yet either, so asking now would wrongly settle it
+			// as sent with nothing — and neither arrival touches the page to make it ask again.
+			if (!message || (!message.executionInput && !message.userMessageId)) {
 				unfilled = true;
+				// Tagged meanwhile from the composer, the moment it's drawn: Claudian reads the
+				// prompt's selection from there as it sends, and leaves it there after. Once, so
+				// a selection made since doesn't move it; the message's own replaces it once in.
+				if (!this.provisionallyTagged.has(bubble)) {
+					this.provisionallyTagged.add(bubble);
+					const pending = sentLines(this.getSelectionController()?.getContext?.());
+					if (pending) this.renderSelectionTag(bubble, pending);
+				}
 				continue;
 			}
 			const live = liveSelection(message);
@@ -1745,7 +1768,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (this.sentSelections.has(key)) this.renderSelectionTag(bubble, this.sentSelections.get(key) ?? null);
 			else lookups.push(key);
 		}
-		if (unfilled && this.tagRetries < 10) {
+		// Asked again as the reply streams in (see the submit-scroll observer), and on a timer
+		// besides, for a turn that takes a while to start.
+		this.tagsPending = unfilled;
+		if (unfilled && this.tagRetries < 75) {
 			this.tagRetries++;
 			window.setTimeout(() => this.scheduleSelectionTags(), 400);
 		} else if (!unfilled) {
@@ -1909,6 +1935,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			}
 			if (promptsChanged) {
 				this.scheduleFold(container);
+				this.scheduleSelectionTags();
+			} else if (this.tagsPending && streamed) {
 				this.scheduleSelectionTags();
 			}
 			this.returnToSpot(true);
