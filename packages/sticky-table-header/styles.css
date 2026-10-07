@@ -1,0 +1,23 @@
+/* 表头吸顶：阅读视图 + 实时预览（实时预览的拖选修正在 src/main.ts）
+   sticky 只认最近的滚动祖先；表格外层 wrapper 的 overflow-x:auto 会让它失效，所以放开。
+   代价：超宽表不再横向滚动，而是撑出正文区。 */
+.markdown-rendered .el-table,
+.markdown-rendered .table-wrapper,
+.markdown-source-view .cm-table-widget,
+.markdown-source-view .cm-table-widget .table-wrapper {
+  overflow: visible !important;
+}
+
+.markdown-rendered thead th,
+.markdown-source-view .cm-table-widget thead th {
+  position: sticky !important; /* 压过 app.css 里 .mod-cm6 .cm-table-widget th 的 relative */
+  /* 滚动容器有 32px padding-top（--file-margins），sticky 从内容区算起会留缝，往上抵掉；
+     再多 1px 吃掉 border-collapse 下表头上边框不跟随 sticky 留下的缝 */
+  top: calc(-1 * var(--size-4-8, 32px) - 1px) !important;
+  z-index: 3;
+  /* 主题表头色可能半透明，叠在正文底色上，避免下面的行透出来 */
+  background:
+    linear-gradient(var(--table-header-background, transparent), var(--table-header-background, transparent)),
+    var(--background-primary);
+  box-shadow: inset 0 -1px 0 var(--table-border-color);
+}

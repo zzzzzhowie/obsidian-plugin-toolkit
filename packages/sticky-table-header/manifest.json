@@ -1,0 +1,9 @@
+{
+	"id": "sticky-table-header",
+	"name": "Sticky Table Header",
+	"version": "1.0.0",
+	"minAppVersion": "1.5.0",
+	"description": "Keep table headers pinned while scrolling, in Reading view and Live Preview, without breaking cell drag-selection.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}

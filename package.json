@@ -36,6 +36,8 @@
         "build:caption-enhanced": "pnpm --filter @obsidian-plugin-toolkit/caption-enhanced build",
         "dev:sticky-find": "pnpm --filter @obsidian-plugin-toolkit/sticky-find dev",
         "build:sticky-find": "pnpm --filter @obsidian-plugin-toolkit/sticky-find build",
+        "dev:sticky-table-header": "pnpm --filter @obsidian-plugin-toolkit/sticky-table-header dev",
+        "build:sticky-table-header": "pnpm --filter @obsidian-plugin-toolkit/sticky-table-header build",
         "dev:vault-backup": "pnpm --filter @obsidian-plugin-toolkit/vault-backup dev",
         "build:vault-backup": "pnpm --filter @obsidian-plugin-toolkit/vault-backup build",
         "dev:nav-history": "pnpm --filter @obsidian-plugin-toolkit/nav-history dev",
