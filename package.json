@@ -47,7 +47,9 @@
         "dev:sidebar-guard": "pnpm --filter @obsidian-plugin-toolkit/sidebar-guard dev",
         "build:sidebar-guard": "pnpm --filter @obsidian-plugin-toolkit/sidebar-guard build",
         "dev:drafts": "pnpm --filter @obsidian-plugin-toolkit/drafts dev",
-        "build:drafts": "pnpm --filter @obsidian-plugin-toolkit/drafts build"
+        "build:drafts": "pnpm --filter @obsidian-plugin-toolkit/drafts build",
+        "dev:tab-manager": "pnpm --filter @obsidian-plugin-toolkit/tab-manager dev",
+        "build:tab-manager": "pnpm --filter @obsidian-plugin-toolkit/tab-manager build"
     },
     "keywords": [
         "obsidian",

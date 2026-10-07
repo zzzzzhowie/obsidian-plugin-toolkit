@@ -1,0 +1,9 @@
+{
+	"id": "yeyan-tab-manager",
+	"name": "Tab Manager",
+	"version": "1.0.0",
+	"minAppVersion": "1.7.2",
+	"description": "Following a link to a note that is already open goes to its tab instead of opening it again — a plain click as much as Cmd/Ctrl-click or a middle click, as the Chrome extension of the same name does for web pages.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}

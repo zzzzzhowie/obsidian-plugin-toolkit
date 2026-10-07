@@ -52,6 +52,7 @@ pnpm dev:note-comments              # Note Comments
 pnpm dev:quick-open                 # Quick Open
 pnpm dev:sidebar-guard              # Sidebar Guard
 pnpm dev:drafts                     # Drafts
+pnpm dev:tab-manager                # Tab Manager
 ```
 
 Or use filter:
@@ -85,6 +86,7 @@ pnpm build:note-comments
 pnpm build:quick-open
 pnpm build:sidebar-guard
 pnpm build:drafts
+pnpm build:tab-manager
 ```
 
 ## Lint
@@ -132,6 +134,9 @@ VS Code's Go to File on `Cmd/Ctrl+P` (the command palette moves to `Cmd/Ctrl+Shi
 
 ### @obsidian-plugin-toolkit/drafts
 VS Code's untitled files. "New draft" (`Cmd/Ctrl+N` through Claudian (Enhanced), and the first button on an empty tab) opens a blank note that isn't anywhere in the vault yet, so jotting something down no longer leaves an `Untitled.md` behind. `Cmd/Ctrl+S` in a draft asks for a name — its first line, to start with — and a folder, and moves it there, links and attachments included; in any other note it saves as usual. Closing a draft with text in it asks Save / Don't save / Cancel (Enter saves, `Cmd+D` doesn't); a blank one is just discarded, and one left behind any other way is kept and reopened with "Open draft…". Drafts are real notes in a hidden `_drafts/` folder, so every editor plugin works in them; the folder is hidden from the file explorer, added to Excluded files (search, graph) and left out of vault-backup's backups.
+
+### @obsidian-plugin-toolkit/tab-manager
+Following a link to a note that is already open goes to its tab instead of opening it again, as the Chrome extension of the same name does for web pages. A plain click counts as much as `Cmd/Ctrl`-click or a middle click: a plain click would load the note over the one you're reading, the others would stack a duplicate tab, and going to the existing tab is what either was after. It takes over `workspace.openLinkText`, which every link goes through (editor and reading view clicks, a link's "Open link" / "Open in new tab", the graph), before any tab is made, and carries a link's `#heading` or `#^block` over to the tab it lands on. A split or a new window, a link to the note it's written in, a link to a note that doesn't exist yet, and a note open only in a sidebar or another window are left to Obsidian. File Explorer (Enhanced) applies the same rule to clicks in the file tree, through the same lookup in `shared/open-tab.ts`.
 
 ## Tech Stack
 

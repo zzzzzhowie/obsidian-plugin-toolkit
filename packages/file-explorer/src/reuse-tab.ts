@@ -1,4 +1,6 @@
-import { App, Keymap, Plugin, WorkspaceLeaf } from "obsidian";
+import { App, Keymap, Plugin } from "obsidian";
+
+import { activateTab, tabShowing } from "../../../shared/open-tab";
 
 // Click a file that is already open and go to that tab, instead of opening a second copy of
 // it. Both ways of asking are covered: a bare click, which would otherwise load the file over
@@ -50,7 +52,7 @@ export function registerReuseTab(plugin: Plugin): void {
 		const path = row.getAttribute("data-path");
 		if (!path) return;
 
-		const open = leafShowing(plugin.app, path);
+		const open = tabShowing(plugin.app, path, row.win);
 		// Not open anywhere: leave the gesture alone and let Obsidian open the tab it
 		// would have opened.
 		if (!open) return;
@@ -64,7 +66,7 @@ export function registerReuseTab(plugin: Plugin): void {
 		}
 
 		evt.preventDefault();
-		activate(plugin.app, open);
+		void activateTab(plugin.app, open);
 	};
 
 	for (const type of ["click", "auxclick"]) {
@@ -87,43 +89,8 @@ export function registerReuseTab(plugin: Plugin): void {
  * replaces what's there rather than adding anything.
  */
 export function goToOpenTab(app: App, path: string): boolean {
-	const open = leafShowing(app, path);
+	const open = tabShowing(app, path, activeWindow);
 	if (!open) return false;
-	activate(app, open);
+	void activateTab(app, open);
 	return true;
-}
-
-/**
- * A main-area tab already showing `path`, or null.
- *
- * Main area only — a file open in a sidebar (or in a hover popover) is not a tab the user
- * can be sent to. (`iterateRootLeaves` walks `rootSplit` only, so a popout's tabs are out of
- * reach as well — landing there would yank the user into another window.) The first match
- * wins; with the same file open twice, either is a correct place to land.
- *
- * Read through the leaf's view state, not `leaf.view.file`. Obsidian doesn't build the view
- * of a tab that isn't showing — a background tab holds a placeholder (`leaf.isDeferred`)
- * whose only members are the view type, title and saved state, with no `file` at all. Those
- * are precisely the tabs this gesture is for, so asking the view made the lookup miss every
- * one of them and the click fell through to Obsidian opening yet another tab.
- *
- * The state's `file` is a vault-relative path, and every file-backed view records it — so a
- * PDF, an image or a canvas tab counts too, same as before.
- */
-function leafShowing(app: App, path: string): WorkspaceLeaf | null {
-	const matches: WorkspaceLeaf[] = [];
-	app.workspace.iterateRootLeaves((leaf) => {
-		if (leaf.getViewState().state?.file === path) matches.push(leaf);
-	});
-	return matches[0] ?? null;
-}
-
-/**
- * `revealLeaf` brings the tab to the front of its group and its window forward;
- * `setActiveLeaf` is what actually moves focus into it, once the reveal has settled.
- */
-function activate(app: App, leaf: WorkspaceLeaf): void {
-	void app.workspace.revealLeaf(leaf).then(() => {
-		app.workspace.setActiveLeaf(leaf, { focus: true });
-	});
 }
