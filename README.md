@@ -6,18 +6,35 @@ A monorepo for Obsidian plugins managed with pnpm workspace.
 
 ```
 obsidian-plugin-toolkit/
-├── build-tools/                            # Shared build tools
-│   ├── esbuild.config.mjs                 # Unified esbuild configuration
-│   ├── version-bump.mjs                   # Version bump script
-│   └── tsconfig.base.json                 # TypeScript base configuration
+├── build-tools/                  # Shared build tools
+│   ├── esbuild.config.mjs        # Unified esbuild configuration
+│   ├── version-bump.mjs          # Version bump script (every package's `version` script)
+│   └── tsconfig.base.json        # TypeScript base configuration
+├── shared/                       # Runtime code bundled into more than one plugin
+├── scripts/sync-vaults.mjs       # Copies the built plugins (and shared settings) to every vault
+├── .githooks/pre-push            # Runs the vault sync before every push
 ├── packages/
-│   ├── file-explorer/                     # @obsidian-plugin-toolkit/file-explorer-enhancements
-│   ├── copy-path/                          # @obsidian-plugin-toolkit/copy-path
-│   ├── paste-enhanced/                     # @obsidian-plugin-toolkit/paste-enhanced
-│   ├── hide-ui-elements/                   # @obsidian-plugin-toolkit/hide-ui-elements
-│   ├── image-auto-upload-enhanced/         # @obsidian-plugin-toolkit/image-auto-upload-enhanced
-│   ├── mermaid-enhanced/                   # @obsidian-plugin-toolkit/mermaid-enhanced
-│   └── line-numbers/                        # @obsidian-plugin-toolkit/line-numbers
+│   ├── auto-link-title-enhanced/   # @obsidian-plugin-toolkit/auto-link-title-enhanced
+│   ├── blockier-enhanced/          # @obsidian-plugin-toolkit/blockier-enhanced
+│   ├── caption-enhanced/           # @obsidian-plugin-toolkit/caption-enhanced
+│   ├── claudian-enhanced/          # @obsidian-plugin-toolkit/claudian-enhanced
+│   ├── copy-path/                  # @obsidian-plugin-toolkit/copy-path
+│   ├── drafts/                     # @obsidian-plugin-toolkit/drafts
+│   ├── excalidraw-enhanced/        # @obsidian-plugin-toolkit/excalidraw-enhanced
+│   ├── file-explorer/              # @obsidian-plugin-toolkit/file-explorer-enhancements
+│   ├── hide-ui-elements/           # @obsidian-plugin-toolkit/hide-ui-elements
+│   ├── image-auto-upload-enhanced/ # @obsidian-plugin-toolkit/image-auto-upload-enhanced
+│   ├── line-numbers/               # @obsidian-plugin-toolkit/line-numbers
+│   ├── mermaid-enhanced/           # @obsidian-plugin-toolkit/mermaid-enhanced
+│   ├── nav-history/                # @obsidian-plugin-toolkit/nav-history
+│   ├── note-comments/              # @obsidian-plugin-toolkit/note-comments
+│   ├── paste-enhanced/             # @obsidian-plugin-toolkit/paste-enhanced
+│   ├── quick-open/                 # @obsidian-plugin-toolkit/quick-open
+│   ├── sidebar-guard/              # @obsidian-plugin-toolkit/sidebar-guard
+│   ├── sticky-find/                # @obsidian-plugin-toolkit/sticky-find
+│   ├── sticky-table-header/        # @obsidian-plugin-toolkit/sticky-table-header
+│   ├── tab-manager/                # @obsidian-plugin-toolkit/tab-manager
+│   └── vault-backup/               # @obsidian-plugin-toolkit/vault-backup
 ├── package.json
 ├── pnpm-workspace.yaml
 └── README.md
@@ -40,19 +57,27 @@ pnpm dev
 Run a specific plugin in development mode:
 
 ```bash
-pnpm dev:file-explorer              # File Explorer (Enhanced)
+pnpm dev:auto-link-title-enhanced   # Auto Link Title (Enhanced)
+pnpm dev:blockier-enhanced          # Blockier (Enhanced)
+pnpm dev:caption-enhanced           # Caption (Enhanced)
+pnpm dev:claudian-enhanced          # Claudian (Enhanced)
 pnpm dev:copy-path                  # Copy Path
-pnpm dev:paste-enhanced             # Paste (Enhanced)
+pnpm dev:drafts                     # Drafts
+pnpm dev:excalidraw-enhanced        # Excalidraw (Enhanced)
+pnpm dev:file-explorer              # File Explorer (Enhanced)
 pnpm dev:hide-ui-elements           # Hide UI Elements
 pnpm dev:image-auto-upload-enhanced # Image Auto Upload (Enhanced)
-pnpm dev:mermaid-enhanced           # Mermaid (Enhanced)
 pnpm dev:line-numbers               # Line Numbers
+pnpm dev:mermaid-enhanced           # Mermaid (Enhanced)
 pnpm dev:nav-history                # Nav History
 pnpm dev:note-comments              # Note Comments
+pnpm dev:paste-enhanced             # Paste (Enhanced)
 pnpm dev:quick-open                 # Quick Open
 pnpm dev:sidebar-guard              # Sidebar Guard
-pnpm dev:drafts                     # Drafts
+pnpm dev:sticky-find                # Sticky Find
+pnpm dev:sticky-table-header        # Sticky Table Header
 pnpm dev:tab-manager                # Tab Manager
+pnpm dev:vault-backup               # Vault Backup
 ```
 
 Or use filter:
@@ -74,19 +99,27 @@ pnpm build
 Build a specific plugin:
 
 ```bash
-pnpm build:file-explorer
+pnpm build:auto-link-title-enhanced
+pnpm build:blockier-enhanced
+pnpm build:caption-enhanced
+pnpm build:claudian-enhanced
 pnpm build:copy-path
-pnpm build:paste-enhanced
+pnpm build:drafts
+pnpm build:excalidraw-enhanced
+pnpm build:file-explorer
 pnpm build:hide-ui-elements
 pnpm build:image-auto-upload-enhanced
-pnpm build:mermaid-enhanced
 pnpm build:line-numbers
+pnpm build:mermaid-enhanced
 pnpm build:nav-history
 pnpm build:note-comments
+pnpm build:paste-enhanced
 pnpm build:quick-open
 pnpm build:sidebar-guard
-pnpm build:drafts
+pnpm build:sticky-find
+pnpm build:sticky-table-header
 pnpm build:tab-manager
+pnpm build:vault-backup
 ```
 
 ## Lint
@@ -137,6 +170,30 @@ VS Code's untitled files. "New draft" (`Cmd/Ctrl+N` through Claudian (Enhanced),
 
 ### @obsidian-plugin-toolkit/tab-manager
 Following a link to a note that is already open goes to its tab instead of opening it again, as the Chrome extension of the same name does for web pages. A plain click counts as much as `Cmd/Ctrl`-click or a middle click: a plain click would load the note over the one you're reading, the others would stack a duplicate tab, and going to the existing tab is what either was after. It takes over `workspace.openLinkText`, which every link goes through (editor and reading view clicks, a link's "Open link" / "Open in new tab", the graph), before any tab is made, and carries a link's `#heading` or `#^block` over to the tab it lands on. A split or a new window, a link to the note it's written in, a link to a note that doesn't exist yet, and a note open only in a sidebar or another window are left to Obsidian. File Explorer (Enhanced) applies the same rule to clicks in the file tree, through the same lookup in `shared/open-tab.ts`.
+
+### @obsidian-plugin-toolkit/auto-link-title-enhanced
+Auto-titles pasted links. Enhanced fork: generates the title with an OpenAI-compatible LLM by default, falling back to a requestUrl scraper with per-URL custom request headers (for intranet pages needing an injected cookie/token).
+
+### @obsidian-plugin-toolkit/blockier-enhanced
+Extra block editing utilities (callout/checkbox suggestions, block selection and replacement). Enhanced fork.
+
+### @obsidian-plugin-toolkit/caption-enhanced
+Show elegant captions under images in both Live Preview and Reading Mode.
+
+### @obsidian-plugin-toolkit/claudian-enhanced
+Toggle the Claudian chat view with one hotkey: auto-focus its input, keep the editor selection highlighted, and restore the sidebar outline on close.
+
+### @obsidian-plugin-toolkit/excalidraw-enhanced
+Enhance embedded Excalidraw drawings: render them at their own size in the note (with a height cap) and click to open a zoomable, pannable overlay.
+
+### @obsidian-plugin-toolkit/sticky-find
+Find in the current file without collapsing rendered tables. Replaces the built-in find, which moves the editor selection into the match and forces Live Preview to fall back to Markdown source.
+
+### @obsidian-plugin-toolkit/sticky-table-header
+Keep table headers pinned while scrolling, in Reading view and Live Preview, without breaking cell drag-selection.
+
+### @obsidian-plugin-toolkit/vault-backup
+Periodically commits and pushes the vault with git. Backup only runs on machines you explicitly opt in, so a vault shared across several computers is only ever written by one of them.
 
 ## Tech Stack
 
