@@ -428,3 +428,56 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	display: flex;
 	--icon-size: var(--icon-xs);
 }
+
+/* A hovered "N lines selected" chip shows what it carries (selection-peek.ts), the way
+   Claude's apps show a quoted reply: where it's from, then the text behind a quote bar. */
+.claudian-enhanced-peek {
+	position: fixed;
+	user-select: none;
+	z-index: var(--layer-tooltip);
+	width: max-content;
+	min-width: 200px;
+	max-width: min(440px, calc(100vw - 24px));
+	padding: var(--size-4-3) var(--size-4-4);
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-l);
+	box-shadow: var(--shadow-l);
+}
+
+.claudian-enhanced-peek-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-3);
+	margin-bottom: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.claudian-enhanced-peek-icon {
+	display: flex;
+}
+
+.claudian-enhanced-peek-icon svg {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.claudian-enhanced-peek-quote {
+	max-height: 220px;
+	overflow-y: auto;
+	padding-inline-start: var(--size-4-3);
+	border-inline-start: 3px solid var(--background-modifier-border-hover);
+	font-size: var(--font-ui-small);
+	line-height: var(--line-height-normal);
+	color: var(--text-normal);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+
+.claudian-enhanced-peek-more {
+	margin-top: var(--size-4-2);
+	padding-inline-start: calc(var(--size-4-3) + 3px);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}

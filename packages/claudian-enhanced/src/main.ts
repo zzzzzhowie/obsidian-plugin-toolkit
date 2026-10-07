@@ -1,6 +1,8 @@
 import { FileSystemAdapter, MarkdownView, Platform, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
+import { SelectionPeek } from "./selection-peek";
+
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
 const CLAUDIAN_VIEW = "claudian-view";
 /**
@@ -107,6 +109,9 @@ const NEW_TAB_COMMAND = "workspace:new-tab";
 const REMEMBERED_NOTES = 5;
 /** The tag under a prompt naming the lines it was sent with; see tagSentSelections. */
 const SELECTION_TAG_CLS = "claudian-enhanced-selection-tag";
+/** How often, and how many times, a prompt not filled in yet is looked at again (~30s). */
+const TAG_RETRY_MS = 400;
+const TAG_RETRIES = 75;
 /** Claudian's replies. Prompts are left out on purpose: they're sticky (see styles.css), so
  *  where one is drawn says where it's pinned, not where it sits in the conversation. */
 const CLAUDIAN_REPLY = ".claudian-message[data-message-id]:not(.claudian-message-user)";
@@ -129,9 +134,11 @@ const HOLD_SPOT_MS = 1500;
  * the conversation belongs to — which is what we seed our own memory from on first run, so
  * the feature works against conversations that predate it. See seedFromClaudianHistory.
  * Since 2.3 the note is `linkedContentPath` and the recency `lastActivityAt`; older metas
- * said `currentNote` / `updatedAt`, and both spellings are read.
+ * said `currentNote` / `updatedAt`, and both spellings are read. Since 2.3 too, new metas go
+ * one folder per device under `devices/` (see CLAUDIAN_DEVICES_DIR); older ones stay at the top.
  */
 const CLAUDIAN_SESSIONS_DIR = ".claudian/sessions";
+const CLAUDIAN_DEVICES_DIR = `${CLAUDIAN_SESSIONS_DIR}/devices`;
 const SESSION_META_SUFFIX = ".meta.json";
 /**
  * The decoration Claudian marks a carried 划词 with, inside the note's editor. Present
@@ -330,7 +337,6 @@ interface ClaudianMessage {
 	id?: string;
 	/** The id Claude Code's session file knows the prompt by; a fresh prompt's `id` is Claudian's own. */
 	userMessageId?: string;
-	role?: string;
 	executionInput?: {
 		context?: {
 			editorSelection?: ClaudianSelectionContext;
@@ -422,6 +428,26 @@ function cellText(text: string): string {
 	return text.replace(/<br\s*\/?>/gi, "\n").replace(/\s+/g, " ").trim();
 }
 
+/** Every class this plugin writes starts with this. */
+const OWN_CLS_PREFIX = "claudian-enhanced-";
+
+/**
+ * Whether a class change touched only this plugin's classes — or anything at all on its own
+ * jump button. Compared against the element's classes now, so with several changes to one
+ * element in a batch the first record carries all of them and the rest read as no change.
+ */
+function onlyOwnClassesChanged(record: MutationRecord): boolean {
+	const el = record.target;
+	if (!(el instanceof Element)) return false;
+	if (el.classList.contains(JUMP_BTN_CLS)) return true;
+	const before = new Set((record.oldValue ?? "").split(/\s+/).filter(Boolean));
+	for (const cls of Array.from(el.classList)) {
+		if (!before.delete(cls) && !cls.startsWith(OWN_CLS_PREFIX)) return false;
+	}
+	for (const cls of before) if (!cls.startsWith(OWN_CLS_PREFIX)) return false;
+	return true;
+}
+
 /** The page's CSS Custom Highlight registry, where the browser has one. */
 function highlightRegistry(): { set(name: string, highlight: object): void; delete(name: string): void } | null {
 	return (CSS as unknown as { highlights?: { set(name: string, highlight: object): void; delete(name: string): void } })
@@ -492,6 +518,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private sentSelections = new Map<string, SentSelection | null>();
 	/** Passes in a row that found a prompt not filled in yet; see tagSentSelections. */
 	private tagRetries = 0;
+	private tagRetryTimer: number | null = null;
 	/** Whether the last pass found a prompt not filled in yet, so a reply streaming looks again. */
 	private tagsPending = false;
 	/** Fresh prompts already tagged from the composer while Claude Code takes the turn. */
@@ -513,6 +540,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private previewScope: Scope | null = null;
 	/** Whether the pointer last rested over Claudian's view; decides what clear-tab's key does. */
 	private pointerOverClaudian = false;
+	/** The card a hovered selection chip shows its text in; see selection-peek.ts. */
+	private readonly selectionPeek = new SelectionPeek(
+		() => this.getClaudianLeaf()?.view.containerEl ?? null,
+		() => this.getSelectionController()?.storedSelection ?? null,
+		() => this.visibleInput()?.querySelector<HTMLElement>(".cm-content")?.focus(),
+	);
 
 	async onload(): Promise<void> {
 		// Awaited rather than backgrounded: a restore that lost a race with this would
@@ -570,9 +603,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				this.pointerOverClaudian = !!target?.closest(
 					`.workspace-leaf-content[data-type="${CLAUDIAN_VIEW}"]`,
 				);
+				this.selectionPeek.onPointerOver(target);
 			},
 			{ capture: true },
 		);
+		this.registerDomEvent(document, "mousedown", (e) => this.selectionPeek.onMouseDown(e), { capture: true });
+		this.register(() => this.selectionPeek.hide());
 		// Escape cancels a live 划词 (see onEscapeCapture). Listened for on window in
 		// the capture phase so it runs regardless of where focus currently sits.
 		this.registerDomEvent(window, "keydown", this.onEscapeCapture, {
@@ -676,10 +712,22 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	onunload(): void {
+		// Stops every focus loop and veil/restore pass still running against this instance.
+		this.gen++;
 		if (this.syncTimer !== null) window.clearTimeout(this.syncTimer);
-		if (this.pinnedFrame !== null) cancelAnimationFrame(this.pinnedFrame);
-		this.pinnedPrompt?.removeClass(PINNED_CLS);
+		if (this.tagRetryTimer !== null) window.clearTimeout(this.tagRetryTimer);
+		for (const frame of [this.pinnedFrame, this.foldFrame, this.tagFrame]) {
+			if (frame !== null) cancelAnimationFrame(frame);
+		}
 		this.pinnedPrompt?.style.removeProperty("transform");
+		// Leave Claudian's view as it draws itself: what we added goes, what we marked is unmarked.
+		const view = this.getClaudianLeaf()?.view.containerEl;
+		if (!view) return;
+		view.querySelectorAll(`.${FOLD_TOGGLE_CLS}, .${JUMP_BTN_CLS}, .${SELECTION_TAG_CLS}`).forEach((el) => el.remove());
+		const marks = [PINNED_CLS, BURIED_CLS, FOLDABLE_CLS, FOLDED_CLS, VEILED_CLS, RESTORING_CLS];
+		for (const el of [view, ...Array.from(view.querySelectorAll<HTMLElement>(marks.map((cls) => `.${cls}`).join(", ")))]) {
+			el.removeClasses(marks);
+		}
 	}
 
 	private onEscapeCapture = (e: KeyboardEvent): void => {
@@ -1011,9 +1059,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private liftVeilWhenSettled(container: HTMLElement): void {
 		const start = performance.now();
+		// Which conversation the note wants is looked up once per note, not on every frame.
+		let wantFor: string | null | undefined;
+		let want: string | null = null;
 		const settle = (): void => {
 			if (!container.hasClass(VEILED_CLS)) return;
-			const want = this.veiledFor ? this.conversationFor(this.veiledFor) : null;
+			if (this.veiledFor !== wantFor) {
+				wantFor = this.veiledFor;
+				want = wantFor ? this.conversationFor(wantFor) : null;
+			}
 			const showing = this.getActiveTab()?.conversationId ?? null;
 			const restoring = Array.from(this.restores.values()).some((restore) => restore.phase !== "holding");
 			if ((showing === want && !restoring) || performance.now() - start > VEIL_MAX_MS) {
@@ -1357,7 +1411,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 
 	/** The note Claudian itself records for a conversation, or null if it can't be read. */
 	private async claudianNoteFor(conversationId: string): Promise<string | null> {
-		const path = `${CLAUDIAN_SESSIONS_DIR}/${conversationId}${SESSION_META_SUFFIX}`;
+		const name = `/${conversationId}${SESSION_META_SUFFIX}`;
+		const path = (await this.sessionMetaPaths()).find((file) => file.endsWith(name));
+		if (!path) return null;
 		try {
 			const meta = JSON.parse(await this.app.vault.adapter.read(path)) as SessionMeta;
 			return meta.linkedContentPath ?? meta.currentNote ?? null;
@@ -1381,10 +1437,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private async seedFromClaudianHistory(): Promise<RememberedNote[]> {
 		const adapter = this.app.vault.adapter;
-		if (!(await adapter.exists(CLAUDIAN_SESSIONS_DIR))) return [];
 		const metas: Array<RememberedNote & { updatedAt: number }> = [];
-		for (const file of (await adapter.list(CLAUDIAN_SESSIONS_DIR)).files) {
-			if (!file.endsWith(SESSION_META_SUFFIX)) continue;
+		for (const file of await this.sessionMetaPaths()) {
 			try {
 				const meta = JSON.parse(await adapter.read(file)) as SessionMeta;
 				const note = meta.linkedContentPath ?? meta.currentNote;
@@ -1406,6 +1460,20 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (seeded.length === REMEMBERED_NOTES) break;
 		}
 		return seeded;
+	}
+
+	/** Every session meta Claudian has written: the old top-level ones and each device's. */
+	private async sessionMetaPaths(): Promise<string[]> {
+		const adapter = this.app.vault.adapter;
+		if (!(await adapter.exists(CLAUDIAN_SESSIONS_DIR))) return [];
+		const top = await adapter.list(CLAUDIAN_SESSIONS_DIR);
+		const files = [...top.files];
+		if (top.folders.includes(CLAUDIAN_DEVICES_DIR)) {
+			for (const device of (await adapter.list(CLAUDIAN_DEVICES_DIR)).folders) {
+				files.push(...(await adapter.list(device)).files);
+			}
+		}
+		return files.filter((file) => file.endsWith(SESSION_META_SUFFIX));
 	}
 
 	/**
@@ -1771,11 +1839,16 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// Asked again as the reply streams in (see the submit-scroll observer), and on a timer
 		// besides, for a turn that takes a while to start.
 		this.tagsPending = unfilled;
-		if (unfilled && this.tagRetries < 75) {
-			this.tagRetries++;
-			window.setTimeout(() => this.scheduleSelectionTags(), 400);
-		} else if (!unfilled) {
+		if (!unfilled) {
 			this.tagRetries = 0;
+		} else if (this.tagRetryTimer === null && this.tagRetries < TAG_RETRIES) {
+			// One timer at a time: every pass that finds a prompt unfilled lands here, and each
+			// starting its own would grow a chain of timers per pass.
+			this.tagRetries++;
+			this.tagRetryTimer = window.setTimeout(() => {
+				this.tagRetryTimer = null;
+				this.scheduleSelectionTags();
+			}, TAG_RETRY_MS);
 		}
 		if (lookups.length === 0) return;
 		void this.loadSessionSelections().then(
@@ -1927,11 +2000,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			let queued = false;
 			let promptsChanged = false;
 			for (const record of records) {
+				// Our own class writes (pinning, burying, folding, the jump button) render nothing
+				// of Claudian's; read as streaming, every scroll would answer itself.
+				if (record.type === "attributes" && onlyOwnClassesChanged(record)) continue;
 				this.hideIfRebuilding(record);
-				submitted ??= this.addedUserMessage(record);
+				const added = this.addedUserMessage(record);
+				submitted ??= added;
 				streamed ??= this.messagesListOf(record.target);
 				queued ||= this.isInQueueRow(record.target);
-				promptsChanged ||= this.changesPromptContent(record);
+				promptsChanged ||= this.changesPromptContent(record, added);
 			}
 			if (promptsChanged) {
 				this.scheduleFold(container);
@@ -1962,6 +2039,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			// would never tell us the queue emptied. See handleQueueChange.
 			attributes: true,
 			attributeFilter: ["class"],
+			attributeOldValue: true,
 		});
 		// Width decides how many lines a prompt wraps to, so a panel resize can move a
 		// prompt across the fold limit in either direction.
@@ -1970,6 +2048,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.foldResizeObserver.observe(container);
 		// Prompts already on screen when we bind never produce a mutation of their own.
 		this.scheduleFold(container);
+		this.scheduleSelectionTags();
 	}
 
 	/**
@@ -1978,9 +2057,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * purpose — pinning, burying and folding all write classes onto prompts, and none of
 	 * them change what the content measures.
 	 */
-	private changesPromptContent(record: MutationRecord): boolean {
+	private changesPromptContent(record: MutationRecord, added: HTMLElement | null): boolean {
 		if (record.type !== "childList") return false;
-		if (this.addedUserMessage(record)) return true;
+		if (added) return true;
 		const el =
 			record.target instanceof HTMLElement ? record.target : record.target.parentElement;
 		return !!el?.closest(CLAUDIAN_USER_MESSAGE);
@@ -2005,21 +2084,6 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return el?.closest<HTMLElement>(CLAUDIAN_MESSAGES) ?? null;
 	}
 
-	/**
-	 * Follow a reply as it renders. Claudian's own autoscroll gives up here: it only
-	 * re-arms `autoScrollEnabled` 150ms after a scroll event *and* only if you're still
-	 * within 20px of the bottom — the thinking block appearing inside that window pushes
-	 * you past 20px, the re-check fails, and since growing content fires no scroll event
-	 * nothing ever re-arms it. The rest of the turn then renders off-screen.
-	 *
-	 * Unlike a submit (an explicit "take me to my message"), this is us following someone
-	 * else's output, so it defers to the reader: scrolled up beyond FOLLOW_THRESHOLD_PX
-	 * means they detached on purpose and we leave them there.
-	 *
-	 * Pinned synchronously: measuring the distance already forced layout, so the nodes
-	 * this batch added are included and there is nothing for a rAF to wait for — it would
-	 * only add a frame of lag, plus a starved frame would strand the pin.
-	 */
 	/**
 	 * Track whether the reader is still following the stream.
 	 *
@@ -2298,7 +2362,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (this.heldControllers.has(controller)) return;
 		this.heldControllers.add(controller);
 		const notify = controller.onUserSelectionChanged;
-		controller.onUserSelectionChanged = () => {
+		const held = (): void => {
 			if (controller.storedSelection !== this.blockSelection) {
 				const cells = this.tableCellSelection();
 				if (cells) this.adoptSelection(controller, cells);
@@ -2307,8 +2371,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			// Claudian dropping or replacing the selection takes its painting with it.
 			this.syncCellHighlight();
 		};
+		controller.onUserSelectionChanged = held;
 		this.register(() => {
-			controller.onUserSelectionChanged = notify;
+			if (controller.onUserSelectionChanged === held) controller.onUserSelectionChanged = notify;
+			// A selection of ours is held past Claudian's poll for good; hand it back to the poll.
+			if (this.blockSelection && controller.storedSelection === this.blockSelection) {
+				controller.inputHandoffGraceUntil = null;
+			}
 		});
 	}
 
@@ -2658,6 +2727,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		step();
 	}
 
+	/** Scroll to a saved spot; with none (not read here this session), to the end. */
 	private applySpot(scroller: HTMLElement, spot: ScrollSpot | null): void {
 		this.selfScrolling = true;
 		if (!spot || spot.atBottom) {
@@ -2680,8 +2750,6 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			this.selfScrolling = false;
 		});
 	}
-
-	/** Scroll to a saved spot; with none (not read here this session), to the end. */
 
 	/**
 	 * Show the jump-to-latest button while the conversation is scrolled away from its end,
@@ -2717,6 +2785,21 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (button.hasClass("is-shown") !== show) button.toggleClass("is-shown", show);
 	}
 
+	/**
+	 * Follow a reply as it renders. Claudian's own autoscroll gives up here: it only
+	 * re-arms `autoScrollEnabled` 150ms after a scroll event *and* only if you're still
+	 * within 20px of the bottom — the thinking block appearing inside that window pushes
+	 * you past 20px, the re-check fails, and since growing content fires no scroll event
+	 * nothing ever re-arms it. The rest of the turn then renders off-screen.
+	 *
+	 * Unlike a submit (an explicit "take me to my message"), this is us following someone
+	 * else's output, so it defers to the reader: scrolled up beyond FOLLOW_THRESHOLD_PX
+	 * means they detached on purpose and we leave them there.
+	 *
+	 * Pinned synchronously: measuring the distance already forced layout, so the nodes
+	 * this batch added are included and there is nothing for a rAF to wait for — it would
+	 * only add a frame of lag, plus a starved frame would strand the pin.
+	 */
 	private followToBottom(scroller: HTMLElement): void {
 		// The reader took over; leave them where they are until they come back down.
 		if (this.detached.has(scroller)) return;
@@ -2776,21 +2859,6 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		window.setTimeout(run, 150);
 	}
 
-	/**
-	 * Open links from a Claudian response in an existing tab instead of a new one.
-	 *
-	 * Claudian's own handler is hardcoded to `openLinkText(href, "", "tab")`, so every
-	 * click stacks another tab — click the same note three times and you get three
-	 * identical tabs. It can't simply pass `false`: Claudian lives in a sidebar, so the
-	 * active leaf is its own, and Obsidian would load the note *into the chat panel*.
-	 * That's what we fix here — pick a main-area leaf ourselves (the one already showing
-	 * the file, else the most recent one), make it active, and only then let Obsidian
-	 * resolve the link with `newLeaf: false`, which reuses that leaf and still honors a
-	 * `#heading` subpath.
-	 *
-	 * Capture phase + stopImmediatePropagation so Claudian's own bubble-phase handler
-	 * never runs. Cmd/Ctrl-click and middle-click keep their standard "new tab" meaning.
-	 */
 	/**
 	 * Click the prompt that's stuck to the top of the conversation to scroll back to where
 	 * that turn actually begins.
@@ -2880,6 +2948,21 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		scroller.scrollTop += delta;
 	}
 
+	/**
+	 * Open links from a Claudian response in an existing tab instead of a new one.
+	 *
+	 * Claudian's own handler is hardcoded to `openLinkText(href, "", "tab")`, so every
+	 * click stacks another tab — click the same note three times and you get three
+	 * identical tabs. It can't simply pass `false`: Claudian lives in a sidebar, so the
+	 * active leaf is its own, and Obsidian would load the note *into the chat panel*.
+	 * That's what we fix here — pick a main-area leaf ourselves (the one already showing
+	 * the file, else the most recent one), make it active, and only then let Obsidian
+	 * resolve the link with `newLeaf: false`, which reuses that leaf and still honors a
+	 * `#heading` subpath.
+	 *
+	 * Capture phase + stopImmediatePropagation so Claudian's own bubble-phase handler
+	 * never runs. Cmd/Ctrl-click and middle-click keep their standard "new tab" meaning.
+	 */
 	private interceptLinkClicks(): void {
 		this.registerDomEvent(
 			document,
