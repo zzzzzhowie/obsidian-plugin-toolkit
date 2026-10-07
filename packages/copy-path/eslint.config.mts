@@ -25,6 +25,7 @@ export default tseslint.config(
 	globalIgnores([
 		"node_modules",
 		"dist",
+		"obsidian-plugin-copy-path",
 		"esbuild.config.mjs",
 		"eslint.config.js",
 		"version-bump.mjs",

@@ -24,7 +24,8 @@ export default tseslint.config(
 	...obsidianmd.configs.recommended,
 	globalIgnores([
 		"node_modules",
-		"paste-enhanced",
+		"dist",
+		"obsidian-plugin-paste-enhanced",
 		"esbuild.config.mjs",
 		"eslint.config.js",
 		"version-bump.mjs",

@@ -25,6 +25,7 @@ export default tseslint.config(
 	globalIgnores([
 		"node_modules",
 		"dist",
+		"obsidian-plugin-claudian-enhanced",
 		"claudian-enhanced/",
 		"esbuild.config.mjs",
 		"eslint.config.js",

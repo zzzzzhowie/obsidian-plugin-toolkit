@@ -25,6 +25,7 @@ export default tseslint.config(
 	globalIgnores([
 		"node_modules",
 		"dist",
+		"obsidian-plugin-mermaid-enhanced",
 		"esbuild.config.mjs",
 		"eslint.config.js",
 		"version-bump.mjs",

@@ -1,14 +1,14 @@
 {
 	"name": "@obsidian-plugin-toolkit/claudian-enhanced",
 	"version": "1.0.2",
-	"description": "Toggle the Claudian chat view, auto-focus its input, keep the editor selection, and restore the sidebar outline on close.",
+	"description": "Claudian, tuned for notes: one-key toggle, a conversation per note, selections from tables and rendered blocks, the lines each prompt was sent with, and steadier scrolling.",
 	"author": "yeyan1996",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"version": "node version-bump.mjs && git add manifest.json versions.json",
+		"version": "node ../../build-tools/version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint ."
 	},
 	"keywords": [],
