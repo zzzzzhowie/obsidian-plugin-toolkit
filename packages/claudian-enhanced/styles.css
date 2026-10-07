@@ -20,6 +20,14 @@
 	border-radius: 0;
 }
 
+/* The same, for a selection carried out of a table cell: Live Preview edits a cell in an
+   editor nested inside the table widget, where Claudian's decoration can't draw, so main.ts
+   paints it as a CSS Custom Highlight (syncCellHighlight) while the cell is unfocused. */
+::highlight(claudian-enhanced-cell-selection) {
+	background-color: var(--text-selection-theme-bg);
+	color: var(--text-selection-theme-text-color);
+}
+
 /* Hide the permission-mode chip from the composer toolbar. Claudian renders the whole
    control as .claudian-permission-toggle (since 2.3 a toolbar chip anchor at the row's far
    end), so hiding the element removes the chip entirely. This is display-only — the
@@ -342,6 +350,13 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	opacity: 0;
 }
 
+/* Claudian brought out for a note while it still holds the conversation of the note it was
+   last shown for: hidden until the note's own is in place (matchSidebarToNote in main.ts),
+   so the old one doesn't show first and then get swapped. */
+.claudian-enhanced-veiled .claudian-messages-wrapper {
+	opacity: 0;
+}
+
 /* Jump back to the latest message (syncJumpButton in main.ts): a round arrow over the bottom
    of the conversation, centred on Claudian's wrapper around the list, shown only while the
    list is scrolled away from its end. It fades and settles into place rather than popping. */
@@ -380,4 +395,36 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 .claudian-enhanced-jump-latest svg {
 	width: 18px;
 	height: 18px;
+}
+
+/* Claudian's tab strip — the numbered badges over the composer. This plugin keeps Claudian to
+   one session on screen, the note's: another tab only exists while a reply finishes in the
+   background, or until the next note switch closes it (closeExtraTabs), and coming back to its
+   note is the way to it. Claudian shows the strip whenever it has two tabs; doubled to beat its
+   own display rules regardless of stylesheet order. */
+.claudian-tab-bar-container.claudian-tab-bar-container {
+	display: none;
+}
+
+/* The note lines a prompt was sent with (tagSentSelections in main.ts): Claudian strips the
+   selection from the bubble once sent, so this names it under the prompt's text. Muted and
+   small — it's a reference, not part of the question — and a link to those lines. */
+.claudian-enhanced-selection-tag {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	width: fit-content;
+	margin-top: 6px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.claudian-enhanced-selection-tag:hover {
+	color: var(--text-accent);
+}
+
+.claudian-enhanced-selection-tag-icon {
+	display: flex;
+	--icon-size: var(--icon-xs);
 }

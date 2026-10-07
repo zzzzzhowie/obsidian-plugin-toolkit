@@ -1,4 +1,4 @@
-import { MarkdownView, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { FileSystemAdapter, MarkdownView, Platform, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
@@ -105,9 +105,18 @@ const NEW_TAB_COMMAND = "workspace:new-tab";
  * coming back on its own.
  */
 const REMEMBERED_NOTES = 5;
+/** The tag under a prompt naming the lines it was sent with; see tagSentSelections. */
+const SELECTION_TAG_CLS = "claudian-enhanced-selection-tag";
 /** Claudian's replies. Prompts are left out on purpose: they're sticky (see styles.css), so
  *  where one is drawn says where it's pinned, not where it sits in the conversation. */
 const CLAUDIAN_REPLY = ".claudian-message[data-message-id]:not(.claudian-message-user)";
+/**
+ * On Claudian's view while it is brought out for a note: its conversation is hidden until
+ * the note's own is in place and scrolled to its spot (see matchSidebarToNote).
+ */
+const VEILED_CLS = "claudian-enhanced-veiled";
+/** Longest the view stays veiled, should the note's conversation never arrive (ms). */
+const VEIL_MAX_MS = 1500;
 /** On a message list while a returning conversation is rebuilt behind it; see settleScroll. */
 const RESTORING_CLS = "claudian-enhanced-restoring";
 /** Longest a rebuilt conversation stays hidden waiting for its height to settle (ms). */
@@ -130,6 +139,11 @@ const SESSION_META_SUFFIX = ".meta.json";
  * whenever the editor itself has focus.
  */
 const SELECTION_HIGHLIGHT = ".claudian-selection-highlight";
+/**
+ * The CSS Custom Highlight that paints a carried 划词 made inside a table cell, where
+ * Claudian's own decoration can't reach; see syncCellHighlight.
+ */
+const CELL_HIGHLIGHT = "claudian-enhanced-cell-selection";
 /** View to switch to when Claudian is toggled away inside a sidebar (the sidebar's default). */
 const SIDEBAR_DEFAULT_VIEW = "outline";
 /** Core Outline plugin's command — used to recreate the outline leaf if its tab was closed. */
@@ -207,6 +221,7 @@ interface ClaudianStoredSelection {
  * conversation yet), which is exactly the case we decline to remember.
  */
 interface ClaudianTab {
+	id?: string;
 	conversationId?: string | null;
 	/**
 	 * How far Claudian has got loading this tab's conversation history: "loading", then
@@ -218,23 +233,38 @@ interface ClaudianTab {
 	state?: ClaudianTabState;
 	ui?: { linkedContentController?: ClaudianLinkedContent };
 	controllers?: { selectionController?: ClaudianSelectionController };
+	/** The composer; Claudian gives its CodeMirror host a `value` that reads the text in it. */
+	dom?: { inputEl?: { value?: unknown } };
 }
 
 /**
  * Claudian's per-view tab manager, reached through the view's own `getTabManager()`.
  *
- * `openConversation` is the seam that makes returning to a note cheap: given
- * `preferNewTab: false` it first switches to a tab already holding that conversation,
- * then to another Claudian view holding it, and only otherwise swaps the conversation
- * into the *current* tab. So no path through it creates a tab, which is the whole point
- * — this plugin keeps Claudian to the one tab it is already on.
+ * `openConversation` is the seam that makes returning to a note cheap: it first switches to
+ * a tab already holding that conversation, then to another Claudian view holding it, and
+ * only otherwise loads it — into the *current* tab given `preferNewTab: false`, so that path
+ * creates no tab: this plugin keeps Claudian to the one tab it is already on. The one
+ * exception is a reply still running when the note changes, which keeps its tab in the
+ * background while the note's conversation opens in another (see openBesideRunningReply);
+ * that is what `preferNewTab: true`, `createTab` and `closeTab` are for.
  */
 interface ClaudianTabManager {
 	getActiveTab?: () => ClaudianTab | null;
+	getAllTabs?: () => ClaudianTab[];
 	openConversation?: (
 		id: string,
 		options: { preferNewTab: boolean },
 	) => Promise<void>;
+	/** A fresh tab: a draft without a conversation id, made the active one. */
+	createTab?: (
+		conversationId?: string,
+		tabId?: string,
+		options?: { activate?: boolean },
+	) => Promise<ClaudianTab | null>;
+	/** Saves the conversation and closes the tab; refuses one still streaming. */
+	closeTab?: (id: string) => Promise<boolean>;
+	/** Streaming, or anything else still running for it — subagents, background work. */
+	isTabWorking?: (id: string) => boolean;
 }
 
 /**
@@ -244,6 +274,17 @@ interface ClaudianTabManager {
  */
 interface ClaudianPluginApi {
 	getCachedConversation?: (id: string) => unknown;
+	/** Every conversation it knows, newest first; the fields we read are below. */
+	getConversationList?: () => ClaudianConversationSummary[];
+}
+
+interface ClaudianConversationSummary {
+	id?: string;
+	linkedContentPath?: string | null;
+	lastActivityAt?: number;
+	createdAt?: number;
+	messageCount?: number;
+	isArchived?: boolean;
 }
 
 /**
@@ -271,6 +312,38 @@ interface Restore {
 	phase: "armed" | "hidden" | "holding";
 }
 
+/** The note lines a prompt was sent with, as Claude got them. */
+interface SentSelection {
+	path: string;
+	start: number;
+	end: number;
+}
+
+/**
+ * The bits of a Claudian message we read for its selection. A prompt sent this session still
+ * has what it was sent with in `executionInput.context`; one restored from history has no
+ * `executionInput`, or one without it (see loadSessionSelections).
+ */
+interface ClaudianMessage {
+	id?: string;
+	/** The id Claude Code's session file knows the prompt by; a fresh prompt's `id` is Claudian's own. */
+	userMessageId?: string;
+	role?: string;
+	executionInput?: {
+		context?: {
+			editorSelection?: ClaudianSelectionContext;
+			selections?: { kind?: string; selection?: ClaudianSelectionContext }[];
+		} | null;
+	};
+}
+
+interface ClaudianSelectionContext {
+	notePath?: string;
+	mode?: string;
+	startLine?: number;
+	lineCount?: number;
+}
+
 /** A note and the conversation it was last discussed in. */
 interface RememberedNote {
 	path: string;
@@ -293,6 +366,59 @@ interface SessionMeta {
 /** Our own data.json. Most recently visited note first; at most REMEMBERED_NOTES entries. */
 interface StoredData {
 	recentNotes?: RememberedNote[];
+	/**
+	 * Notes whose conversation was cleared by hand, and when: Claudian's history only stands in
+	 * for the memory with conversations newer than that (see conversationFor).
+	 */
+	clearedNotes?: Record<string, number>;
+	/** The reading spot in each conversation (see ScrollSpot), so a restart comes back to it. */
+	scrollSpots?: Record<string, ScrollSpot>;
+}
+
+/**
+ * The selection a prompt sent this session went with: what it was, null for none, or
+ * undefined when the message doesn't say — one restored from history, whose context comes
+ * back empty however it was sent.
+ */
+function liveSelection(message: ClaudianMessage | undefined): SentSelection | null | undefined {
+	const context = message?.executionInput?.context;
+	if (!context || Object.keys(context).length === 0) return undefined;
+	const selection =
+		context.editorSelection ?? context.selections?.find((item) => item.kind === "editor")?.selection;
+	if (selection?.mode !== "selection" || !selection.notePath || !selection.startLine) return null;
+	return {
+		path: selection.notePath,
+		start: selection.startLine,
+		end: selection.startLine + Math.max(1, selection.lineCount ?? 1) - 1,
+	};
+}
+
+/** An attribute value as Claudian writes one into a prompt (`&amp;` and the like). */
+function decodeAttribute(value: string): string {
+	return value
+		.replace(/&quot;/g, '"')
+		.replace(/&#39;/g, "'")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&amp;/g, "&");
+}
+
+function nodeRequire<T>(id: string): T {
+	return (window as unknown as { require: (id: string) => T }).require(id);
+}
+
+/**
+ * Text from a table cell, spelled one way. A line break in a cell is `<br>` in the note, and
+ * that is how Claudian carries it; the cell's own editor holds a real one.
+ */
+function cellText(text: string): string {
+	return text.replace(/<br\s*\/?>/gi, "\n").replace(/\s+/g, " ").trim();
+}
+
+/** The page's CSS Custom Highlight registry, where the browser has one. */
+function highlightRegistry(): { set(name: string, highlight: object): void; delete(name: string): void } | null {
+	return (CSS as unknown as { highlights?: { set(name: string, highlight: object): void; delete(name: string): void } })
+		.highlights ?? null;
 }
 
 export default class ClaudianEnhancedPlugin extends Plugin {
@@ -307,6 +433,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * just for toggling the panel with ⌘L. Only a real note change moves this.
 	 */
 	private lastOpenedPath: string | null = null;
+	/** The note whose conversation a veiled view is waiting for (see veilUntilSettled). */
+	private veiledFor: string | null = null;
+	/** The note the sidebar was last matched to (see matchSidebarToNote): once per visit. */
+	private sidebarNotePath: string | null = null;
 	/** Debounce handle for the active-note → chip sync. */
 	private syncTimer: number | null = null;
 	/** Watches for submitted messages to scroll them into view; see setupSubmitScroll. */
@@ -344,8 +474,22 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * leaving a note, read when arriving at one; see rememberConversation / restoreConversationFor.
 	 */
 	private remembered: RememberedNote[] = [];
-	/** The reading spot in each conversation left behind this session, by conversation id. */
+	/** The reading spot in each conversation, by conversation id; kept across restarts. */
 	private spots = new Map<string, ScrollSpot>();
+	/** Conversations put on their reading spot this session; see positionOnFirstShow. */
+	private positioned = new Set<string>();
+	/**
+	 * The note lines prompts restored from history were sent with, by the session file's id
+	 * for them; null for one sent with none. See tagSentSelections.
+	 */
+	private sentSelections = new Map<string, SentSelection | null>();
+	/** Passes in a row that found a prompt not filled in yet; see tagSentSelections. */
+	private tagRetries = 0;
+	/** Claude Code session files already read for sentSelections, with the mtime read. */
+	private readSessions = new Map<string, number>();
+	private tagFrame: number | null = null;
+	/** See StoredData.clearedNotes. */
+	private clearedNotes: Record<string, number> = {};
 	/** Message lists a conversation is being restored into; our own scrolling leaves these alone. */
 	private restores = new Map<HTMLElement, Restore>();
 	private restoreSeq = 0;
@@ -456,6 +600,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerEvent(
 			this.app.vault.on("delete", (file) => this.forgetNote(file.path)),
 		);
+		// Where the reader is when Obsidian closes is what the next start comes back to.
+		this.registerEvent(
+			this.app.workspace.on("quit", (tasks) => {
+				this.saveScrollSpot();
+				tasks.add(() => this.persistMemory());
+			}),
+		);
 		// Keep the conversation pinned to the bottom. Claudian's own autoscroll is too
 		// brittle to rely on: it only forces the list down on a new conversation, its
 		// submit path doesn't scroll at all, and its streaming follow re-arms only if you
@@ -479,6 +630,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			this.blockSelectionFrame = requestAnimationFrame(() => {
 				this.blockSelectionFrame = null;
 				this.syncBlockSelection();
+				this.syncCellHighlight();
 			});
 		};
 		this.registerDomEvent(document, "selectionchange", syncSoon);
@@ -489,6 +641,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerDomEvent(document, "keyup", () => window.setTimeout(syncSoon), { capture: true });
 		this.register(() => {
 			if (this.blockSelectionFrame !== null) cancelAnimationFrame(this.blockSelectionFrame);
+			highlightRegistry()?.delete(CELL_HIGHLIGHT);
 		});
 		this.register(() => this.foldResizeObserver?.disconnect());
 		// Reuse a tab instead of stacking a new one per clicked link. See
@@ -545,6 +698,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			// tab. We never detach: Claudian's tab stays alive so the next ⌘L flips
 			// straight back to it and the dock never closes. The note is kept active
 			// so Claudian keeps carrying over the selection (see revealSidebarDefault).
+			this.saveScrollSpot();
 			this.revealSidebarDefault(leaf);
 		} else {
 			this.openClaudian(gen);
@@ -604,7 +758,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const existing = this.getClaudianLeaf();
 		if (existing) {
 			this.ensureSideOpen(this.sidebarOf(existing));
-			void this.app.workspace.revealLeaf(existing);
+			void this.app.workspace.revealLeaf(existing).then(() => this.returnToSpot(false));
 		} else {
 			(this.app as unknown as AppWithCommands).commands.executeCommandById(
 				OPEN_COMMAND,
@@ -753,6 +907,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * clears it to force a re-check).
 	 */
 	private syncCurrentNoteChip(): void {
+		// The sidebar flips first; a flip settles asynchronously and re-runs this when it does.
+		if (this.matchSidebarToNote()) {
+			this.lastSyncedPath = null;
+			return;
+		}
 		const claudianLeaf = this.getClaudianLeaf();
 		if (!claudianLeaf || !this.isLeafVisible(claudianLeaf)) {
 			// Hidden/absent → the ⌘L reveal path refreshes on next open; forget state so
@@ -767,6 +926,104 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
+	 * Show in the sidebar what goes with the note just switched to: Claudian when the note
+	 * has a conversation, Outline when it doesn't. Reports whether it flipped the sidebar —
+	 * the flip lands asynchronously, so the caller stops there and the conversation is
+	 * brought in line once Claudian is on screen.
+	 *
+	 * A note "has a conversation" if one is on file for it, or one of Claudian's tabs is
+	 * holding it — a reply still running counts. Leaving a note while Claudian shows, its
+	 * conversation is written down first: hiding Claudian skips the note change that would
+	 * otherwise have recorded it, and coming back has to find it.
+	 *
+	 * Once per note visit, so moving focus into the sidebar and back doesn't re-flip it, and
+	 * ⌘L still decides for the note you're on. A collapsed sidebar stays collapsed, Claudian
+	 * open in the main area is left alone, and so is mobile, where the sidebar is a drawer.
+	 * Hidden behind Outline, Claudian keeps running whatever it was running.
+	 */
+	private matchSidebarToNote(): boolean {
+		if (Platform.isMobile) return false;
+		const path = this.activeNotePath();
+		if (!path || path === this.sidebarNotePath) return false;
+		this.sidebarNotePath = path;
+		const leaf = this.getClaudianLeaf();
+		const side = leaf ? this.sidebarOf(leaf) : null;
+		if (!leaf || !side) return false;
+		const split = side === "right" ? this.app.workspace.rightSplit : this.app.workspace.leftSplit;
+		if (split.collapsed) return false;
+		const visible = this.isLeafVisible(leaf);
+		if (visible && this.lastOpenedPath && this.lastOpenedPath !== path) {
+			this.rememberConversation(this.lastOpenedPath);
+		}
+		const wanted = this.noteHasConversation(path);
+		if (wanted === visible) return false;
+		if (!wanted) {
+			// Its reading spot too, while it is still laid out to be read.
+			this.saveScrollSpot();
+			this.revealSidebarDefault(leaf);
+			return true;
+		}
+		// Claudian still holds the conversation of the note it was last shown for; revealed
+		// as it is, that one showed first and was then swapped. Veiled from before the reveal.
+		const noteLeaf = this.getNoteLeaf();
+		this.veilUntilSettled(path, false);
+		void this.app.workspace.revealLeaf(leaf).then(() => {
+			if (noteLeaf) this.app.workspace.setActiveLeaf(noteLeaf, { focus: false });
+			this.lastSyncedPath = null;
+			this.syncCurrentNoteChip();
+			this.returnToSpot(false);
+			this.liftVeilWhenSettled(leaf.view.containerEl);
+		});
+		return true;
+	}
+
+	/**
+	 * Hide Claudian's conversation until `notePath`'s is the one on screen. Switching notes
+	 * swaps the conversation asynchronously — Claudian loads the next one before it replaces
+	 * the list — so the note left behind kept showing its conversation through the load and
+	 * then jumped to the new one. Veiled, the switch goes straight from one to the other.
+	 * `watch: false` leaves starting the watch to the caller, for a veil put on before the
+	 * view is even revealed.
+	 */
+	private veilUntilSettled(notePath: string, watch = true): void {
+		const container = this.getClaudianLeaf()?.view.containerEl;
+		if (!container) return;
+		const already = container.hasClass(VEILED_CLS);
+		container.addClass(VEILED_CLS);
+		this.veiledFor = notePath;
+		if (watch && !already) this.liftVeilWhenSettled(container);
+	}
+
+	/**
+	 * Lift the veil once the note's conversation is the one on screen and no restore is
+	 * still hiding or positioning it — or after VEIL_MAX_MS, so the view is never left blank.
+	 */
+	private liftVeilWhenSettled(container: HTMLElement): void {
+		const start = performance.now();
+		const settle = (): void => {
+			if (!container.hasClass(VEILED_CLS)) return;
+			const want = this.veiledFor ? this.conversationFor(this.veiledFor) : null;
+			const showing = this.getActiveTab()?.conversationId ?? null;
+			const restoring = Array.from(this.restores.values()).some((restore) => restore.phase !== "holding");
+			if ((showing === want && !restoring) || performance.now() - start > VEIL_MAX_MS) {
+				container.removeClass(VEILED_CLS);
+				return;
+			}
+			requestAnimationFrame(settle);
+		};
+		requestAnimationFrame(settle);
+	}
+
+	/** Whether there is a conversation to show for this note; see matchSidebarToNote. */
+	private noteHasConversation(notePath: string): boolean {
+		if (this.conversationFor(notePath)) return true;
+		const tabs = this.getTabManager()?.getAllTabs?.() ?? [];
+		return tabs.some(
+			(tab) => !!tab.conversationId && this.conversationBelongsTo(tab.conversationId, notePath),
+		);
+	}
+
+	/**
 	 * React to the open note changing.
 	 *
 	 * The conversation is about something else now, so it has to give way — but which way
@@ -776,10 +1033,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * the note we're leaving can be returned to later.
 	 *
 	 * Both settle the note themselves: a restored conversation is locked to its own note, and
-	 * a fresh one starts as a draft that links the active note. When neither branch takes (a
-	 * reply is streaming, the conversation is empty and there's nothing to clear, or
-	 * Claudian's internals have drifted) all that's left is nudging a draft onto this note —
-	 * a sent conversation's note can't be moved any more.
+	 * a fresh one starts as a draft that links the active note. A reply still running can't
+	 * be swapped out of its tab, so then the note's conversation opens in a tab of its own and
+	 * the reply finishes in the background. When none of that takes (the conversation is
+	 * empty and there's nothing to clear, or Claudian's internals have drifted) all that's
+	 * left is nudging a draft onto this note — a sent conversation's note can't be moved.
 	 */
 	private handleNoteChange(path: string): void {
 		const previous = this.lastOpenedPath;
@@ -789,9 +1047,128 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (previous !== null && previous !== path) {
 			this.saveScrollSpot();
 			this.rememberConversation(previous);
-			if (this.restoreConversationFor(path) || this.resetSessionForNoteChange()) return;
+			this.closeExtraTabs(path);
+			if (this.activeTabWorking()) {
+				if (this.openBesideRunningReply(path)) return;
+			} else if (this.restoreConversationFor(path) || this.resetSessionForNoteChange()) {
+				return;
+			}
 		}
 		this.followNoteInDraft(path);
+	}
+
+	/** Whether the active tab has a reply (or anything else) still running. */
+	private activeTabWorking(): boolean {
+		const manager = this.getTabManager();
+		const tab = manager?.getActiveTab?.() ?? null;
+		return tab ? this.tabWorking(manager, tab) : false;
+	}
+
+	private tabWorking(manager: ClaudianTabManager | null, tab: ClaudianTab): boolean {
+		if (tab.id && typeof manager?.isTabWorking === "function") return manager.isTabWorking(tab.id);
+		return Boolean(tab.state?.isStreaming);
+	}
+
+	/**
+	 * Move to `notePath`'s conversation while the active tab's reply is still running.
+	 *
+	 * Claudian won't swap a conversation out of a tab mid-reply, and stopping it is not what
+	 * changing notes means. So the running tab is left where it is, still going, and the
+	 * note's conversation opens in another tab — the one already holding it, if any, else a
+	 * new one; a note with nothing on file gets a fresh draft there. Coming back to the
+	 * first note finds its conversation in the running tab (openConversation switches to a
+	 * tab holding it), carrying on, or finished, where the reply left off.
+	 *
+	 * Reports whether it took, so the caller can fall back to the single-tab behaviour.
+	 */
+	private openBesideRunningReply(notePath: string): boolean {
+		const manager = this.getTabManager();
+		const running = manager?.getActiveTab?.() ?? null;
+		if (!manager || !running?.id) return false;
+		const conversationId = this.conversationFor(notePath);
+		let opened: Promise<unknown>;
+		if (conversationId && typeof manager.openConversation === "function") {
+			// The running tab shows until the other one takes over; see veilUntilSettled.
+			this.veilUntilSettled(notePath);
+			opened = manager.openConversation(conversationId, { preferNewTab: true });
+		} else if (typeof manager.createTab === "function") {
+			opened = manager.createTab(undefined, undefined, { activate: true });
+		} else {
+			return false;
+		}
+		void opened.then(
+			() => {
+				// A fresh tab is a draft; point it at the note it was opened for.
+				if (!conversationId && this.lastOpenedPath === notePath) this.followNoteInDraft(notePath);
+			},
+			(error: unknown) => console.warn("Claudian (Enhanced): couldn't open a tab beside the running reply", error),
+		);
+		return true;
+	}
+
+	/**
+	 * The conversation on file for this note, if it still exists and is still the note's —
+	 * the checks restoreConversationFor makes, without its clean-up.
+	 */
+	private conversationFor(notePath: string): string | null {
+		const entry = this.remembered.find((note) => note.path === notePath);
+		if (entry) {
+			const id = entry.conversationId;
+			if (this.conversationExists(id) && this.conversationBelongsTo(id, notePath)) return id;
+			// Gone, or not this note's after all — a pairing written down before the check in
+			// rememberConversation existed. Dropped, and Claudian's history asked instead.
+			this.remembered = this.remembered.filter((note) => note !== entry);
+			void this.persistMemory();
+		}
+		return this.latestLinkedConversation(notePath);
+	}
+
+	/**
+	 * The note's most recent conversation in Claudian's own history: linked to the note, not
+	 * archived, not empty, and newer than a clear by hand. The memory above only holds the
+	 * last few notes, and only learns a pairing when the note is left with its conversation on
+	 * screen — a note left while its conversation sat in a background tab, or one visited
+	 * before more recent ones pushed it out, was otherwise met with a fresh conversation
+	 * although Claudian had one linked to it all along.
+	 */
+	private latestLinkedConversation(notePath: string): string | null {
+		const view = this.getClaudianLeaf()?.view as unknown as { plugin?: ClaudianPluginApi };
+		const list = view?.plugin?.getConversationList;
+		if (typeof list !== "function") return null;
+		const clearedAt = this.clearedNotes[notePath] ?? 0;
+		let best: { id: string; at: number } | null = null;
+		for (const conversation of list.call(view.plugin) ?? []) {
+			if (!conversation.id || conversation.linkedContentPath !== notePath) continue;
+			if (conversation.isArchived || conversation.messageCount === 0) continue;
+			const at = conversation.lastActivityAt ?? conversation.createdAt ?? 0;
+			if (at <= clearedAt) continue;
+			if (!best || at > best.at) best = { id: conversation.id, at };
+		}
+		return best?.id ?? null;
+	}
+
+	/**
+	 * Keep Claudian to one session on screen: close every tab but the one showing, once it is
+	 * idle and has nothing typed into its composer. Claudian's tab strip is hidden (see
+	 * styles.css), so a tab behind the one showing can't be reached anyway — it is there
+	 * only because a reply was running when the note changed (openBesideRunningReply), or
+	 * because Claudian opened one itself (restoring its tabs on startup, opening a
+	 * conversation from history). Their conversations are saved as they close and come back
+	 * with their notes. Kept: a tab still working, and the one holding the conversation of
+	 * the note being switched to, which is about to be switched to.
+	 */
+	private closeExtraTabs(nextNotePath: string): void {
+		const manager = this.getTabManager();
+		if (!manager || typeof manager.getAllTabs !== "function" || typeof manager.closeTab !== "function") return;
+		const active = manager.getActiveTab?.() ?? null;
+		const keep = this.conversationFor(nextNotePath);
+		for (const tab of manager.getAllTabs()) {
+			if (!tab.id || tab === active) continue;
+			if (this.tabWorking(manager, tab) || (keep && tab.conversationId === keep)) continue;
+			const typed = tab.dom?.inputEl?.value;
+			if (typeof typed === "string" && typed.trim()) continue;
+			void manager.closeTab(tab.id);
+		}
 	}
 
 	/**
@@ -827,12 +1204,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			{ path: notePath, conversationId },
 			...this.remembered.filter((note) => note.path !== notePath),
 		].slice(0, REMEMBERED_NOTES);
+		delete this.clearedNotes[notePath];
 		void this.persistMemory();
 	}
 
 	/**
 	 * Put this note's conversation back in the tab we're already in, and report whether that
-	 * happened so the caller can fall through to a fresh session.
+	 * happened so the caller can fall through to a fresh session. The note's conversation is
+	 * the one on file for it, else its latest in Claudian's history (see conversationFor).
 	 *
 	 * Declines while a reply is streaming for the same reason resetSessionForNoteChange does
 	 * — Claudian's own switchTo refuses mid-stream anyway, so acting would report a restore
@@ -841,38 +1220,32 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * "failed to load" notice.
 	 */
 	private restoreConversationFor(notePath: string): boolean {
-		const entry = this.remembered.find((note) => note.path === notePath);
-		if (!entry) return false;
 		const manager = this.getTabManager();
 		const tab = manager?.getActiveTab?.() ?? null;
 		if (!manager || typeof manager.openConversation !== "function" || !tab) {
 			return false;
 		}
 		if (tab.state?.isStreaming) return false;
-		// Gone, or not this note's after all — a pairing written down before the check in
-		// rememberConversation existed. Either way it's dropped, and the note gets a fresh
-		// conversation instead. Checked before "already showing it": a wrong pairing is just
-		// as wrong when its conversation happens to be the one on screen.
-		if (
-			!this.conversationExists(entry.conversationId) ||
-			!this.conversationBelongsTo(entry.conversationId, notePath)
-		) {
-			this.remembered = this.remembered.filter((note) => note !== entry);
-			void this.persistMemory();
-			return false;
-		}
+		// Checked before "already showing it": a wrong pairing is just as wrong when its
+		// conversation happens to be the one on screen (conversationFor drops it).
+		const conversationId = this.conversationFor(notePath);
+		if (!conversationId) return false;
 		// Already showing it (came back without ever leaving the conversation) — count it as
 		// restored so the caller doesn't clear the very thing we wanted to keep.
-		if (tab.conversationId === entry.conversationId) return true;
+		if (tab.conversationId === conversationId) return true;
 		// Reported as restored synchronously, so a hydration that fails afterwards would
 		// otherwise leave the previous note's conversation sitting under this note with the
 		// fallback already skipped. Clear it then instead — but only if we're still on the
 		// note that asked, since another switch may have landed while it was loading.
 		const scroller = this.visibleEl<HTMLElement>(CLAUDIAN_MESSAGES);
 		const token = scroller ? this.beginRestore(scroller) : 0;
-		manager.openConversation(entry.conversationId, { preferNewTab: false }).then(
+		this.veilUntilSettled(notePath);
+		manager.openConversation(conversationId, { preferNewTab: false }).then(
 			() => {
-				if (scroller) this.settleScroll(scroller, entry.conversationId, token);
+				if (scroller) this.settleScroll(scroller, conversationId, token);
+				// It may have switched to another tab holding the conversation; the one left
+				// behind is closed now rather than at the next switch.
+				if (this.lastOpenedPath === notePath) this.closeExtraTabs(notePath);
 			},
 			() => {
 				if (scroller) this.endRestore(scroller, token);
@@ -928,6 +1301,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private async loadMemory(): Promise<void> {
 		const stored = (await this.loadData()) as StoredData | null;
+		this.clearedNotes = { ...stored?.clearedNotes };
+		this.spots = new Map(Object.entries(stored?.scrollSpots ?? {}));
 		if (stored?.recentNotes) {
 			const notes = stored.recentNotes.slice(0, REMEMBERED_NOTES);
 			this.remembered = await this.dropSharedConversations(notes);
@@ -981,7 +1356,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	private async persistMemory(): Promise<void> {
-		await this.saveData({ recentNotes: this.remembered } satisfies StoredData);
+		await this.saveData({
+			recentNotes: this.remembered,
+			clearedNotes: this.clearedNotes,
+			scrollSpots: Object.fromEntries(this.spots),
+		} satisfies StoredData);
 	}
 
 	/**
@@ -1041,6 +1420,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (this.lastSyncedPath) {
 			this.lastSyncedPath = moved(this.lastSyncedPath) ?? this.lastSyncedPath;
 		}
+		if (this.sidebarNotePath) {
+			this.sidebarNotePath = moved(this.sidebarNotePath) ?? this.sidebarNotePath;
+		}
 		let changed = false;
 		this.remembered = this.remembered.map((note) => {
 			const path = moved(note.path);
@@ -1048,6 +1430,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			changed = true;
 			return { ...note, path };
 		});
+		for (const [path, at] of Object.entries(this.clearedNotes)) {
+			const next = moved(path);
+			if (next === null) continue;
+			delete this.clearedNotes[path];
+			this.clearedNotes[next] = at;
+			changed = true;
+		}
 		if (changed) void this.persistMemory();
 	}
 
@@ -1063,7 +1452,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private clearCurrentTab(): void {
 		const path = this.activeNotePath();
-		if (path) this.forgetNote(path);
+		if (path) {
+			this.forgetNote(path);
+			// Claudian's history still links the old conversation to this note; without this,
+			// conversationFor would bring it straight back on the next visit.
+			this.clearedNotes[path] = Date.now();
+			void this.persistMemory();
+		}
 		// An untouched tab already is the fresh start being asked for. Claudian's command
 		// would start a new conversation regardless — filing the empty one into history and
 		// re-linking the note — so reuse what's there and only spend a reset on a tab
@@ -1119,11 +1514,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** Drop a deleted note (and, for a folder, everything under it) from the memory. */
 	private forgetNote(path: string): void {
 		const prefix = `${path}/`;
-		const kept = this.remembered.filter(
-			(note) => note.path !== path && !note.path.startsWith(prefix),
-		);
-		if (kept.length === this.remembered.length) return;
+		const under = (notePath: string): boolean => notePath === path || notePath.startsWith(prefix);
+		const kept = this.remembered.filter((note) => !under(note.path));
+		const cleared = Object.keys(this.clearedNotes).filter(under);
+		if (kept.length === this.remembered.length && cleared.length === 0) return;
 		this.remembered = kept;
+		for (const notePath of cleared) delete this.clearedNotes[notePath];
 		void this.persistMemory();
 	}
 
@@ -1302,6 +1698,165 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return leaf.view.getViewType() === "markdown" && this.sidebarOf(leaf) === null;
 	}
 
+	private scheduleSelectionTags(): void {
+		if (this.tagFrame !== null) return;
+		this.tagFrame = requestAnimationFrame(() => {
+			this.tagFrame = null;
+			this.tagSentSelections();
+		});
+	}
+
+	/**
+	 * Show under each prompt the note lines it was sent with.
+	 *
+	 * Claudian sends a 划词 to Claude as an `<editor_selection path=… lines=…>` block after the
+	 * prompt, and strips that block from the bubble, so once sent there was no telling which
+	 * lines a question was about. A prompt sent this session still carries the selection in
+	 * its message; one restored from history doesn't, and is read from the Claude Code session
+	 * file instead, where the prompt is kept as sent (loadSessionSelections). A prompt
+	 * neither knows of gets no tag.
+	 */
+	private tagSentSelections(): void {
+		const container = this.getClaudianLeaf()?.view.containerEl;
+		if (!container) return;
+		const bubbles = Array.from(container.querySelectorAll<HTMLElement>(`${CLAUDIAN_USER_MESSAGE}[data-message-id]`));
+		if (bubbles.length === 0) return;
+		const messages = new Map<string, ClaudianMessage>();
+		for (const tab of this.getTabManager()?.getAllTabs?.() ?? []) {
+			for (const message of (tab.state?.messages ?? []) as ClaudianMessage[]) {
+				if (message?.id) messages.set(message.id, message);
+			}
+		}
+		const lookups: string[] = [];
+		let unfilled = false;
+		for (const bubble of bubbles) {
+			const message = messages.get(bubble.dataset.messageId ?? "");
+			// Drawn before Claudian has put the message in its list: a fresh prompt, a moment old.
+			if (!message) {
+				unfilled = true;
+				continue;
+			}
+			const live = liveSelection(message);
+			if (live !== undefined) {
+				this.renderSelectionTag(bubble, live);
+				continue;
+			}
+			const key = message.userMessageId ?? message.id ?? "";
+			if (this.sentSelections.has(key)) this.renderSelectionTag(bubble, this.sentSelections.get(key) ?? null);
+			else lookups.push(key);
+		}
+		if (unfilled && this.tagRetries < 10) {
+			this.tagRetries++;
+			window.setTimeout(() => this.scheduleSelectionTags(), 400);
+		} else if (!unfilled) {
+			this.tagRetries = 0;
+		}
+		if (lookups.length === 0) return;
+		void this.loadSessionSelections().then(
+			() => {
+				// A restored prompt the session file has no selection for was sent with none.
+				for (const key of lookups) if (!this.sentSelections.has(key)) this.sentSelections.set(key, null);
+				this.scheduleSelectionTags();
+			},
+			(error: unknown) => console.warn("Claudian (Enhanced): couldn't read the prompts' selections", error),
+		);
+	}
+
+	/**
+	 * Read the selections the open conversations' prompts were sent with out of their Claude
+	 * Code session files — `<config>/projects/<vault path, every other character a dash>/
+	 * <session id>.jsonl`, as Claudian itself locates them. Only lines naming a selection are
+	 * parsed, and a file is read again only once it has changed.
+	 */
+	private async loadSessionSelections(): Promise<void> {
+		if (!Platform.isDesktopApp) return;
+		const adapter = this.app.vault.adapter;
+		if (!(adapter instanceof FileSystemAdapter)) return;
+		const view = this.getClaudianLeaf()?.view as unknown as { plugin?: ClaudianPluginApi };
+		const lookup = view?.plugin?.getCachedConversation;
+		if (typeof lookup !== "function") return;
+		const { promises: fs } = nodeRequire<typeof import("fs")>("fs");
+		const path = nodeRequire<typeof import("path")>("path");
+		const os = nodeRequire<typeof import("os")>("os");
+		const { env } = nodeRequire<typeof import("process")>("process");
+		const config = env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
+		const dir = path.join(config, "projects", path.resolve(adapter.getBasePath()).replace(/[^a-zA-Z0-9]/g, "-"));
+		for (const tab of this.getTabManager()?.getAllTabs?.() ?? []) {
+			if (!tab.conversationId) continue;
+			const conversation = lookup.call(view.plugin, tab.conversationId) as {
+				sessionId?: string | null;
+				providerState?: { providerSessionId?: string | null };
+			} | null;
+			const sessionId = conversation?.providerState?.providerSessionId ?? conversation?.sessionId;
+			if (!sessionId || !/^[\w-]+$/.test(sessionId)) continue;
+			const file = path.join(dir, `${sessionId}.jsonl`);
+			let mtime: number;
+			try {
+				mtime = (await fs.stat(file)).mtimeMs;
+			} catch {
+				continue; // never run on this machine
+			}
+			if (this.readSessions.get(file) === mtime) continue;
+			this.readSessions.set(file, mtime);
+			const text = await fs.readFile(file, "utf8");
+			for (const line of text.split("\n")) {
+				if (!line.includes("editor_selection")) continue;
+				let entry: { type?: string; uuid?: string; message?: { content?: unknown } };
+				try {
+					entry = JSON.parse(line) as typeof entry;
+				} catch {
+					continue;
+				}
+				if (entry.type !== "user" || !entry.uuid) continue;
+				const content = entry.message?.content;
+				const prompt =
+					typeof content === "string"
+						? content
+						: Array.isArray(content)
+							? (content as { type?: string; text?: string }[])
+									.filter((block) => block.type === "text")
+									.map((block) => block.text ?? "")
+									.join("\n")
+							: "";
+				const found = /<editor_selection path="([^"]*)" lines="(\d+)-(\d+)"/.exec(prompt);
+				if (!found) continue;
+				this.sentSelections.set(entry.uuid, {
+					path: decodeAttribute(found[1] ?? ""),
+					start: Number(found[2]),
+					end: Number(found[3]),
+				});
+			}
+		}
+	}
+
+	/** Put the tag under a prompt, or take it away — touching the DOM only when it changes. */
+	private renderSelectionTag(bubble: HTMLElement, selection: SentSelection | null): void {
+		const content = bubble.querySelector<HTMLElement>(".claudian-message-content");
+		if (!content) return;
+		const existing = content.querySelector<HTMLElement>(`:scope > .${SELECTION_TAG_CLS}`);
+		if (!selection) {
+			existing?.remove();
+			return;
+		}
+		const lines = selection.start === selection.end ? `L${selection.start}` : `L${selection.start}–${selection.end}`;
+		const linked = this.linkedNotePath();
+		const note = selection.path === linked ? "" : `${selection.path.split("/").pop()?.replace(/\.md$/, "")} · `;
+		const label = `${note}${lines}`;
+		if (existing?.dataset.label === label) return;
+		existing?.remove();
+		const tag = content.createDiv({ cls: SELECTION_TAG_CLS, attr: { "aria-label": selection.path, "data-label": label } });
+		setIcon(tag.createSpan({ cls: `${SELECTION_TAG_CLS}-icon` }), "text-select");
+		tag.createSpan({ text: label });
+		// To those lines in the note, as the selection was made there.
+		tag.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			void this.app.workspace.openLinkText(selection.path, "", false, {
+				eState: { line: selection.start - 1 },
+			});
+		});
+	}
+
 	/** Claudian's view has built its composer → its tab/context manager exists. */
 	private claudianMounted(): boolean {
 		const container = this.getClaudianLeaf()?.view.containerEl;
@@ -1352,7 +1907,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				queued ||= this.isInQueueRow(record.target);
 				promptsChanged ||= this.changesPromptContent(record);
 			}
-			if (promptsChanged) this.scheduleFold(container);
+			if (promptsChanged) {
+				this.scheduleFold(container);
+				this.scheduleSelectionTags();
+			}
+			this.returnToSpot(true);
 			// Both scroll "the list this landed in" — there's one per conversation tab. Not a
 			// conversation being put back, though: settleScroll positions that, its re-rendered
 			// prompts aren't submits, and pinning it here is what used to move it.
@@ -1717,6 +2276,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				if (cells) this.adoptSelection(controller, cells);
 			}
 			notify?.call(controller);
+			// Claudian dropping or replacing the selection takes its painting with it.
+			this.syncCellHighlight();
 		};
 		this.register(() => {
 			controller.onUserSelectionChanged = notify;
@@ -1770,6 +2331,56 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			startLine: start,
 			domRanges: [],
 		};
+	}
+
+	/**
+	 * Paint a carried 划词 that was made inside a table cell.
+	 *
+	 * Live Preview edits a table cell in an editor of its own, nested in the table widget.
+	 * Claudian takes the selection from it correctly, but paints it as a decoration in the
+	 * note's editor — and a decoration can't draw inside a widget, so once focus left the
+	 * cell (⌘L, a click into the composer) the selection vanished from the table while
+	 * Claudian still carried it. It is painted here with the CSS Custom Highlight API, which
+	 * reaches inside the widget without touching its DOM, styled as Claudian's own is
+	 * (styles.css). Only while the cell is unfocused: focused, its native selection shows.
+	 */
+	private syncCellHighlight(): void {
+		const registry = highlightRegistry();
+		const Highlight = (window as unknown as { Highlight?: new (...ranges: Range[]) => object }).Highlight;
+		if (!registry || !Highlight) return;
+		const range = this.carriedCellRange();
+		if (range) registry.set(CELL_HIGHLIGHT, new Highlight(range));
+		else registry.delete(CELL_HIGHLIGHT);
+	}
+
+	/**
+	 * The carried selection as a range in the table cell editor holding it, or null: no
+	 * selection carried, none of the open cell editors has it selected, or the one that does
+	 * has focus. Matched on the text, so a cell editor left with some other selection in it
+	 * isn't painted — compared as cellText has it, since the two spell a line break apart.
+	 */
+	private carriedCellRange(): Range | null {
+		const selected = this.getSelectionController()?.storedSelection?.selectedText;
+		const carried = selected ? cellText(selected) : "";
+		const cm = this.cmOf(this.getNoteLeaf());
+		if (!carried || !cm) return null;
+		for (const el of Array.from(cm.contentDOM.querySelectorAll<HTMLElement>(".cm-table-widget .cm-editor"))) {
+			const cell = EditorView.findFromDOM(el);
+			if (!cell || cell.hasFocus) continue;
+			const { from, to, empty } = cell.state.selection.main;
+			if (empty || cellText(cell.state.sliceDoc(from, to)) !== carried) continue;
+			try {
+				const start = cell.domAtPos(from);
+				const end = cell.domAtPos(to);
+				const range = el.ownerDocument.createRange();
+				range.setStart(start.node, start.offset);
+				range.setEnd(end.node, end.offset);
+				return range;
+			} catch {
+				return null;
+			}
+		}
+		return null;
 	}
 
 	/** The page selection, when it lies inside a rendered block of the note being edited. */
@@ -1876,6 +2487,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const scroller = this.visibleEl<HTMLElement>(CLAUDIAN_MESSAGES);
 		// A list still being restored hasn't reached its spot yet; what it shows isn't news.
 		if (!id || !scroller || this.restores.has(scroller)) return;
+		// Nor does one out of sight: it has no layout, so every measure reads 0.
+		if (scroller.offsetParent === null) return;
 		const top = scroller.getBoundingClientRect().top;
 		const reply = Array.from(scroller.querySelectorAll<HTMLElement>(CLAUDIAN_REPLY)).find(
 			(el) => el.getBoundingClientRect().bottom > top,
@@ -1893,12 +2506,42 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (this.spots.size <= 20) break;
 			this.spots.delete(oldest);
 		}
+		void this.persistMemory();
 	}
 
-	private beginRestore(scroller: HTMLElement): number {
+	/**
+	 * Put the conversation on screen back on its reading spot — or at its end, where the
+	 * latest reply is, if it has none yet.
+	 *
+	 * The spot is applied when a conversation is swapped in (restoreConversationFor), but two
+	 * other ways of showing one skipped it. Opening Obsidian: Claudian rebuilds the
+	 * conversation into a list that starts at its top, and following its growth stops as soon
+	 * as the list is a screen taller than the view — so a cold start left it at the top, and
+	 * the spot was only kept in memory anyway. And bringing Claudian back out (⌘L, the sidebar
+	 * following the note): a list hidden in a sidebar tab comes back at its top.
+	 *
+	 * `onlyFirst` is the cold-start case, run on every change to the list: only a conversation
+	 * not yet put on its spot this session, once Claudian has finished loading it.
+	 */
+	private returnToSpot(onlyFirst: boolean): void {
+		const id = this.getActiveTab()?.conversationId;
+		if (!id || (onlyFirst && this.positioned.has(id))) return;
+		if (!this.restoredTabSettled()) return;
+		const scroller = this.visibleEl<HTMLElement>(CLAUDIAN_MESSAGES);
+		if (!scroller || scroller.offsetParent === null || this.restores.has(scroller)) return;
+		if (!scroller.querySelector(`${CLAUDIAN_REPLY}, ${CLAUDIAN_USER_MESSAGE}`)) return; // nothing drawn yet
+		this.settleScroll(scroller, id, this.beginRestore(scroller, false));
+	}
+
+	/**
+	 * `hide: false` positions without ever hiding the list: for a conversation that is
+	 * already on screen rather than being swapped in, whose re-renders (a reply streaming)
+	 * would otherwise read as a rebuild and blank it.
+	 */
+	private beginRestore(scroller: HTMLElement, hide = true): number {
 		const token = ++this.restoreSeq;
 		scroller.removeClass(RESTORING_CLS);
-		this.restores.set(scroller, { token, phase: "armed" });
+		this.restores.set(scroller, { token, phase: hide ? "armed" : "holding" });
 		// Never leave a list invisible: if the switch is swallowed somewhere along the way.
 		window.setTimeout(() => this.endRestore(scroller, token), 5000);
 		return token;
@@ -1935,6 +2578,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * the reader touches the list, which hands it back to them.
 	 */
 	private settleScroll(scroller: HTMLElement, conversationId: string, token: number): void {
+		this.positioned.add(conversationId);
 		const spot = this.spots.get(conversationId) ?? null;
 		const start = performance.now();
 		let lastHeight = -1;
@@ -1986,7 +2630,6 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		step();
 	}
 
-	/** Scroll to a saved spot; with none (not read here this session), to the end. */
 	private applySpot(scroller: HTMLElement, spot: ScrollSpot | null): void {
 		this.selfScrolling = true;
 		if (!spot || spot.atBottom) {
@@ -2009,6 +2652,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			this.selfScrolling = false;
 		});
 	}
+
+	/** Scroll to a saved spot; with none (not read here this session), to the end. */
 
 	/**
 	 * Show the jump-to-latest button while the conversation is scrolled away from its end,
