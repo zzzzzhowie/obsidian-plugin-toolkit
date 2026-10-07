@@ -2,6 +2,9 @@ import { ItemView, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
 
 /** Obsidian's own "Close current tab", Cmd/Ctrl+W by default. */
 const CLOSE_COMMAND = "workspace:close";
+/** Obsidian's own "Go to next tab" / "Go to previous tab": Ctrl+Tab, Cmd+Shift+] / [ by default. */
+const NEXT_TAB_COMMAND = "workspace:next-tab";
+const PREVIOUS_TAB_COMMAND = "workspace:previous-tab";
 
 /** The one part of a registered command we wrap. */
 interface Command {
@@ -13,6 +16,13 @@ interface AppWithCommands {
 	commands: { commands: Record<string, Command | undefined> };
 }
 
+/** A tab group as it is at runtime: its tabs, which one is showing, and how to show another. */
+interface TabGroup {
+	children: WorkspaceLeaf[];
+	currentTab: number;
+	selectTabIndex(index: number): void;
+}
+
 /** The workspace's own record of the active file, and its way of announcing a new one. */
 interface WorkspaceInternals {
 	lastActiveFile?: unknown;
@@ -20,7 +30,7 @@ interface WorkspaceInternals {
 }
 
 /**
- * Keep Cmd/Ctrl+W off the sidebar panels.
+ * Keep Cmd/Ctrl+W, and going to the next or previous tab, off the sidebar panels.
  *
  * Obsidian's "Close current tab" closes whichever tab is active, and a sidebar panel —
  * Claudian, Outline, Backlinks — is a tab like any other. Click into one and press Cmd+W
@@ -32,12 +42,20 @@ interface WorkspaceInternals {
  * the main area instead. A note opened in a sidebar is a document, not a panel, and still
  * closes as before; a panel is still closed from its tab's menu.
  *
- * The command is wrapped rather than the key caught, so this follows whatever hotkey
- * "Close current tab" has, and the command palette too.
+ * "Go to next tab" and "Go to previous tab" go round the active tab's group in the same way,
+ * so with a panel active they flicked through the sidebar's panels rather than your notes.
+ * With a panel active they now go round the tabs in the main area, as Ctrl+Tab does in VS Code.
+ *
+ * The commands are wrapped rather than the keys caught, so this follows whatever hotkeys
+ * they have, and the command palette too.
  */
 export default class SidebarGuardPlugin extends Plugin {
 	onload(): void {
-		this.app.workspace.onLayoutReady(() => this.guardCloseCommand());
+		this.app.workspace.onLayoutReady(() => {
+			this.guard(CLOSE_COMMAND, (tab) => this.closeTab(tab));
+			this.guard(NEXT_TAB_COMMAND, (tab) => this.goToTab(tab, 1));
+			this.guard(PREVIOUS_TAB_COMMAND, (tab) => this.goToTab(tab, -1));
+		});
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.announceActiveFile()));
 	}
 
@@ -57,17 +75,21 @@ export default class SidebarGuardPlugin extends Plugin {
 		if (workspace.lastActiveFile !== this.app.workspace.getActiveFile()) workspace.requestActiveLeafEvents();
 	}
 
-	private guardCloseCommand(): void {
-		const command = (this.app as unknown as AppWithCommands).commands.commands[CLOSE_COMMAND];
+	/**
+	 * Wrap a command that acts on the active tab so that, with a panel active, it acts on your
+	 * tab in the main area instead — the one you were last in.
+	 */
+	private guard(id: string, run: (tab: WorkspaceLeaf) => void): void {
+		const command = (this.app as unknown as AppWithCommands).commands.commands[id];
 		const original = command?.checkCallback;
 		// A build that renamed or reshaped the command keeps its own behaviour.
 		if (!command || typeof original !== "function") return;
 		const guarded = (checking: boolean): boolean | void => {
 			if (!this.activePanel()) return original.call(command, checking);
 			const tab = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit);
-			// Nothing in the main area to close; the panel stays all the same.
+			// Nothing in the main area to act on; the panel is left alone all the same.
 			if (!tab) return false;
-			if (!checking) this.closeTab(tab);
+			if (!checking) run(tab);
 			return true;
 		};
 		command.checkCallback = guarded;
@@ -87,6 +109,22 @@ export default class SidebarGuardPlugin extends Plugin {
 		const root = view.leaf.getRoot();
 		const { leftSplit, rightSplit } = this.app.workspace;
 		return root === leftSplit || root === rightSplit ? view.leaf : null;
+	}
+
+	/**
+	 * Show the tab `step` along from `tab` in its group, round the ends, and make it active —
+	 * what "Go to next tab" / "Go to previous tab" do in the active tab's group.
+	 */
+	private goToTab(tab: WorkspaceLeaf, step: 1 | -1): void {
+		const group = tab.parent as unknown as Partial<TabGroup> | null;
+		if (!group || !Array.isArray(group.children) || typeof group.selectTabIndex !== "function") return;
+		const count = group.children.length;
+		if (count === 0) return;
+		const from = typeof group.currentTab === "number" ? group.currentTab : group.children.indexOf(tab);
+		const index = (((from + step) % count) + count) % count;
+		group.selectTabIndex(index);
+		const next = group.children[index];
+		if (next) this.app.workspace.setActiveLeaf(next, { focus: true });
 	}
 
 	/** Close a tab the way Obsidian's command does: a pinned one is unpinned first. */
