@@ -54,3 +54,9 @@
 .drafts-save-error:empty {
 	display: none;
 }
+
+/* The pencil on a draft's tab (markTab), among the tab's status icons, in the accent colour
+   so it reads as "not saved yet" rather than as one more icon. */
+.workspace-tab-header-status-icon.drafts-tab-status {
+	color: var(--text-accent);
+}

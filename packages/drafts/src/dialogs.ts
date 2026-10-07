@@ -9,10 +9,7 @@ import {
 	TFolder,
 } from "obsidian";
 
-import { DRAFTS_FOLDER } from "./drafts";
-
-/** Characters a note's name can't hold — Obsidian's own list. */
-const FORBIDDEN = /[\\/:*?"<>|#^[\]]/;
+import { DRAFTS_FOLDER, FORBIDDEN_NAME_CHARS } from "./drafts";
 
 /**
  * VS Code's save dialog for an untitled file: a name — its first line, to start with — and a
@@ -65,7 +62,9 @@ class SaveDraftModal extends Modal {
 		// Enter saves from either box. While the folder list is open its own Enter picks the
 		// folder first, as its popover takes the keys ahead of the modal.
 		this.scope.register([], "Enter", (evt) => {
-			if (evt.isComposing) return true;
+			// An Enter confirming an input method's candidate; iOS reports those as keyCode 229.
+			// eslint-disable-next-line @typescript-eslint/no-deprecated -- the only way to tell on iOS
+			if (evt.isComposing || evt.keyCode === 229) return true;
 			void this.save();
 			return false;
 		});
@@ -84,7 +83,7 @@ class SaveDraftModal extends Modal {
 		if (this.busy) return;
 		const name = this.nameEl.value.trim().replace(/\.md$/i, "").trim();
 		if (!name) return this.fail("Give the note a name.");
-		if (FORBIDDEN.test(name)) return this.fail('A name can\'t contain \\ / : * ? " < > | # ^ [ ]');
+		if (FORBIDDEN_NAME_CHARS.test(name)) return this.fail('A name can\'t contain \\ / : * ? " < > | # ^ [ ]');
 		const folder = normalizeFolder(this.folderEl.value);
 		if (folder === DRAFTS_FOLDER || folder.startsWith(`${DRAFTS_FOLDER}/`)) {
 			return this.fail("Pick a folder outside the drafts.");

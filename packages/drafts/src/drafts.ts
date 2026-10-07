@@ -12,16 +12,20 @@ export const DRAFTS_FOLDER = "_drafts";
 /** What a draft is called until it's saved, as VS Code's "Untitled-1". */
 const DRAFT_NAME = "Untitled";
 
+/** Characters a note's name can't hold — Obsidian's own list. */
+export const FORBIDDEN_NAME_CHARS = /[\\/:*?"<>|#^[\]]/;
+
 /** A note directly in the drafts folder. */
 export function isDraft(file: TAbstractFile | null | undefined): boolean {
 	return file instanceof TFile && file.extension === "md" && file.parent?.path === DRAFTS_FOLDER;
 }
 
-/** Every draft, most recently changed first. */
+/** Every draft, most recently changed first — the drafts folder's notes, not a scan of the vault. */
 export function allDrafts(app: App): TFile[] {
-	return app.vault
-		.getFiles()
-		.filter((file) => isDraft(file))
+	const folder = app.vault.getFolderByPath(DRAFTS_FOLDER);
+	if (!folder) return [];
+	return folder.children
+		.filter((file): file is TFile => file instanceof TFile && isDraft(file))
 		.sort((a, b) => b.stat.mtime - a.stat.mtime);
 }
 
@@ -53,7 +57,7 @@ export function suggestName(text: string): string {
 		.replace(/^(?:#{1,6}\s+|[-*+]\s+(?:\[.\]\s+)?|>\s*|\d+[.)]\s+)/, "")
 		.replace(/[*_`~=]|\[\[|\]\]/g, "");
 	const name = plain
-		.replace(/[\\/:*?"<>|#^[\]]/g, " ")
+		.replace(new RegExp(FORBIDDEN_NAME_CHARS.source, "g"), " ")
 		.replace(/\s+/g, " ")
 		.trim()
 		.slice(0, 80)

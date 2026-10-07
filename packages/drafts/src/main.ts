@@ -15,6 +15,7 @@ const CLAUDIAN_NEW_COMMAND = "claudian-enhanced:clear-tab";
 /** On a draft's view: the hint over an empty draft, no inline title, no folder in the header. */
 const DRAFT_CLS = "drafts-is-draft";
 const NEW_DRAFT_BUTTON_CLS = "drafts-new-draft";
+const DRAFT_TAB_CLS = "drafts-tab-status";
 
 /** Commands, which the public typings leave out of `App`. */
 interface AppInternals {
@@ -42,6 +43,8 @@ export default class DraftsPlugin extends Plugin {
 	/** The last note opened that wasn't a draft: where "Default location for new notes" starts from. */
 	private lastNotePath = "";
 	private saving = false;
+	private unloaded = false;
+	private refreshFrame: number | null = null;
 
 	onload(): void {
 		this.addCommand({
@@ -78,19 +81,37 @@ export default class DraftsPlugin extends Plugin {
 			this.refresh();
 			void this.discardBlankLeftovers();
 		});
-		this.registerEvent(this.app.workspace.on("layout-change", () => this.refresh()));
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.scheduleRefresh()));
 		this.registerEvent(
 			this.app.workspace.on("file-open", (file) => {
 				if (file && !isDraft(file)) this.lastNotePath = file.path;
-				this.refresh();
+				this.scheduleRefresh();
 			}),
 		);
-		this.registerEvent(this.app.vault.on("rename", () => this.refresh()));
+		// A folder rename reports every file in it; one refresh does for the lot.
+		this.registerEvent(this.app.vault.on("rename", () => this.scheduleRefresh()));
 	}
 
 	onunload(): void {
-		document.querySelectorAll(`.${NEW_DRAFT_BUTTON_CLS}`).forEach((el) => el.remove());
-		document.querySelectorAll(`.${DRAFT_CLS}`).forEach((el) => el.removeClass(DRAFT_CLS));
+		// The patched detach and save stay in place if something wrapped them after us; this
+		// makes them pass straight through to Obsidian's own.
+		this.unloaded = true;
+		if (this.refreshFrame !== null) cancelAnimationFrame(this.refreshFrame);
+		// Every leaf, so pop-out windows are put back too.
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			this.markTab(leaf, false);
+			leaf.view.containerEl.removeClass(DRAFT_CLS);
+			leaf.view.containerEl.style.removeProperty("--drafts-hint");
+			leaf.view.containerEl.querySelectorAll(`.${NEW_DRAFT_BUTTON_CLS}`).forEach((el) => el.remove());
+		});
+	}
+
+	private scheduleRefresh(): void {
+		if (this.refreshFrame !== null) return;
+		this.refreshFrame = requestAnimationFrame(() => {
+			this.refreshFrame = null;
+			this.refresh();
+		});
 	}
 
 	/**
@@ -144,7 +165,7 @@ export default class DraftsPlugin extends Plugin {
 		const original = command?.checkCallback;
 		if (!command || typeof original !== "function") return;
 		const guarded = (checking: boolean): boolean | void => {
-			const file = this.activeDraft();
+			const file = this.unloaded ? null : this.activeDraft();
 			if (!file) return original.call(command, checking);
 			if (!checking) void this.saveDraft(file);
 			return true;
@@ -167,6 +188,10 @@ export default class DraftsPlugin extends Plugin {
 		const proto = WorkspaceLeaf.prototype as unknown as { detach: (this: WorkspaceLeaf) => void };
 		const original = proto.detach;
 		const onDetach = (leaf: WorkspaceLeaf): void => {
+			if (this.unloaded) {
+				original.call(leaf);
+				return;
+			}
 			if (this.confirming.has(leaf)) return;
 			const file = this.draftToConfirm(leaf);
 			if (!file) {
@@ -224,12 +249,17 @@ export default class DraftsPlugin extends Plugin {
 		const open = new Set<string>();
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			const view = leaf.view;
+			const draft = view instanceof MarkdownView && isDraft(view.file);
+			this.markTab(leaf, draft);
 			if (view instanceof MarkdownView) {
-				const draft = isDraft(view.file);
 				view.containerEl.toggleClass(DRAFT_CLS, draft);
 				if (draft && view.file) {
 					open.add(view.file.path);
-					view.containerEl.style.setProperty("--drafts-hint", JSON.stringify(this.hint()));
+					const hint = JSON.stringify(this.hint());
+					// Only when it changes: this runs on every layout change and file open.
+					if (view.containerEl.style.getPropertyValue("--drafts-hint") !== hint) {
+						view.containerEl.style.setProperty("--drafts-hint", hint);
+					}
 				}
 			} else if (view.getViewType() === "empty") {
 				this.addNewDraftButton(leaf);
@@ -239,6 +269,27 @@ export default class DraftsPlugin extends Plugin {
 			if (!open.has(path) && !this.settling.has(path)) void this.leftBehind(path);
 		}
 		this.openDrafts = open;
+	}
+
+	/**
+	 * A draft's tab carries a pencil where a pinned tab carries its pin — the tab header's
+	 * status icons — so an unsaved draft is told apart from the notes beside it, as VS Code
+	 * marks an unsaved editor's tab. It goes once the draft is saved into the vault.
+	 */
+	private markTab(leaf: WorkspaceLeaf, draft: boolean): void {
+		const status = (leaf as unknown as { tabHeaderStatusContainerEl?: HTMLElement }).tabHeaderStatusContainerEl;
+		if (!status) return;
+		const mark = status.querySelector(`:scope > .${DRAFT_TAB_CLS}`);
+		if (!draft) {
+			mark?.remove();
+			return;
+		}
+		if (mark) return;
+		const icon = status.createDiv({
+			cls: `workspace-tab-header-status-icon ${DRAFT_TAB_CLS}`,
+			attr: { "aria-label": "Unsaved draft" },
+		});
+		setIcon(icon, "pencil-line");
 	}
 
 	private async leftBehind(path: string): Promise<void> {
@@ -309,7 +360,7 @@ export default class DraftsPlugin extends Plugin {
 	}
 }
 
-/** "Open draft…": the drafts kept, most recently changed first, with their first line. */
+/** "Open draft…": the drafts kept, most recently changed first. */
 class DraftPicker extends FuzzySuggestModal<TFile> {
 	constructor(
 		app: App,
