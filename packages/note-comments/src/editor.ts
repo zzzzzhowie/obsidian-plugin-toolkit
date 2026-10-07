@@ -112,21 +112,24 @@ export class EditorHost implements StoreListener {
 		return null;
 	}
 
-	/** Hand the store where every comment drawn in `state` now sits. */
-	report(state: EditorState): void {
+	/** Hand the store where every comment drawn in `state` now sits; whether any had moved. */
+	report(state: EditorState): boolean {
 		const value = this.valueOf(state);
-		if (!value?.file || this.deps.store.disposed) return;
+		if (!value?.file || this.deps.store.disposed) return false;
 		const doc = state.doc.toString();
 		const reported = new Map<string, Selectors>();
 		value.decos.between(0, doc.length, (from, to, deco) => {
 			reported.set(idOf(deco), captureSelectors(doc, from, to));
 		});
-		this.deps.store.updatePositions(value.file.path, reported);
+		return this.deps.store.updatePositions(value.file.path, reported);
 	}
 
-	reportAll(): void {
-		for (const editor of this.editors) this.report(editor.view.state);
+	/** Report every live editor; whether any comment had moved. */
+	reportAll(): boolean {
+		let moved = false;
+		for (const editor of this.editors) moved = this.report(editor.view.state) || moved;
 		this.dirty = false;
+		return moved;
 	}
 
 	/** Mark `span` as the passage a new comment is being drafted for (replacing any other). */
@@ -224,7 +227,9 @@ class CommentsView implements PluginValue {
 
 	update(update: ViewUpdate): void {
 		this.lastState = update.state;
-		if (update.docChanged) this.host.dirty = true;
+		// Only an editor drawing comments has positions to keep: not every other note, nor the
+		// comment box itself (the extension runs there too).
+		if (update.docChanged && (this.host.valueOf(update.state)?.decos.size ?? 0) > 0) this.host.dirty = true;
 	}
 
 	destroy(): void {
@@ -289,7 +294,9 @@ function buildField(host: EditorHost): StateField<CommentsValue> {
 				}
 			}
 
-			if (lost.size > 0 && (isSystemEdit(tr) || tr.isUserEvent("undo") || tr.isUserEvent("redo"))) {
+			// Only when the text changed: an effect-only transaction carries no userEvent either,
+			// and each one stringified the whole note to look for the lost comment again.
+			if (lost.size > 0 && tr.docChanged && (isSystemEdit(tr) || tr.isUserEvent("undo") || tr.isUserEvent("redo"))) {
 				const result = reanchor(host.deps.store, tr.state, file, [...lost], decos);
 				decos = result.decos;
 				lost = new Set(result.missing);

@@ -36,20 +36,6 @@ export function countFilesInFolder(
 }
 
 /**
- * Count only direct children files in a folder (non-recursive)
- */
-export function countDirectFiles(folder: TFolder): number {
-	return folder.children.filter((child) => child instanceof TFile).length;
-}
-
-/**
- * Count only direct children folders
- */
-export function countDirectFolders(folder: TFolder): number {
-	return folder.children.filter((child) => child instanceof TFolder).length;
-}
-
-/**
  * Escape special characters in CSS selector
  */
 export function escapeCSSSelector(str: string): string {

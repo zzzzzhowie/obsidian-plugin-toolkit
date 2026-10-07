@@ -47,6 +47,11 @@ body.excalidraw-enhanced-sizing
 /* Mobile: a darker (still semi-transparent) mask. */
 .is-mobile .excalidraw-zoom-overlay {
 	background-color: rgba(0, 0, 0, 0.8);
+	/* Keep the drawing and the toolbar clear of the notch and the home indicator. The fit
+	   is measured inside this padding, so it also stops the drawing opening underneath them. */
+	box-sizing: border-box;
+	padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+		env(safe-area-inset-left);
 }
 
 .excalidraw-zoom-container {

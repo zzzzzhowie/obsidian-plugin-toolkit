@@ -164,16 +164,19 @@ export class CommentStore {
 	 * Not written immediately: positions are hints, and rewriting data.json on every keystroke
 	 * would mean a constant stream of iCloud uploads, each reloading the file on the other Mac.
 	 */
-	updatePositions(path: string, reported: ReadonlyMap<string, Selectors>): void {
+	updatePositions(path: string, reported: ReadonlyMap<string, Selectors>): boolean {
 		const list = this.data.files[path];
-		if (!list) return;
+		if (!list) return false;
 		const now = Date.now();
+		let moved = false;
 		for (const comment of list) {
 			const next = reported.get(comment.id);
 			if (!next || sameSelectors(comment, next)) continue;
 			Object.assign(comment, pickSelectors(next));
 			comment.anchoredAt = now;
+			moved = true;
 		}
+		return moved;
 	}
 
 	/**

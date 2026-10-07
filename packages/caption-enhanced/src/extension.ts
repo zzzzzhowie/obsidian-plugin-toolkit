@@ -161,9 +161,13 @@ export function syncCaptionWidth(img: HTMLImageElement, captionEl: HTMLElement):
 // CodeMirror 6 实时预览静态视图插件
 // ============================================================
 
+const OBSERVE: MutationObserverInit = { childList: true, subtree: true };
+
 class ImageCaptionLPPlugin implements PluginValue {
 	private observer: MutationObserver;
 	private view: EditorView;
+	/** A scan asked for and not yet run: DOM changes and editor updates share one per frame. */
+	private frame: number | null = null;
 
 	constructor(view: EditorView) {
 		this.view = view;
@@ -172,40 +176,40 @@ class ImageCaptionLPPlugin implements PluginValue {
 		this.scanAndInject(view.dom);
 
 		// 使用 MutationObserver 监听 DOM 树的增减变化，确保在滚动或折叠动作后即时发现新图片。
-		// 注意：scanAndInject 会向被监听的 view.dom 增删 .image-caption 节点，这些写入会以
-		// 微任务再次触发本回调 —— 若不加防护即形成自反馈死循环（100% CPU 自旋）。
-		// 修法：回调里先 disconnect（同时丢弃已排队的记录），扫描完再 observe，
-		// 使扫描期间自身产生的 DOM 变更不被记录、不再递归。
-		this.observer = new MutationObserver(() => {
-			this.observer.disconnect();
-			try {
-				this.scanAndInject(this.view.dom);
-			} finally {
-				this.observer.observe(this.view.dom, {
-					childList: true,
-					subtree: true,
-				});
-			}
-		});
-
-		this.observer.observe(view.dom, {
-			childList: true,
-			subtree: true,
-		});
+		this.observer = new MutationObserver(() => this.scheduleScan());
+		this.observer.observe(view.dom, OBSERVE);
 	}
 
 	update(update: ViewUpdate) {
 		// 在文档内容改变或视口发生移动时重新扫描
-		if (update.docChanged || update.viewportChanged) {
-			this.scanAndInject(update.view.dom);
-		}
+		if (update.docChanged || update.viewportChanged) this.scheduleScan();
 	}
 
 	destroy() {
 		// 严防内存泄露：销毁时断开监听
-		if (this.observer) {
+		if (this.frame !== null) cancelAnimationFrame(this.frame);
+		this.observer.disconnect();
+	}
+
+	/**
+	 * One scan per frame, however many DOM changes and editor updates asked for it — typing
+	 * used to scan every image twice per keystroke, once for each.
+	 *
+	 * scanAndInject adds and removes .image-caption nodes under the observed view.dom, which
+	 * would queue this callback again — a feedback loop (100% CPU). So the observer is off
+	 * while the scan runs, which also drops the records it would have queued.
+	 */
+	private scheduleScan(): void {
+		if (this.frame !== null) return;
+		this.frame = requestAnimationFrame(() => {
+			this.frame = null;
 			this.observer.disconnect();
-		}
+			try {
+				this.scanAndInject(this.view.dom);
+			} finally {
+				this.observer.observe(this.view.dom, OBSERVE);
+			}
+		});
 	}
 
 	private getSettings(): ImageCaptionSettings {

@@ -1,5 +1,4 @@
 import { extname, join } from "path-browserify";
-import type { Readable } from "stream";
 
 export interface IStringKeyMap<T> {
   [key: string]: T;
@@ -22,17 +21,6 @@ export function isAnImage(ext: string) {
 }
 export function isAssetTypeAnImage(path: string): Boolean {
   return isAnImage(extname(path));
-}
-
-export async function streamToString(stream: Readable) {
-  const chunks = [];
-
-  for await (const chunk of stream) {
-    chunks.push(Buffer.from(chunk));
-  }
-
-  // @ts-ignore
-  return Buffer.concat(chunks).toString("utf-8");
 }
 
 export function getUrlAsset(url: string) {
@@ -66,22 +54,9 @@ export function arrayToObject<T extends AnyObj>(
   return obj;
 }
 
-export function bufferToArrayBuffer(buffer: Buffer) {
-  const arrayBuffer = new ArrayBuffer(buffer.length);
-  const view = new Uint8Array(arrayBuffer);
-  for (let i = 0; i < buffer.length; i++) {
-    view[i] = buffer[i]!;
-  }
-  return arrayBuffer;
-}
-
-export function arrayBufferToBuffer(arrayBuffer: ArrayBuffer) {
-  const buffer = Buffer.alloc(arrayBuffer.byteLength);
-  const view = new Uint8Array(arrayBuffer);
-  for (let i = 0; i < buffer.length; ++i) {
-    buffer[i] = view[i]!;
-  }
-  return buffer;
+export function bufferToArrayBuffer(buffer: Buffer): ArrayBuffer {
+  // A copy of just this buffer's bytes: a Node Buffer can be a view into a larger pool.
+  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
 }
 
 export function uuid() {

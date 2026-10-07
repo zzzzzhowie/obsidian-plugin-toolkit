@@ -3,7 +3,7 @@
 	"name": "Auto Link Title (Enhanced)",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Auto-titles pasted links. Enhanced fork: generates the title with an OpenAI-compatible LLM by default, falling back to a requestUrl scraper with per-URL custom request headers (for intranet pages needing an injected cookie/token).",
+	"description": "Auto-titles pasted links. Enhanced fork: an OpenAI-compatible LLM writes the title from the page by default, falling back to the page's own title; intranet pages are fetched with Chrome's cookies for that site.",
 	"author": "Matt Furden (forked & modified by yeyan1996)",
 	"authorUrl": "https://github.com/zolrath/obsidian-auto-link-title",
 	"isDesktopOnly": false

@@ -65,6 +65,54 @@ function resolveEditorClass(app: App): EditorComponentClass | null {
  */
 export const EMBEDDED_FLAG = "noteCommentsEmbedded";
 
+/**
+ * The comment boxes open now, each with the element it sits in. A click inside a view makes
+ * Obsidian activate that view's leaf, which focuses the leaf and takes focus straight back
+ * out of the box. So while a box has focus, activating *the leaf it lives in* is skipped —
+ * only that leaf: mousedown fires before focus moves, so blocking everything would also
+ * swallow a click into another tab.
+ *
+ * One wrapper around `setActiveLeaf` for all of them, put on with the first box and taken
+ * off with the last. Each box used to wrap it in turn and unwrap only if still outermost, so
+ * closing a draft box before an edit box left its wrapper in the chain for good, holding on
+ * to its destroyed editor.
+ */
+const openBoxes = new Set<{ cm: EditorView; host: HTMLElement }>();
+let releaseLeafGuard: (() => boolean) | null = null;
+
+function guardLeafActivation(app: App, box: { cm: EditorView; host: HTMLElement }): () => void {
+	openBoxes.add(box);
+	if (!releaseLeafGuard) {
+		const workspace = app.workspace as unknown as { setActiveLeaf: (...args: unknown[]) => unknown };
+		const original = workspace.setActiveLeaf;
+		const guarded = function (this: unknown, ...args: unknown[]): unknown {
+			const leaf = args[0] as { view?: { containerEl?: HTMLElement } } | undefined;
+			for (const open of openBoxes) {
+				if (open.cm.hasFocus && leaf?.view?.containerEl?.contains(open.host)) return undefined;
+			}
+			return original.apply(this, args);
+		};
+		workspace.setActiveLeaf = guarded;
+		// Taken off only if nothing has wrapped it since; otherwise it stays, letting every call
+		// through while no box is open, and is used again by the next one.
+		releaseLeafGuard = () => {
+			if (workspace.setActiveLeaf !== guarded) return false;
+			workspace.setActiveLeaf = original;
+			return true;
+		};
+	}
+	return () => {
+		openBoxes.delete(box);
+		if (openBoxes.size === 0 && releaseLeafGuard?.()) releaseLeafGuard = null;
+	};
+}
+
+/** Take the wrapper off on unload, whatever boxes a panel left behind. */
+export function releaseEmbeddedEditors(): void {
+	openBoxes.clear();
+	if (releaseLeafGuard?.()) releaseLeafGuard = null;
+}
+
 export function isEmbeddedOwner(owner: unknown): boolean {
 	return !!owner && (owner as Record<string, unknown>)[EMBEDDED_FLAG] === true;
 }
@@ -220,22 +268,8 @@ function mountEditor(
 	parentComponent.addChild(editor);
 
 	const cm = editor.editor.cm;
-	const workspace = app.workspace as unknown as {
-		activeEditor: unknown;
-		setActiveLeaf: (...args: unknown[]) => unknown;
-	};
-
-	// A click inside a view makes Obsidian activate that view's leaf, which focuses the leaf
-	// and takes focus straight back out of this editor. So while the editor has focus,
-	// activating *the leaf it lives in* is skipped. Only that leaf: mousedown fires before
-	// focus moves, so blocking everything would also swallow a click into another tab.
-	const original = workspace.setActiveLeaf;
-	const guarded = function (this: unknown, ...args: unknown[]): unknown {
-		const leaf = args[0] as { view?: { containerEl?: HTMLElement } } | undefined;
-		if (cm.hasFocus && leaf?.view?.containerEl?.contains(host)) return undefined;
-		return original.apply(this, args);
-	};
-	workspace.setActiveLeaf = guarded;
+	const workspace = app.workspace as unknown as { activeEditor: unknown };
+	const releaseGuard = guardLeafActivation(app, { cm, host });
 
 	// Obsidian's editor commands (bold, insert link…) act on `activeEditor`, so it points here
 	// while the box has focus — and is handed back on the way out. Clicking back into the note
@@ -284,9 +318,7 @@ function mountEditor(
 			cm.contentDOM.removeEventListener("focusin", onFocusIn);
 			cm.contentDOM.removeEventListener("focusout", onFocusOut);
 			host.removeEventListener("mousedown", onMouseDown);
-			// Only unwrap if nothing has wrapped it since; otherwise leave the chain intact —
-			// with this editor gone, its guard simply lets every call through.
-			if (workspace.setActiveLeaf === guarded) workspace.setActiveLeaf = original;
+			releaseGuard();
 			if (workspace.activeEditor === owner) workspace.activeEditor = previousEditor;
 			parentComponent.removeChild(editor);
 			host.remove();

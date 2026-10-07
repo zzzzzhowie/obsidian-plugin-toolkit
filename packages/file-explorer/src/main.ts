@@ -9,7 +9,7 @@ import {
 	TFolder,
 	TFile,
 } from "obsidian";
-import { MyPluginSettings, DEFAULT_SETTINGS } from "./settings";
+import { FileExplorerSettings, DEFAULT_SETTINGS } from "./settings";
 import { getFolderFromNote, getFolderNote } from "./utils";
 import { PinnedItemsManager } from "./pinned-items";
 import { FolderNoteManager } from "./folder-note";
@@ -21,15 +21,14 @@ import { openInBrowserSupported, openInDefaultBrowser, placeAfterSectionStart } 
 /** The `file-menu` sources that get "Open in default browser". */
 const BROWSER_MENU_SOURCES = new Set(["file-explorer-context-menu", "tab-header", "more-options"]);
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class FileExplorerPlugin extends Plugin {
+	settings: FileExplorerSettings;
 	pinnedItemsManager: PinnedItemsManager;
 	folderNoteManager: FolderNoteManager;
 	fileCountManager: FileCountManager;
 	fileHiderManager: FileHiderManager;
-	private lastSettingsHash: string = "";
-	// The pane the user last clicked in, used to scope the sidebar hotkeys.
-	private lastPointerZone: "file-tree" | "right" | "other" = "other";
+	// Whether the pane last clicked in was the file tree, which scopes Cmd/Ctrl+B.
+	private lastPointerInFileTree = false;
 
 	async onload() {
 		await this.loadSettings();
@@ -115,17 +114,9 @@ export default class MyPlugin extends Plugin {
 			"pointerdown",
 			(evt) => {
 				const target = evt.target as HTMLElement | null;
-				if (
-					target?.closest(
-						'.workspace-leaf-content[data-type="file-explorer"]',
-					)
-				) {
-					this.lastPointerZone = "file-tree";
-				} else if (target?.closest(".mod-right-split")) {
-					this.lastPointerZone = "right";
-				} else {
-					this.lastPointerZone = "other";
-				}
+				this.lastPointerInFileTree = !!target?.closest(
+					'.workspace-leaf-content[data-type="file-explorer"]',
+				);
 			},
 			{ capture: true },
 		);
@@ -139,7 +130,7 @@ export default class MyPlugin extends Plugin {
 
 				const key = evt.key.toLowerCase();
 
-				if (key === "b" && this.lastPointerZone === "file-tree") {
+				if (key === "b" && this.lastPointerInFileTree) {
 					evt.preventDefault();
 					evt.stopPropagation();
 					this.app.workspace.leftSplit.toggle();
@@ -148,50 +139,28 @@ export default class MyPlugin extends Plugin {
 			{ capture: true },
 		);
 
-		// Initialize settings hash
-		this.lastSettingsHash = JSON.stringify(this.settings);
-
-		// Listen for vault changes to detect sync updates
-		// When settings are synced from another device via Obsidian Sync, reload them
-		// Obsidian Sync automatically syncs .obsidian/plugins/<plugin-id>/data.json
-		const pluginDataPath = `.obsidian/plugins/${this.manifest.id}/data.json`;
-
-		const checkSettingsSync = async () => {
-			try {
-				const currentSettings = await this.loadData();
-				const currentHash = JSON.stringify(currentSettings);
-				if (currentHash !== this.lastSettingsHash) {
-					// Settings changed (likely from sync)
-					await this.loadSettings();
-					this.lastSettingsHash = JSON.stringify(this.settings);
-					this.pinnedItemsManager.refreshPinnedItems();
-					this.fileHiderManager.refreshStyles();
-				}
-			} catch (error) {
-				// Ignore errors during sync check
-			}
-		};
-
-		// Check for sync updates periodically (every 2 seconds)
-		this.registerInterval(window.setInterval(checkSettingsSync, 2000));
-
-		// Also listen for file modifications as a backup
-		this.registerEvent(
-			this.app.vault.on("modify", async (file) => {
-				if (file.path === pluginDataPath) {
-					await checkSettingsSync();
-				}
-			}),
-		);
-
 		// Add settings tab
-		this.addSettingTab(new MyPluginSettingTab(this.app, this));
+		this.addSettingTab(new FileExplorerSettingTab(this.app, this));
 	}
 
 	onunload() {
 		this.pinnedItemsManager.cleanup();
-		this.folderNoteManager.removeDynamicStyles();
+		this.folderNoteManager.cleanup();
+		this.fileCountManager.cleanup();
 		this.fileHiderManager.cleanup();
+	}
+
+	/**
+	 * Settings changed on disk — synced in from another device. Obsidian calls this when the
+	 * plugin's data.json changes, which replaces polling the file every two seconds (a poll
+	 * that never settled when data.json lacked a default key, reloading forever).
+	 */
+	async onExternalSettingsChange() {
+		await this.loadSettings();
+		this.pinnedItemsManager.refreshPinnedItems();
+		this.fileHiderManager.refreshStyles();
+		this.folderNoteManager.updateAllFolderNotes();
+		this.fileCountManager.updateAllFileCounts();
 	}
 
 	addContextMenuItems(menu: Menu, file: TAbstractFile) {
@@ -293,15 +262,13 @@ export default class MyPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		// Update hash after saving
-		this.lastSettingsHash = JSON.stringify(this.settings);
 	}
 }
 
-class MyPluginSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+class FileExplorerSettingTab extends PluginSettingTab {
+	plugin: FileExplorerPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: FileExplorerPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}

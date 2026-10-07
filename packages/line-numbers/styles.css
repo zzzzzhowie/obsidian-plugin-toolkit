@@ -1,7 +1,6 @@
 /*
  * Compact line-number gutter.
- * Scoped to .cm-lineNumbers (used by both the built-in absolute gutter and our
- * custom relative/hybrid gutter, which reuses the same class) so it never
+ * Scoped to .cm-lineNumbers (CodeMirror's line-number gutter) so it never
  * touches other gutters (fold markers, etc.).
  */
 
@@ -37,7 +36,7 @@
 }
 
 /*
- * Overlay mode ("Float in left margin"): collapse the gutter's reserved width
+ * The overlay layout (always on while the plugin is): collapse the gutter's reserved width
  * to 0 (so the text column reclaims it and isn't pushed inward) while keeping
  * the gutter IN the flow — that preserves CodeMirror's sticky scroll alignment.
  * The numbers then spill out via `overflow: visible` and are pulled left of the

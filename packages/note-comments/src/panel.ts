@@ -125,7 +125,9 @@ export class CommentsPanel extends ItemView {
 				// Typing into a comment box here is not a change to the note — and re-rendering
 				// on it would tear down the very box being typed into.
 				if (isEmbeddedOwner(info)) return;
-				// Typing in the note can leave a comment found or not found, and moves the order.
+				// Typing in the note can leave a comment found or not found, and moves the order —
+				// in the note shown here; typing in any other changes nothing in this list.
+				if (info.file?.path !== this.file?.path) return;
 				this.scheduleRender();
 			}),
 		);

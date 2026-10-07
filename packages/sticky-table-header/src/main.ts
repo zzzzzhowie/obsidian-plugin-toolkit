@@ -43,27 +43,37 @@ function patchedGetClosestCell(original: GetClosestCell): GetClosestCell {
 }
 
 export default class StickyTableHeaderPlugin extends Plugin {
-	private patched: { proto: TableWidget; original: GetClosestCell } | null = null;
+	private patched: { proto: TableWidget; original: GetClosestCell; patch: GetClosestCell } | null = null;
 
 	onload(): void {
 		// 表格类没有导出，只能从实例上拿原型。getClosestCell 在 pointermove 里才调用，
-		// 捕获阶段的 pointerdown 一定早于它。
-		this.registerDomEvent(document, "pointerdown", (evt) => this.patchFrom(evt.target), { capture: true });
+		// 捕获阶段的 pointerdown 一定早于它。打上补丁（原型共享，所有表格、所有窗口都生效）就不再监听。
+		const onPointerDown = (evt: PointerEvent): void => {
+			if (this.patchFrom(evt.target)) document.removeEventListener("pointerdown", onPointerDown, true);
+		};
+		document.addEventListener("pointerdown", onPointerDown, true);
+		this.register(() => document.removeEventListener("pointerdown", onPointerDown, true));
 	}
 
 	onunload(): void {
-		if (this.patched) this.patched.proto.getClosestCell = this.patched.original;
+		// 只还原自己装的那一层：之后别的插件若也包过一层，留着它不动。
+		const patched = this.patched;
+		if (patched && patched.proto.getClosestCell === patched.patch) patched.proto.getClosestCell = patched.original;
 		this.patched = null;
 	}
 
-	private patchFrom(target: EventTarget | null): void {
-		if (this.patched || !(target instanceof Element)) return;
+	/** Patch the table class from a press inside one of its tables; whether it's patched now. */
+	private patchFrom(target: EventTarget | null): boolean {
+		if (this.patched) return true;
+		if (!(target instanceof Element)) return false;
 		const widgetEl: (Element & { cmTile?: { widget?: unknown } }) | null = target.closest(".cm-table-widget");
 		const widget = widgetEl?.cmTile?.widget as TableWidget | undefined;
-		if (typeof widget?.getClosestCell !== "function") return;
+		if (typeof widget?.getClosestCell !== "function") return false;
 		const proto = Object.getPrototypeOf(widget) as TableWidget;
 		const original = proto.getClosestCell;
-		this.patched = { proto, original };
-		proto.getClosestCell = patchedGetClosestCell(original);
+		const patch = patchedGetClosestCell(original);
+		this.patched = { proto, original, patch };
+		proto.getClosestCell = patch;
+		return true;
 	}
 }

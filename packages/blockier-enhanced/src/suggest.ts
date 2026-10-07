@@ -2,16 +2,7 @@
  * Adds checkbox variant suggestions.
  */
 
-import {
-	App,
-	Editor,
-	EditorPosition,
-	EditorSuggest,
-	EditorSuggestContext,
-	EditorSuggestTriggerInfo,
-	MarkdownRenderer,
-	Plugin,
-} from "obsidian";
+import { App, Component, Editor, EditorPosition, EditorSuggest, EditorSuggestContext, EditorSuggestTriggerInfo, MarkdownRenderer, Plugin } from "obsidian";
 
 interface BracketSuggestOptions {
 	/** The list of suggestions to show */
@@ -85,11 +76,24 @@ abstract class BracketSuggest extends EditorSuggest<string> {
 		return newSuggestions;
 	}
 
+	/**
+	 * What the rendered suggestions belong to, so they're let go with the popup. Given the
+	 * plugin instead, every suggestion ever shown stayed attached to it until it unloaded.
+	 */
+	private renders = new Component();
+
 	renderSuggestion(value: string, el: HTMLElement): void {
 		const div = el.createDiv();
 		div.classList.add("markdown-rendered", "markdown-preview-view", this.opts.suggestionClass);
 
-		MarkdownRenderer.render(this.app, this.opts.renderMarkdown(value), div, "", this.plugin);
+		this.renders.load();
+		void MarkdownRenderer.render(this.app, this.opts.renderMarkdown(value), div, "", this.renders);
+	}
+
+	close(): void {
+		super.close();
+		this.renders.unload();
+		this.renders = new Component();
 	}
 
 	selectSuggestion(value: string): void {

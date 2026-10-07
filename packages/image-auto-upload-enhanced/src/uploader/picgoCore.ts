@@ -1,6 +1,6 @@
 import { join } from "path-browserify";
 
-import { streamToString, getLastImage } from "../utils";
+import { getLastImage } from "../utils";
 import { normalizePath, FileSystemAdapter } from "obsidian";
 
 import type imageAutoUploadPlugin from "../main";
@@ -31,17 +31,14 @@ export default class PicGoCoreUploader implements Uploader {
     });
 
     const length = list.length;
-    let cli = this.settings.picgoCorePath || "picgo";
-    let command = `${cli} upload ${list.map(item => `"${item}"`).join(" ")}`;
-
-    const res = await this.exec(command);
+    const res = await this.run(["upload", ...list]);
     const splitList = res.split("\n");
     const splitListLength = splitList.length;
 
     const data = splitList.splice(splitListLength - 1 - length, length);
 
     if (res.includes("PicGo ERROR")) {
-      console.log(command, res);
+      console.error("PicGo-Core upload failed", res);
 
       return {
         success: false,
@@ -58,7 +55,7 @@ export default class PicGoCoreUploader implements Uploader {
 
   // PicGo-Core 上传处理
   private async uploadFileByClipboard() {
-    const res = await this.uploadByClip();
+    const res = await this.run(["upload"]);
     const splitList = res.split("\n");
     const lastImage = getLastImage(splitList);
 
@@ -69,8 +66,6 @@ export default class PicGoCoreUploader implements Uploader {
         result: [lastImage],
       };
     } else {
-      console.log(splitList);
-
       return {
         success: false,
         msg: `"Please check PicGo-Core config"\n${res}`,
@@ -79,55 +74,29 @@ export default class PicGoCoreUploader implements Uploader {
     }
   }
 
-  // PicGo-Core的剪切上传反馈
-  private async uploadByClip() {
-    let command;
-    if (this.settings.picgoCorePath) {
-      command = `${this.settings.picgoCorePath} upload`;
-    } else {
-      command = `picgo upload`;
-    }
-    const res = await this.exec(command);
-
-    return res;
-  }
-
-  private async exec(command: string) {
-    const { exec } = require("child_process");
-    let { stdout } = await exec(command);
-    const res = await streamToString(stdout);
-    return res;
-  }
-
-  private async spawnChild() {
-    const { spawn } = require("child_process");
-    const child = spawn("picgo", ["upload"], {
-      shell: true,
+  /**
+   * Run PicGo-Core and collect what it printed. The CLI and its arguments are passed as
+   * an argument list, never through a shell: file paths used to be pasted into a shell
+   * command inside double quotes, where `$(…)` and backticks still run, so an image named
+   * after a command ran that command on upload. A stuck CLI gives up after two minutes
+   * instead of leaving "Uploading…" in the note for good.
+   */
+  private run(args: string[]): Promise<string> {
+    const { execFile } = require("child_process") as typeof import("child_process");
+    const cli = this.settings.picgoCorePath || "picgo";
+    return new Promise((resolve) => {
+      execFile(cli, args, { timeout: 120_000, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
+        // PicGo reports its own failures on stdout ("PicGo ERROR"), which callers look for;
+        // a failure to run at all is passed on the same way.
+        resolve(error ? `${stdout}\nPicGo ERROR: ${stderr || error.message}` : stdout);
+      });
     });
-
-    let data = "";
-    for await (const chunk of child.stdout) {
-      data += chunk;
-    }
-    let error = "";
-    for await (const chunk of child.stderr) {
-      error += chunk;
-    }
-    const exitCode = await new Promise((resolve, reject) => {
-      child.on("close", resolve);
-    });
-
-    if (exitCode) {
-      throw new Error(`subprocess error exit ${exitCode}, ${error}`);
-    }
-    return data;
   }
 
   async upload(fileList: Array<Image> | Array<string>) {
     return this.uploadFiles(fileList);
   }
-  async uploadByClipboard(fileList?: FileList) {
-    console.log("uploadByClipboard", fileList);
+  async uploadByClipboard(_fileList?: FileList) {
     return this.uploadFileByClipboard();
   }
 }

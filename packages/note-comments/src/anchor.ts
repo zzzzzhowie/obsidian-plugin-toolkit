@@ -9,7 +9,7 @@
  *
  * Offsets are UTF-16 code units over LF-normalised text — the same unit CodeMirror uses for
  * positions and JavaScript uses for string indices, so they convert both ways directly,
- * CJK and emoji included. Text read from disk must go through `normaliseNewlines` first.
+ * CJK and emoji included.
  *
  * Nothing here knows about Obsidian or CodeMirror; it is plain string work so it can be
  * tested on its own.
@@ -103,10 +103,6 @@ function strip(text: string, offset = 0): Stripped {
 
 /** Bound on occurrences scored, so a pathological note cannot stall opening it. */
 const MAX_CANDIDATES = 500;
-
-export function normaliseNewlines(text: string): string {
-	return text.replace(/\r\n?/g, "\n");
-}
 
 /** Record the selectors for `doc[from, to)`. */
 export function captureSelectors(doc: string, from: number, to: number): Selectors {

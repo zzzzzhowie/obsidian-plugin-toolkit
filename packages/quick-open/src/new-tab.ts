@@ -49,7 +49,9 @@ export class NewTabSearch {
 			if (leaf.view.getViewType() !== "empty") return;
 			const existing = this.tabs.get(leaf);
 			if (existing) {
-				existing.update();
+				// A tab switch brings layout-change, active-leaf-change and the history's own change
+				// in one go; the list is drawn once for all of them.
+				existing.scheduleUpdate();
 				return;
 			}
 			// Not the box holding Obsidian's title and links: that one is capped at 280px tall.
@@ -82,6 +84,7 @@ class TabSearch {
 	private rows: HTMLElement[] = [];
 	private selected = 0;
 	private scoped = false;
+	private frame: number | null = null;
 
 	constructor(
 		private readonly app: App,
@@ -143,6 +146,15 @@ class TabSearch {
 		this.update();
 	}
 
+	/** Update on the next frame; asked again before then, it still updates once. */
+	scheduleUpdate(): void {
+		if (this.frame !== null) return;
+		this.frame = this.el.win.requestAnimationFrame(() => {
+			this.frame = null;
+			this.update();
+		});
+	}
+
 	/** Re-run the query against the current list, keeping the selection where it can. */
 	update(): void {
 		const query = this.input.value.trim();
@@ -195,6 +207,8 @@ class TabSearch {
 	}
 
 	destroy(): void {
+		if (this.frame !== null) this.el.win.cancelAnimationFrame(this.frame);
+		this.frame = null;
 		this.popScope();
 		this.actions?.destroy();
 		this.el.remove();

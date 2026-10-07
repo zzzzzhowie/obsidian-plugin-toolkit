@@ -225,7 +225,7 @@
 	gap: var(--size-2-1);
 }
 
-/* Touch: the icons are the only way to edit or delete, so they get a finger-sized target. */
+/* Touch: the icon buttons get a finger-sized target. */
 .is-mobile .nc-icon-button {
 	padding: var(--size-4-2);
 }

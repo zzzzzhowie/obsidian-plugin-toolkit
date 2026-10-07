@@ -5,7 +5,7 @@ export interface PinnedItem {
 	order: number; // Order for sorting pinned items
 }
 
-export interface MyPluginSettings {
+export interface FileExplorerSettings {
 	pinnedItems: PinnedItem[];
 	showFolderNotes: boolean;
 	showFileCount: boolean;
@@ -17,7 +17,7 @@ export interface MyPluginSettings {
 	hiddenPatterns: string[];
 }
 
-export const DEFAULT_SETTINGS: MyPluginSettings = {
+export const DEFAULT_SETTINGS: FileExplorerSettings = {
 	pinnedItems: [],
 	showFolderNotes: true,
 	showFileCount: true,

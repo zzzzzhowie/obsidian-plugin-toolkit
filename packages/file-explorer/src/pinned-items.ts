@@ -5,20 +5,19 @@ import {
 	TFolder,
 	TAbstractFile,
 } from "obsidian";
-import { PinnedItem, MyPluginSettings } from "./settings";
+import { PinnedItem } from "./settings";
 import { getFolderNote, getFolderFromNote } from "./utils";
 import { goToOpenTab } from "./reuse-tab";
-import type MyPlugin from "./main";
+import type FileExplorerPlugin from "./main";
 
 export class PinnedItemsManager {
 	app: App;
-	plugin: MyPlugin;
+	plugin: FileExplorerPlugin;
 	pinnedContainerEl: HTMLElement | null = null;
 	private initializationAttempts = 0;
 	private readonly MAX_INIT_ATTEMPTS = 10;
-	private mutationObserver: MutationObserver | null = null;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: FileExplorerPlugin) {
 		this.app = app;
 		this.plugin = plugin;
 	}
@@ -96,12 +95,6 @@ export class PinnedItemsManager {
 	}
 
 	cleanup() {
-		// Clean up the mutation observer
-		if (this.mutationObserver) {
-			this.mutationObserver.disconnect();
-			this.mutationObserver = null;
-		}
-
 		// Clean up the pinned items container
 		if (this.pinnedContainerEl) {
 			this.pinnedContainerEl.remove();
@@ -146,17 +139,6 @@ export class PinnedItemsManager {
 			...this.plugin.settings.pinnedItems.map((item) => item.order ?? 0)
 		);
 		return maxOrder + 1;
-	}
-
-	async updateItemOrder(path: string, newOrder: number) {
-		const item = this.plugin.settings.pinnedItems.find(
-			(p) => p.path === path
-		);
-		if (item) {
-			item.order = newOrder;
-			await this.plugin.saveSettings();
-			this.refreshPinnedItems();
-		}
 	}
 
 	async reorderItems(newOrder: { path: string; order: number }[]) {
@@ -466,7 +448,7 @@ export class PinnedItemsManager {
 				// Open on click — fires for a desktop click and a mobile tap
 				// alike. A touch-drag suppresses this via the flag below.
 				let suppressClick = false;
-				this.plugin.registerDomEvent(itemEl, "click", (e) => {
+				itemEl.addEventListener("click", (e) => {
 					if (suppressClick) {
 						suppressClick = false;
 						e.preventDefault();
@@ -487,9 +469,9 @@ export class PinnedItemsManager {
 					e.preventDefault();
 					this.unpinItem(item.path);
 				};
-				this.plugin.registerDomEvent(unpinBtn, "click", handleUnpin);
+				unpinBtn.addEventListener("click", handleUnpin);
 				// Keep a press on × from arming the row's touch long-press drag.
-				this.plugin.registerDomEvent(unpinBtn, "touchstart", (e) =>
+				unpinBtn.addEventListener("touchstart", (e) =>
 					e.stopPropagation()
 				);
 
@@ -578,10 +560,10 @@ export class PinnedItemsManager {
 					}
 				});
 
-				itemEl.addEventListener("drop", async (e) => {
+				itemEl.addEventListener("drop", (e) => {
 					e.preventDefault();
 					e.stopPropagation();
-					await persistOrder();
+					void persistOrder();
 				});
 
 				// --- Mobile: touch long-press drag (touch never fires HTML5 DnD) ---
@@ -640,25 +622,20 @@ export class PinnedItemsManager {
 					itemEl.classList.remove("dragging", "dragging-touch");
 				};
 
-				this.plugin.registerDomEvent(
-					itemEl,
-					"touchstart",
-					(e: TouchEvent) => {
-						const t = e.touches[0];
-						if (e.touches.length !== 1 || !t) return;
-						touchStartX = t.clientX;
-						touchStartY = t.clientY;
-						touchDragging = false;
-						longPressTimer = window.setTimeout(() => {
-							longPressTimer = null;
-							touchDragging = true;
-							liftRow();
-						}, LONG_PRESS_MS);
-					}
-				);
+				itemEl.addEventListener("touchstart", (e: TouchEvent) => {
+					const t = e.touches[0];
+					if (e.touches.length !== 1 || !t) return;
+					touchStartX = t.clientX;
+					touchStartY = t.clientY;
+					touchDragging = false;
+					longPressTimer = window.setTimeout(() => {
+						longPressTimer = null;
+						touchDragging = true;
+						liftRow();
+					}, LONG_PRESS_MS);
+				});
 
-				this.plugin.registerDomEvent(
-					itemEl,
+				itemEl.addEventListener(
 					"touchmove",
 					(e: TouchEvent) => {
 						const t = e.touches[0];
@@ -684,16 +661,15 @@ export class PinnedItemsManager {
 					{ passive: false }
 				);
 
-				this.plugin.registerDomEvent(
-					itemEl,
+				itemEl.addEventListener(
 					"touchend",
-					async (e: TouchEvent) => {
+					(e: TouchEvent) => {
 						if (touchDragging) {
 							// Suppress the tap-to-open that would otherwise follow.
 							e.preventDefault();
 							suppressClick = true;
 							endTouchDrag();
-							await persistOrder();
+							void persistOrder();
 						} else {
 							endTouchDrag();
 						}
@@ -701,11 +677,7 @@ export class PinnedItemsManager {
 					{ passive: false }
 				);
 
-				this.plugin.registerDomEvent(
-					itemEl,
-					"touchcancel",
-					endTouchDrag
-				);
+				itemEl.addEventListener("touchcancel", endTouchDrag);
 			});
 		} catch (error) {
 			console.error("Failed to refresh pinned items:", error);

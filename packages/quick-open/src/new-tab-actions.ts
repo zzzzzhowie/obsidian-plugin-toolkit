@@ -26,7 +26,8 @@ interface AppInternals {
  */
 export class NewTabActions {
 	private readonly observer: MutationObserver;
-	private readonly undo: Array<() => void> = [];
+	/** How to take the Go to File handler back off each button it's on. */
+	private readonly undo = new Map<HTMLElement, () => void>();
 	private readonly dressed = new WeakSet<HTMLElement>();
 
 	constructor(
@@ -40,11 +41,14 @@ export class NewTabActions {
 
 	destroy(): void {
 		this.observer.disconnect();
-		for (const undo of this.undo.splice(0)) undo();
+		for (const undo of this.undo.values()) undo();
+		this.undo.clear();
 		this.list.querySelectorAll(`.${KEYS_CLS}`).forEach((el) => el.remove());
 	}
 
 	private dress(): void {
+		// A rebuild throws the old buttons away, handlers and all.
+		for (const button of this.undo.keys()) if (!button.isConnected) this.undo.delete(button);
 		for (const button of Array.from(this.list.querySelectorAll<HTMLElement>(":scope > .empty-state-action"))) {
 			if (this.dressed.has(button)) continue;
 			this.dressed.add(button);
@@ -70,7 +74,7 @@ export class NewTabActions {
 		};
 		button.addEventListener("click", run, { capture: true });
 		button.addEventListener("keydown", run, { capture: true });
-		this.undo.push(() => {
+		this.undo.set(button, () => {
 			button.removeEventListener("click", run, { capture: true });
 			button.removeEventListener("keydown", run, { capture: true });
 		});

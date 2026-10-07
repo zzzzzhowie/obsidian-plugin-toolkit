@@ -30,6 +30,7 @@
 	white-space: pre-wrap;
 }
 
-.vault-backup-status .vault-backup-status-error {
+/* A line inside the status box, or the whole box when it's an error ("not a git repository"). */
+.vault-backup-status-error {
 	color: var(--text-error);
 }

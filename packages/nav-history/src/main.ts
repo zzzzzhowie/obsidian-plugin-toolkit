@@ -93,7 +93,9 @@ export default class NavHistoryPlugin extends Plugin {
 		// place; only moves past the threshold split off a new history entry.
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
-				if (update.selectionSet || update.docChanged) {
+				// The editor being worked in. Every editor reports here — a comment box, a
+				// note in a background tab — but onSelectionChange reads the active one's caret.
+				if ((update.selectionSet || update.docChanged) && update.view.hasFocus) {
 					this.onSelectionChange();
 				}
 			})
@@ -246,7 +248,10 @@ export default class NavHistoryPlugin extends Plugin {
 	private async goForward() {
 		const target = this.takeResolvable(this.forwardStack);
 		if (!target) return;
-		if (this.current) this.backStack.push(this.current);
+		if (this.current) {
+			this.backStack.push(this.current);
+			this.trimHistory();
+		}
 		await this.jumpTo(target.location, target.file);
 	}
 

@@ -1,10 +1,3 @@
-/*
-
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
-
-*/
-
 /* Pinned Items Container */
 .pinned-items-container {
 	padding: 2px 4px;
@@ -161,8 +154,9 @@ available in the app when your plugin is enabled.
 }
 
 /* Siblings glide into the vacated gap (FLIP target). The dragged placeholder
-   itself is excluded so it never animates. */
-.pinned-item:not(.dragging) {
+   itself is excluded so it never animates. Only while a drag is on: a layer per row
+   kept for good costs memory for nothing the rest of the time. */
+.pinned-items-container:has(.dragging) .pinned-item:not(.dragging) {
 	will-change: transform;
 }
 

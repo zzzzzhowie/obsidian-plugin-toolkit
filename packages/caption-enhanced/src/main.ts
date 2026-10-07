@@ -12,8 +12,13 @@ import {
 // 插件主入口类
 // ============================================================
 
+/** How long an image embed is watched for its <img> before it's given up on. */
+const EMBED_WAIT_MS = 10_000;
+
 export default class CaptionEnhancedPlugin extends Plugin {
 	settings: ImageCaptionSettings;
+	/** Image embeds still waiting for their <img>; each is let go once it arrives, on unload, or after EMBED_WAIT_MS. */
+	private readonly embedWatchers = new Set<MutationObserver>();
 
 	async onload() {
 		await this.loadSettings();
@@ -23,10 +28,11 @@ export default class CaptionEnhancedPlugin extends Plugin {
 
 		// 2. 注册 Reading Mode (阅读模式) Markdown 渲染后处理器
 		this.registerMarkdownPostProcessor((el) => {
-			// A. 处理 Wiki embed 异步渲染图片
-			const embeds = el.classList.contains('internal-embed')
+			// A. 处理 Wiki embed 异步渲染图片 — image embeds only: a note, PDF or audio embed never
+			// gets an <img> of its own, and a watcher on one would never let go.
+			const embeds = el.matches('.internal-embed.image-embed')
 				? [el]
-				: Array.from(el.querySelectorAll<HTMLElement>('.internal-embed'));
+				: Array.from(el.querySelectorAll<HTMLElement>('.internal-embed.image-embed'));
 
 			embeds.forEach((embedEl) => {
 				const img = embedEl.querySelector('img');
@@ -34,22 +40,25 @@ export default class CaptionEnhancedPlugin extends Plugin {
 					this.injectReadingCaption(img, embedEl);
 				} else {
 					// 一次性监听 Wiki 嵌入容器内的 img 异步塞入动作，防范内存泄露
-					const observer = new MutationObserver((_, obs) => {
+					const observer = new MutationObserver(() => {
 						const loadedImg = embedEl.querySelector('img');
 						if (loadedImg) {
 							this.injectReadingCaption(loadedImg, embedEl);
-							obs.disconnect();
+							this.letGo(observer);
 						}
 					});
 					observer.observe(embedEl, { childList: true, subtree: true });
+					this.embedWatchers.add(observer);
+					window.setTimeout(() => this.letGo(observer), EMBED_WAIT_MS);
 				}
 			});
 
 			// B. 处理普通的 Markdown 本地与外链图床图片
 			const imgs = el.querySelectorAll('img');
 			imgs.forEach((img: HTMLImageElement) => {
-				// 自动排除已经包含在 Wiki embed 内部的图片，防止重复注入
-				if (img.closest('.internal-embed')) {
+				// 自动排除已经包含在 Wiki embed 内部的图片，防止重复注入 — an image embed's own; an
+				// image inside a transcluded note is an ordinary image of that note.
+				if (img.closest('.internal-embed.image-embed')) {
 					return;
 				}
 				this.injectReadingCaption(img, null);
@@ -58,6 +67,11 @@ export default class CaptionEnhancedPlugin extends Plugin {
 
 		// 3. 注册设置控制台面板
 		this.addSettingTab(new CaptionEnhancedSettingTab(this.app, this));
+	}
+
+	private letGo(observer: MutationObserver): void {
+		observer.disconnect();
+		this.embedWatchers.delete(observer);
 	}
 
 	/**
@@ -153,6 +167,8 @@ export default class CaptionEnhancedPlugin extends Plugin {
 	}
 
 	onunload() {
+		for (const observer of this.embedWatchers) observer.disconnect();
+		this.embedWatchers.clear();
 		// 彻底清除页面上残留的所有 caption 节点及 has-caption 样式类
 		activeDocument.querySelectorAll('.image-caption').forEach((el) => el.remove());
 		activeDocument.querySelectorAll('.has-caption').forEach((el) => el.classList.remove('has-caption'));

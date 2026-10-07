@@ -101,7 +101,7 @@ async function download(
       path = normalizePath(join(folderPath, `${uuid()}.${type.ext}`));
     }
 
-    plugin.app.vault.adapter.writeBinary(path, response.arrayBuffer);
+    await plugin.app.vault.adapter.writeBinary(path, response.arrayBuffer);
     return {
       ok: true,
       msg: "ok",

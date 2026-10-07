@@ -1,3 +1,4 @@
+import { MARKDOWN_LINK_REGEX } from "./patterns";
 import { CheckIf } from "./checkif";
 import { EditorExtensions } from "./editor-enhancements";
 import { Editor, Plugin, Notice } from "obsidian";
@@ -22,16 +23,9 @@ export default class AutoLinkTitle extends Plugin {
   settings: AutoLinkTitleSettings;
   pasteFunction: PasteFunction;
   dropFunction: DropFunction;
-  blacklist: Array<string>;
 
   async onload() {
-    console.log("loading obsidian-auto-link-title");
     await this.loadSettings();
-
-    this.blacklist = this.settings.websiteBlacklist
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
 
     // Listen to paste event
     this.pasteFunction = this.pasteUrlWithTitle.bind(this);
@@ -195,17 +189,17 @@ export default class AutoLinkTitle extends Plugin {
     return;
   }
 
-  async isBlacklisted(url: string): Promise<boolean> {
-    await this.loadSettings();
-    this.blacklist = this.settings.websiteBlacklist
+  /** One site per line or comma, as the setting reads. From the settings in memory — see onExternalSettingsChange. */
+  isBlacklisted(url: string): boolean {
+    return this.settings.websiteBlacklist
       .split(/,|\n/)
       .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    return this.blacklist.some((site) => url.includes(site));
+      .filter((s) => s.length > 0)
+      .some((site) => url.includes(site));
   }
 
   async convertUrlToTitledLink(editor: Editor, url: string): Promise<void> {
-    if (await this.isBlacklisted(url)) {
+    if (this.isBlacklisted(url)) {
       let domain = new URL(url).hostname;
       editor.replaceSelection(`[${domain}](${url})`);
       return;
@@ -226,9 +220,7 @@ export default class AutoLinkTitle extends Plugin {
 
     const start = text.indexOf(pasteId);
     if (start < 0) {
-      console.log(
-        `Unable to find text "${pasteId}" in current editor, bailing out; link ${url}`
-      );
+      console.warn(`auto-link-title: the placeholder "${pasteId}" is gone from the editor; leaving the link untitled`);
     } else {
       const end = start + pasteId.length;
       const startPos = EditorExtensions.getEditorPositionFromIndex(text, start);
@@ -239,10 +231,8 @@ export default class AutoLinkTitle extends Plugin {
   }
 
   escapeMarkdown(text: string): string {
-    var unescaped = text.replace(/\\(\*|_|`|~|\\|\[|\])/g, "$1"); // unescape any "backslashed" character
-    var escaped = unescaped.replace(/(\*|_|`|<|>|~|\\|\[|\])/g, "\\$1"); // escape *, _, `, ~, \, [, ], <, and >
-    var escaped = unescaped.replace(/(\*|_|`|\||<|>|~|\\|\[|\])/g, "\\$1"); // escape *, _, `, ~, \, |, [, ], <, and >
-    return escaped;
+    const unescaped = text.replace(/\\(\*|_|`|~|\\|\[|\])/g, "$1"); // unescape any "backslashed" character
+    return unescaped.replace(/(\*|_|`|\||<|>|~|\\|\[|\])/g, "\\$1"); // escape *, _, `, ~, \, |, [, ], <, and >
   }
 
   public shortTitle = (title: string): string => {
@@ -275,15 +265,13 @@ export default class AutoLinkTitle extends Plugin {
             apiKey: this.settings.llmApiKey,
             model: this.settings.llmModel,
           });
-          if (title) {
-            console.log(`Title via LLM: ${title}`);
-          } else {
+          if (!title) {
             // LLM failed but the page was fetched — use its real <title>.
             title = page.title;
-            console.log("LLM returned nothing; using the scraped page title");
+            console.debug("auto-link-title: the LLM returned nothing; using the page's own title");
           }
         } else {
-          console.log("Page fetch failed; skipping LLM, falling back");
+          console.debug("auto-link-title: couldn't fetch the page; skipping the LLM");
         }
       }
 
@@ -292,7 +280,6 @@ export default class AutoLinkTitle extends Plugin {
         title = await getPageTitle(url, headers);
       }
 
-      console.log(`Title: ${title}`);
       title =
         title.replace(/(\r\n|\n|\r)/gm, "").trim() ||
         "Title Unavailable | Site Unreachable";
@@ -330,7 +317,7 @@ export default class AutoLinkTitle extends Plugin {
   }
 
   public getUrlFromLink(link: string): string {
-    let urlRegex = new RegExp(DEFAULT_SETTINGS.linkRegex);
+    let urlRegex = new RegExp(MARKDOWN_LINK_REGEX);
     const match = urlRegex.exec(link);
     return match?.[2] ?? link;
   }
@@ -355,8 +342,9 @@ export default class AutoLinkTitle extends Plugin {
     return result;
   }
 
-  onunload() {
-    console.log("unloading obsidian-auto-link-title");
+  /** Settings changed on another device (data.json synced in): take them up. */
+  async onExternalSettingsChange() {
+    await this.loadSettings();
   }
 
   async loadSettings() {

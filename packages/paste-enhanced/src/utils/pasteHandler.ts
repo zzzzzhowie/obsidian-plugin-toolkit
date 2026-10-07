@@ -2,105 +2,30 @@ import { Editor } from "obsidian";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 
-/**
- * Detect the region type where the cursor is located
- */
-export type CursorRegion = "code-block" | "inline-code" | "normal";
+/** A fence opening or closing a code block, after any blockquote/callout markers. */
+const FENCE = /^(?:\s*>)*\s{0,3}(`{3,}|~{3,})/;
 
 /**
- * Detect the region type where the cursor is located
- * Strictly detect via DOM: only return code-block when the cursor's DOM is wrapped by HyperMD-codeblock class
- */
-export function getCursorRegion(editor: Editor): CursorRegion {
-	// Detect if in multi-line code block via DOM
-	// Check if the cursor's DOM is wrapped by HyperMD-codeblock class
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-		const cm = (editor as any).cm;
-		if (cm) {
-			// eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
-			const dom = cm.dom || cm.contentDOM;
-			if (dom) {
-				// Get currently selected DOM element (cursor position)
-				const selection = window.getSelection();
-				if (selection && selection.rangeCount > 0) {
-					const range = selection.getRangeAt(0);
-					let cursorElement: Node | null = range.startContainer;
-
-					// If it's a text node, get its parent element
-					if (cursorElement.nodeType === Node.TEXT_NODE) {
-						cursorElement = cursorElement.parentElement;
-					}
-
-					// Traverse up the DOM tree to check if there's a parent element with HyperMD-codeblock class
-					let currentElement = cursorElement as HTMLElement | null;
-					while (currentElement && currentElement !== dom) {
-						if (
-							currentElement.classList &&
-							currentElement.classList.contains("HyperMD-codeblock")
-						) {
-							return "code-block";
-						}
-						currentElement = currentElement.parentElement;
-					}
-				}
-
-			// If unable to get via selection, fallback to finding by line number
-			const cursor = editor.getCursor();
-			// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-			const lines = dom.querySelectorAll(
-				".cm-line"
-			) as NodeListOf<HTMLElement>;
-			if (lines && lines.length && lines.length > cursor.line) {
-					const lineElement = lines[cursor.line];
-					if (lineElement) {
-						// Check if the line element itself or its parent has HyperMD-codeblock class
-						let currentElement: HTMLElement | null = lineElement;
-						while (currentElement && currentElement !== dom) {
-							if (
-								currentElement.classList &&
-								currentElement.classList.contains("HyperMD-codeblock")
-							) {
-								return "code-block";
-							}
-							currentElement = currentElement.parentElement;
-						}
-					}
-				}
-			}
-		}
-	} catch {
-		// DOM detection failed, don't return code block
-		// Fail silently, return normal
-	}
-
-	return "normal";
-}
-
-/**
- * Detect if cursor is in code block
- * Strictly judge by HyperMD-codeblock wrapping
+ * Whether the cursor is inside a fenced code block, read from the note's text: a fence that
+ * opened above the cursor's line and hasn't closed. This used to be read from the editor's
+ * DOM, falling back to "the n-th rendered line" — but CodeMirror only renders the lines on
+ * screen, so in a long note that fallback looked at the wrong line, ran on every paste, and
+ * could take an ordinary line for code.
  */
 export function isInCodeBlock(editor: Editor): boolean {
-	const region = getCursorRegion(editor);
-	return region === "code-block";
+	const cursorLine = editor.getCursor().line;
+	let open: string | null = null;
+	for (let n = 0; n < cursorLine; n++) {
+		const text = editor.getLine(n);
+		const marker = FENCE.exec(text)?.[1];
+		if (!marker) continue;
+		if (open === null) open = marker;
+		// Closed by a bare fence of the same kind, at least as long (CommonMark).
+		else if (marker[0] === open[0] && marker.length >= open.length && text.trim().endsWith(marker)) open = null;
+	}
+	return open !== null;
 }
 
-/**
- * Teach Turndown to write Obsidian wikilinks back as wikilinks.
- *
- * Copying `[[maximal-square]]` puts the *rendered* anchor on the clipboard
- * (`<a class="internal-link" data-href="maximal-square" href="...">maximal-square</a>`),
- * and Turndown's built-in rule turns any anchor into `[text](href)`. That silently
- * converted every pasted vault link into a plain Markdown link — worst of all for
- * `[[note#heading]]`, where the resulting link no longer resolves at all because the
- * heading anchor isn't escaped the way a Markdown link needs.
- *
- * `data-href` is the link exactly as it was authored (`href` may be resolved to a full
- * path), so it round-trips faithfully. The visible text is only kept as an alias when it
- * actually differs from the target — Obsidian renders an un-aliased `[[a#b]]` with its
- * target as the text, so comparing them is what stops us inventing `[[a#b|a#b]]`.
- */
 /**
  * The vault path an anchor points at, or null when it doesn't point inside the vault.
  *
@@ -125,6 +50,21 @@ function wikilinkTarget(el: HTMLElement): string | null {
 	return target;
 }
 
+/**
+ * Teach Turndown to write Obsidian wikilinks back as wikilinks.
+ *
+ * Copying `[[maximal-square]]` puts the *rendered* anchor on the clipboard
+ * (`<a class="internal-link" data-href="maximal-square" href="...">maximal-square</a>`),
+ * and Turndown's built-in rule turns any anchor into `[text](href)`. That silently
+ * converted every pasted vault link into a plain Markdown link — worst of all for
+ * `[[note#heading]]`, where the resulting link no longer resolves at all because the
+ * heading anchor isn't escaped the way a Markdown link needs.
+ *
+ * `data-href` is the link exactly as it was authored (`href` may be resolved to a full
+ * path), so it round-trips faithfully. The visible text is only kept as an alias when it
+ * actually differs from the target — Obsidian renders an un-aliased `[[a#b]]` with its
+ * target as the text, so comparing them is what stops us inventing `[[a#b|a#b]]`.
+ */
 function addObsidianLinkRule(turndownService: TurndownService): void {
 	turndownService.addRule("obsidianInternalLink", {
 		filter: (node): boolean => {

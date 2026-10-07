@@ -1,5 +1,5 @@
 import { Editor, EditorPosition } from "obsidian";
-import { DEFAULT_SETTINGS } from "./settings";
+import { MARKDOWN_LINK_IN_LINE_REGEX, URL_IN_LINE_REGEX } from "./patterns";
 
 interface WordBoundaries {
   start: { line: number; ch: number };
@@ -33,7 +33,7 @@ export class EditorExtensions {
     let lineText = editor.getLine(cursor.line);
 
     // First check if we're in a link
-    let linksInLine = lineText.matchAll(DEFAULT_SETTINGS.linkLineRegex);
+    let linksInLine = lineText.matchAll(MARKDOWN_LINK_IN_LINE_REGEX);
 
     for (let match of linksInLine) {
       if (this.cursorWithinBoundaries(cursor, match)) {
@@ -46,7 +46,7 @@ export class EditorExtensions {
     }
 
     // If not, check if we're in just a standard ol' URL.
-    let urlsInLine = lineText.matchAll(DEFAULT_SETTINGS.lineRegex);
+    let urlsInLine = lineText.matchAll(URL_IN_LINE_REGEX);
 
     for (let match of urlsInLine) {
       if (this.cursorWithinBoundaries(cursor, match)) {

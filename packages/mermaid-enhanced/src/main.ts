@@ -47,6 +47,9 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	private observer: MutationObserver | null = null;
 	/** Coalesces bursts of mutations into a single processing pass. */
 	private rafHandle: number | null = null;
+	/** The note text the last section came from, split into lines once for all its sections. */
+	private sectionText = "";
+	private sectionLines: string[] = [];
 	/** Debounce timer for window resize. */
 	private resizeTimer: number | null = null;
 	/** The diagram currently being dragged via its slider (skip re-fitting it). */
@@ -69,7 +72,12 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		this.registerMarkdownPostProcessor((el, ctx) => {
 			const info = ctx.getSectionInfo(el);
 			if (!info) return;
-			const lines = info.text.split("\n");
+			// Every section of a render gets the same whole-note text; split it once, not per section.
+			if (info.text !== this.sectionText) {
+				this.sectionText = info.text;
+				this.sectionLines = info.text.split("\n");
+			}
+			const lines = this.sectionLines;
 			const src = lines.slice(info.lineStart, info.lineEnd + 1).join("\n");
 			// Only mermaid blocks; cheap guard before the regex.
 			if (!/```+\s*mermaid/i.test(src)) return;
@@ -96,6 +104,9 @@ export default class MermaidEnhancedPlugin extends Plugin {
 				// otherwise re-fitting would stomp the drag preview mid-drag.
 				const target = m.target as HTMLElement;
 				if (target?.closest?.(`.${SLIDER_CLS}, .${SLIDER_CLS}-tip`)) continue;
+				// Only a diagram arriving matters. The workspace changes on every keystroke, and
+				// a pass reads the layout of every diagram open.
+				if (!this.bringsDiagram(m)) continue;
 				this.scheduleProcess();
 				return;
 			}
@@ -136,6 +147,17 @@ export default class MermaidEnhancedPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	/** Whether a mutation added a rendered diagram, or the SVG of one. */
+	private bringsDiagram(m: MutationRecord): boolean {
+		const inDiagram = (m.target as Element).closest?.(".mermaid") != null;
+		for (const node of Array.from(m.addedNodes)) {
+			if (!(node instanceof Element)) continue;
+			if (inDiagram && node.matches("svg")) return true;
+			if (node.matches(".mermaid") || node.querySelector(".mermaid svg, .mermaid")) return true;
+		}
+		return false;
 	}
 
 	/** Coalesce mutation bursts into one pass on the next frame. */
@@ -747,7 +769,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	/**
 	 * Find the document line index of the ```mermaid fence that opens the block rendered
 	 * at `block`, using CM6's `posAtDOM` to map the rendered widget back to a source
-	 * position. The directive lives on `fence - 1`; older notes have it on `fence + 1`.
+	 * position. The directive lives on `fence + 1`, inside the block; older notes have it on `fence - 1`.
 	 */
 	private locateFenceLine(
 		view: MarkdownView,

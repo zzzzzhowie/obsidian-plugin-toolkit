@@ -1,5 +1,5 @@
 import { Editor } from "obsidian";
-import { DEFAULT_SETTINGS } from "./settings";
+import { IMAGE_URL_REGEX, MARKDOWN_LINK_REGEX, URL_REGEX } from "./patterns";
 
 export class CheckIf {
   public static isMarkdownLinkAlready(editor: Editor): boolean {
@@ -28,17 +28,17 @@ export class CheckIf {
   }
 
   public static isUrl(text: string): boolean {
-    let urlRegex = new RegExp(DEFAULT_SETTINGS.regex);
+    let urlRegex = new RegExp(URL_REGEX);
     return urlRegex.test(text);
   }
 
   public static isImage(text: string): boolean {
-    let imageRegex = new RegExp(DEFAULT_SETTINGS.imageRegex);
+    let imageRegex = new RegExp(IMAGE_URL_REGEX);
     return imageRegex.test(text);
   }
 
   public static isLinkedUrl(text: string): boolean {
-    let urlRegex = new RegExp(DEFAULT_SETTINGS.linkRegex);
+    let urlRegex = new RegExp(MARKDOWN_LINK_REGEX);
     return urlRegex.test(text);
   }
 }

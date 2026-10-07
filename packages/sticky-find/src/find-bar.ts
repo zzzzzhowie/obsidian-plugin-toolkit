@@ -33,6 +33,8 @@ export class FindBar {
 	private readonly caseButtonEl: HTMLElement;
 
 	private matches: Match[] = [];
+	/** The document `matches` was scanned from; any other means the note was edited since. */
+	private scannedDoc: EditorView["state"]["doc"] | null = null;
 	private current = 0;
 	private caseSensitive: boolean;
 	private repaintTimer: number | null = null;
@@ -180,7 +182,7 @@ export class FindBar {
 		if (!cm) return;
 
 		const term = this.inputEl.value;
-		this.matches = findInText(cm.state.doc.toString(), term, this.caseSensitive);
+		this.scan(cm);
 
 		if (this.matches.length === 0) {
 			this.current = 0;
@@ -194,7 +196,27 @@ export class FindBar {
 		this.goTo(matchIndexNear(this.matches, cm.state.selection.main.head));
 	}
 
+	private scan(cm: EditorView): void {
+		this.matches = findInText(cm.state.doc.toString(), this.inputEl.value, this.caseSensitive);
+		this.scannedDoc = cm.state.doc;
+	}
+
+	/**
+	 * Scan again when the note was edited with the bar open, staying on the match the reader
+	 * was on. The count and next/previous otherwise kept going by the text as it was.
+	 */
+	private rescanIfEdited(cm: EditorView): void {
+		if (cm.state.doc === this.scannedDoc || !this.inputEl.value) return;
+		const at = this.matches[this.current]?.from ?? cm.state.selection.main.head;
+		this.scan(cm);
+		this.current = matchIndexNear(this.matches, at);
+		this.updateCounter();
+		this.barEl.toggleClass("is-empty", this.matches.length === 0);
+	}
+
 	private step(delta: number): void {
+		const cm = this.cm();
+		if (cm) this.rescanIfEdited(cm);
 		if (this.matches.length === 0) return;
 		this.goTo(this.current + delta);
 	}
@@ -349,6 +371,7 @@ export class FindBar {
 		}
 		// Centring, when in progress, drives its own frame loop — this path only refreshes
 		// the paint after the DOM moved underneath it.
+		this.rescanIfEdited(cm);
 		this.computeAndPaint(cm);
 	}
 

@@ -22,15 +22,6 @@ export default class CopyPathPlugin extends Plugin {
 			callback: () => {
 				this.copyAbsolutePath();
 			},
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.copyAbsolutePath();
-			},
-		});
-
-		// Wait for layout to be ready before registering file-explorer tracking,
-		// because the file-explorer leaf may not exist during onload.
-		this.app.workspace.onLayoutReady(() => {
-			this.registerExplorerTracking();
 		});
 
 		// Keyboard listener — fires on Mod+Alt+C anywhere that is NOT an input/modal.
@@ -69,19 +60,20 @@ export default class CopyPathPlugin extends Plugin {
 			document.removeEventListener('keydown', handleKeyDown, true);
 		});
 
-		// Clear lastExplorerPath whenever the user clicks outside the file explorer.
-		// Without this, lastExplorerPath persists indefinitely and the vault-root
-		// fallback is never reached even after the user has moved focus elsewhere.
+		// Remember the last file-explorer item pressed, and forget it on a press anywhere else.
+		// One listener on the document does both: file-explorer items are non-focusable divs,
+		// so document.activeElement never says where the user is. (It used to be one listener
+		// per file explorer, plus another added on every layout change.)
 		const handleMouseDown = (evt: MouseEvent) => {
-			const target = evt.target as HTMLElement | null;
-			if (!target) return;
-			const explorerLeaves = this.app.workspace.getLeavesOfType('file-explorer');
-			const isInsideExplorer = explorerLeaves.some((leaf) =>
-				leaf.view.containerEl.contains(target)
-			);
-			if (!isInsideExplorer) {
+			const target = evt.target instanceof HTMLElement ? evt.target : null;
+			const inExplorer = target?.closest('.workspace-leaf-content[data-type="file-explorer"]');
+			if (!inExplorer) {
 				this.lastExplorerPath = null;
+				return;
 			}
+			// Both .nav-file-title and .nav-folder-title carry data-path.
+			const path = target?.closest<HTMLElement>('[data-path]')?.dataset.path;
+			if (path) this.lastExplorerPath = path;
 		};
 		document.addEventListener('mousedown', handleMouseDown, true);
 		this.register(() => {
@@ -89,55 +81,6 @@ export default class CopyPathPlugin extends Plugin {
 		});
 	}
 
-	onunload() {}
-
-	/**
-	 * Register a mousedown listener (via event delegation) on the file explorer
-	 * container so we always know the last item the user interacted with,
-	 * regardless of whether keyboard focus moved elsewhere.
-	 */
-	private registerExplorerTracking() {
-		const leaves = this.app.workspace.getLeavesOfType('file-explorer');
-		for (const leaf of leaves) {
-			this.registerDomEvent(
-				leaf.view.containerEl,
-				'mousedown',
-				(evt: MouseEvent) => {
-					const target = evt.target as HTMLElement | null;
-					if (!target) return;
-					// Walk up from the clicked element to find the nearest [data-path] node.
-					// Both .nav-file-title and .nav-folder-title carry data-path in Obsidian.
-					const item = target.closest('[data-path]') as HTMLElement | null;
-					if (item?.dataset.path) {
-						this.lastExplorerPath = item.dataset.path;
-					}
-				}
-			);
-		}
-
-		// Also handle new file-explorer leaves opened after startup (rare, but safe)
-		this.registerEvent(
-			this.app.workspace.on('layout-change', () => {
-				const currentLeaves = this.app.workspace.getLeavesOfType('file-explorer');
-				for (const leaf of currentLeaves) {
-					// registerDomEvent is idempotent for the same element+type combo
-					// in practice each leaf is new so this is fine
-					this.registerDomEvent(
-						leaf.view.containerEl,
-						'mousedown',
-						(evt: MouseEvent) => {
-							const target = evt.target as HTMLElement | null;
-							if (!target) return;
-							const item = target.closest('[data-path]') as HTMLElement | null;
-							if (item?.dataset.path) {
-								this.lastExplorerPath = item.dataset.path;
-							}
-						}
-					);
-				}
-			})
-		);
-	}
 
 	private async copyAbsolutePath() {
 		try {
@@ -239,28 +182,6 @@ export default class CopyPathPlugin extends Plugin {
 				.replace(/^-|-$/g, '');
 
 			if (!anchor) return null;
-
-			// @ts-ignore - cm property exists but not in types
-			const cmEditor = editor.cm;
-			const state = cmEditor.state;
-			const lineStart = state.doc.line(cursor.line + 1).from;
-			const lineEnd = state.doc.line(cursor.line + 1).to;
-			const checkOffset = cursor.ch === 0 ? Math.min(lineStart + 1, lineEnd) : lineStart + cursor.ch;
-
-			const domAtPos = cmEditor.domAtPos(checkOffset);
-			if (!domAtPos?.node) return anchor;
-
-			let currentElement: Node | null = domAtPos.node;
-			let depth = 0;
-			while (currentElement && currentElement.nodeType !== Node.DOCUMENT_NODE && depth < 10) {
-				if (currentElement.nodeType === Node.ELEMENT_NODE) {
-					if ((currentElement as Element).classList?.contains('cm-header')) {
-						return anchor;
-					}
-				}
-				currentElement = currentElement.parentNode;
-				depth++;
-			}
 
 			return anchor;
 		} catch {

@@ -38,7 +38,6 @@ const RETRY_DELAY = 50;
 export default class imageAutoUploadPlugin extends Plugin {
   settings: PluginSettings;
   helper: Helper;
-  editor: Editor;
   picGoDeleter: PicGoDeleter;
 
   async loadSettings() {
@@ -238,7 +237,9 @@ export default class imageAutoUploadPlugin extends Plugin {
       return;
     }
 
-    this.upload(imageList).then(res => {
+    // A failed upload has already said why (UploaderManager shows a Notice and throws).
+    this.upload(imageList).catch(() => null).then(res => {
+      if (!res) return;
       if (!res.success) {
         new Notice("Upload error");
         return;
@@ -379,7 +380,8 @@ export default class imageAutoUploadPlugin extends Plugin {
       new Notice(`Have found ${imageList.length} images`);
     }
 
-    this.upload(imageList).then(res => {
+    this.upload(imageList).catch(() => null).then(res => {
+      if (!res) return;
       let uploadUrlList = res.result;
       if (imageList.length !== uploadUrlList.length) {
         new Notice(
@@ -410,7 +412,6 @@ export default class imageAutoUploadPlugin extends Plugin {
           if (!evt.clipboardData) {
             return;
           }
-          let files = evt.clipboardData.files;
           if (!allowUpload) {
             return;
           }
@@ -461,6 +462,8 @@ export default class imageAutoUploadPlugin extends Plugin {
               this.upload(imageList).then(res => {
                 // The editor the paste happened in — not necessarily the active note's.
                 this.replaceImage(imageList, res.result, editor);
+              }, () => {
+                // The uploader has already shown why; the original links stay as pasted.
               });
             }
           }
@@ -490,7 +493,6 @@ export default class imageAutoUploadPlugin extends Plugin {
           let files = evt.dataTransfer.files;
           if (files.length !== 0 && files[0]?.type.startsWith("image")) {
             let sendFiles: Array<string> = [];
-            let files = evt.dataTransfer.files;
             Array.from(files).forEach((item, index) => {
               const filePath = (item as File & { path?: string }).path;
               if (filePath) {
@@ -526,7 +528,6 @@ export default class imageAutoUploadPlugin extends Plugin {
   }
 
   canUpload(clipboardData: DataTransfer) {
-    this.settings.applyImage;
     const files = clipboardData.files;
     const text = clipboardData.getData("text");
 

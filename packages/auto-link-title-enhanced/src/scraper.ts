@@ -7,10 +7,6 @@ function blank(text: string | null | undefined): boolean {
   return text === undefined || text === null || text === "";
 }
 
-function notBlank(text: string | null | undefined): boolean {
-  return !blank(text);
-}
-
 async function scrape(
   url: string,
   headers?: Record<string, string>

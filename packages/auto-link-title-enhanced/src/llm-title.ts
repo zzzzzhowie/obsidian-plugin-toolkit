@@ -102,7 +102,8 @@ async function callLlm(
 ): Promise<LlmResult> {
   const endpoint = `${opts.baseUrl.replace(/\/+$/, "")}/chat/completions`;
   const transport = Platform.isDesktopApp ? "node-https" : "fetch";
-  console.log(`auto-link-title: LLM POST ${endpoint} (model=${opts.model}, via=${transport})`);
+  // Node requests don't show in DevTools' network panel, so say where this one went.
+  console.debug(`auto-link-title: LLM POST ${endpoint} (model=${opts.model}, via=${transport})`);
   const prompt =
     "You are titling a saved web link for someone's notes. Using the page's own " +
     "metadata and content excerpt below, write ONE concise, human-readable title " +

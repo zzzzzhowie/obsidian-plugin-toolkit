@@ -11,13 +11,14 @@ import {
 
 import { type Span, trimSpan } from "./anchor";
 import { EditorHost } from "./editor";
+import { releaseEmbeddedEditors } from "./embedded-editor";
 import { CommentHover } from "./hover";
 import { COMMENTS_VIEW, CommentsPanel, type PanelHost } from "./panel";
 import { CommentStore } from "./store";
 
 /** Longer than this and a "comment on this passage" is really a comment on the whole note. */
 const MAX_QUOTE = 5000;
-/** Positions are hints, so they are written after a quiet spell rather than on every keystroke. */
+/** Positions are hints, so moved ones are written at most this often rather than on every keystroke. */
 const IDLE_FLUSH_MS = 30_000;
 /**
  * What the sidebar was showing before the panel was brought up, so a click elsewhere can put
@@ -161,8 +162,8 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 		this.registerInterval(
 			window.setInterval(() => {
 				if (!this.host.dirty) return;
-				this.host.reportAll();
-				void this.store.save();
+				// Saving reads data.json back and merges, so only when a comment actually moved.
+				if (this.host.reportAll()) void this.store.save();
 			}, IDLE_FLUSH_MS),
 		);
 		this.registerEvent(
@@ -188,6 +189,7 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 	}
 
 	onunload(): void {
+		releaseEmbeddedEditors();
 		// Editors whose extension was removed have already reported — their ViewPlugin was
 		// destroyed before this runs. The ones left are those Obsidian never reconfigures:
 		// canvas cards and hover previews.

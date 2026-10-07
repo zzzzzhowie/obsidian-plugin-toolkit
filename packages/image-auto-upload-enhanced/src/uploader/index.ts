@@ -57,5 +57,3 @@ export class UploaderManager {
   }
 }
 
-export type Uploader = PicGoUploader | PicGoCoreUploader;
-export { PicGoUploader, PicGoCoreUploader };

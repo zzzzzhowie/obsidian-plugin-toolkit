@@ -1,14 +1,15 @@
 import { App, TFolder, TFile, Notice } from "obsidian";
 import { getFolderNote, escapeCSSSelector, getFolderFromNote } from "./utils";
 import { goToOpenTab } from "./reuse-tab";
-import type MyPlugin from "./main";
+import type FileExplorerPlugin from "./main";
 
 export class FolderNoteManager {
 	app: App;
-	plugin: MyPlugin;
+	plugin: FileExplorerPlugin;
 	private styleEl: HTMLStyleElement | null = null;
+	private updateTimer: number | null = null;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: FileExplorerPlugin) {
 		this.app = app;
 		this.plugin = plugin;
 	}
@@ -35,21 +36,23 @@ export class FolderNoteManager {
 			setTimeout(() => {
 				this.updateAllFolderNotes();
 			}, 2000);
+
+			// Registered once the layout is ready: until then Obsidian reports every existing
+			// file as created, and each one rewrote the folder-note styles and scheduled a pass.
+			this.plugin.registerEvent(
+				this.app.vault.on("create", (file) => {
+					if (file instanceof TFile && file.extension === "md") {
+						// Immediately update CSS rules so the file is hidden right away
+						this.updateFolderNoteStyles();
+						setTimeout(() => {
+							this.updateFolderNoteForFile(file);
+						}, 100);
+					}
+				}),
+			);
 		});
 
-		// Update when files are created/renamed/deleted
-		this.plugin.registerEvent(
-			this.app.vault.on("create", (file) => {
-				if (file instanceof TFile && file.extension === "md") {
-					// Immediately update CSS rules so the file is hidden right away
-					this.updateFolderNoteStyles();
-					setTimeout(() => {
-						this.updateFolderNoteForFile(file);
-					}, 100);
-				}
-			}),
-		);
-
+		// Update when files are renamed/deleted (created: see onLayoutReady above)
 		this.plugin.registerEvent(
 			this.app.vault.on("rename", (file, oldPath) => {
 				if (file instanceof TFile && file.extension === "md") {
@@ -93,9 +96,7 @@ export class FolderNoteManager {
 		this.plugin.registerEvent(
 			this.app.workspace.on("layout-change", () => {
 				// CSS rules already handle hiding, just update DOM-based styling
-				setTimeout(() => {
-					this.updateAllFolderNotes();
-				}, 100);
+				this.scheduleUpdateAll();
 			}),
 		);
 
@@ -124,25 +125,39 @@ export class FolderNoteManager {
 					}
 				}
 
-				setTimeout(() => {
-					try {
-						this.updateAllFolderNotes();
-					} catch (error) {
-						// Silently fail - don't interfere with file opening
-						console.error("Failed to update folder notes:", error);
-					}
-				}, 100);
+				this.scheduleUpdateAll();
 			}),
 		);
 
 		// Update when active leaf changes
 		this.plugin.registerEvent(
-			this.app.workspace.on("active-leaf-change", () => {
-				setTimeout(() => {
-					this.updateAllFolderNotes();
-				}, 100);
-			}),
+			this.app.workspace.on("active-leaf-change", () => this.scheduleUpdateAll()),
 		);
+	}
+
+	/**
+	 * One full pass for a burst of triggers. Opening a file fires file-open, active-leaf-change
+	 * and often layout-change within a few milliseconds, and each used to walk every folder.
+	 */
+	private scheduleUpdateAll(): void {
+		if (this.updateTimer !== null) window.clearTimeout(this.updateTimer);
+		this.updateTimer = window.setTimeout(() => {
+			this.updateTimer = null;
+			try {
+				this.updateAllFolderNotes();
+			} catch (error) {
+				// Don't interfere with whatever triggered it (opening a file, say).
+				console.error("Failed to update folder notes:", error);
+			}
+		}, 100);
+	}
+
+	/** Put the file explorer back as it was: no click handlers on folder names, no styles. */
+	cleanup(): void {
+		if (this.updateTimer !== null) window.clearTimeout(this.updateTimer);
+		this.updateTimer = null;
+		this.removeAllFolderNoteStyles();
+		this.removeDynamicStyles();
 	}
 
 	private getParentFromPath(path: string): TFolder | null {
@@ -293,7 +308,8 @@ export class FolderNoteManager {
 			this.styleEl.id = "folder-note-hide-styles";
 			document.head.appendChild(this.styleEl);
 		}
-		this.styleEl.textContent = cssRules;
+		// Unchanged rules are left alone: rewriting the sheet restyles the whole document.
+		if (this.styleEl.textContent !== cssRules) this.styleEl.textContent = cssRules;
 	}
 
 	/**

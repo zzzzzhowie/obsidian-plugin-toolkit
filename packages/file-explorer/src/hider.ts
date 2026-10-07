@@ -1,5 +1,5 @@
 import { App } from "obsidian";
-import type MyPlugin from "./main";
+import type FileExplorerPlugin from "./main";
 
 /**
  * Hides specific files/folders from the file explorer by injecting a <style>
@@ -12,10 +12,10 @@ import type MyPlugin from "./main";
  */
 export class FileHiderManager {
 	app: App;
-	plugin: MyPlugin;
+	plugin: FileExplorerPlugin;
 	private styleEl: HTMLStyleElement | null = null;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: FileExplorerPlugin) {
 		this.app = app;
 		this.plugin = plugin;
 	}

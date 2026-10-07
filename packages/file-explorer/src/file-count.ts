@@ -1,12 +1,13 @@
 import { App, TFolder, TFile } from "obsidian";
-import { countFilesInFolder, countDirectFiles, escapeCSSSelector } from "./utils";
-import type MyPlugin from "./main";
+import { countFilesInFolder, escapeCSSSelector } from "./utils";
+import type FileExplorerPlugin from "./main";
 
 export class FileCountManager {
 	app: App;
-	plugin: MyPlugin;
+	plugin: FileExplorerPlugin;
+	private recountTimer: number | null = null;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: FileExplorerPlugin) {
 		this.app = app;
 		this.plugin = plugin;
 	}
@@ -28,6 +29,27 @@ export class FileCountManager {
 			setTimeout(() => {
 				this.updateAllFileCounts();
 			}, 2000);
+
+			// Registered once the layout is ready: until then Obsidian reports every existing
+			// file as created, and each one scheduled a recount of its folder chain.
+			this.plugin.registerEvent(
+				this.app.vault.on("create", (file) => {
+					setTimeout(() => {
+						if (file instanceof TFile) {
+							const parent = file.parent;
+							if (parent) {
+								this.updateFileCount(parent);
+								this.updateParentCounts(parent);
+							}
+						} else if (file instanceof TFolder) {
+							this.updateFileCount(file);
+							if (file.parent) {
+								this.updateParentCounts(file.parent);
+							}
+						}
+					}, 100);
+				})
+			);
 		});
 
 		// Also update on sidebar toggle to ensure class is applied
@@ -43,26 +65,7 @@ export class FileCountManager {
 			})
 		);
 
-		// Update when files are created/renamed/deleted
-		this.plugin.registerEvent(
-			this.app.vault.on("create", (file) => {
-				setTimeout(() => {
-					if (file instanceof TFile) {
-						const parent = file.parent;
-						if (parent) {
-							this.updateFileCount(parent);
-							this.updateParentCounts(parent);
-						}
-					} else if (file instanceof TFolder) {
-						this.updateFileCount(file);
-						if (file.parent) {
-							this.updateParentCounts(file.parent);
-						}
-					}
-				}, 100);
-			})
-		);
-
+		// Update when files are renamed/deleted (created: see onLayoutReady above)
 		this.plugin.registerEvent(
 			this.app.vault.on("rename", (file, oldPath) => {
 				setTimeout(() => {
@@ -80,7 +83,9 @@ export class FileCountManager {
 						}
 					} else if (file instanceof TFolder) {
 						this.updateFileCount(file);
+						// updateParentCounts starts above the folder it's given.
 						if (file.parent) {
+							this.updateFileCount(file.parent);
 							this.updateParentCounts(file.parent);
 						}
 					}
@@ -110,11 +115,22 @@ export class FileCountManager {
 		// Update when file explorer is expanded/collapsed
 		this.plugin.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => {
-				setTimeout(() => {
+				// One recount for a burst of changes, not one per change.
+				if (this.recountTimer !== null) window.clearTimeout(this.recountTimer);
+				this.recountTimer = window.setTimeout(() => {
+					this.recountTimer = null;
 					this.updateAllFileCounts();
 				}, 200);
 			})
 		);
+	}
+
+	/** Take the badges and the padding class out of the file explorer (on unload). */
+	cleanup(): void {
+		if (this.recountTimer !== null) window.clearTimeout(this.recountTimer);
+		this.recountTimer = null;
+		this.removeAllBadges();
+		this.removeFileCountClass();
 	}
 
 	private getParentFromPath(path: string): TFolder | null {

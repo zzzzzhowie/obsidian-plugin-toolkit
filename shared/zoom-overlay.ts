@@ -110,7 +110,9 @@ export class ZoomOverlay {
 				// Cleared (not left set) as soon as the modifier comes back up. A host that
 				// rewrites the whole style attribute when it re-renders (Excalidraw does)
 				// only means the hint is re-applied on the next move.
-				target.style.cursor = event.metaKey || event.ctrlKey ? "zoom-in" : "";
+				const cursor = event.metaKey || event.ctrlKey ? "zoom-in" : "";
+				// Only when it changes: this runs on every pointer move over a drawing.
+				if (target.style.cursor !== cursor) target.style.cursor = cursor;
 			});
 		}
 	}
