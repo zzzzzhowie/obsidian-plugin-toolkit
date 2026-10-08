@@ -10,6 +10,8 @@ export interface PeekSelection {
 
 /** Claudian's chip for the editor 划词 in the composer's context row. */
 const CHIP = '.claudian-context-chip[data-context-slot="editor-selection"]';
+/** The tag under a sent prompt naming the lines it went with (main.ts, tagSentSelections). */
+const TAG = ".claudian-enhanced-selection-tag";
 const PEEK_CLS = "claudian-enhanced-peek";
 const SHOW_DELAY_MS = 150;
 const HIDE_DELAY_MS = 200;
@@ -24,9 +26,13 @@ const MAX_LINE_CHARS = 120;
  * own label as a tooltip, so there was no seeing what would go with the prompt short of going
  * back to the note. A long selection is cut to its first lines with a count of the rest; the
  * card stays open while the pointer is over it, to scroll what is shown.
+ *
+ * A sent prompt's line tag shows the same card for the selection the prompt went with — on
+ * hover, and at once on a click — and there the card's heading goes to those lines.
  */
 export class SelectionPeek {
 	private card: HTMLElement | null = null;
+	/** The chip or tag the card is for. */
 	private chip: HTMLElement | null = null;
 	private showTimer: number | null = null;
 	private hideTimer: number | null = null;
@@ -35,6 +41,10 @@ export class SelectionPeek {
 		private readonly root: () => HTMLElement | null,
 		private readonly selection: () => PeekSelection | null,
 		private readonly focusComposer: () => void,
+		/** The selection a sent prompt's tag stands for. */
+		private readonly tagSelection: (tag: HTMLElement) => PeekSelection | null,
+		/** Go to a sent selection's lines in its note. */
+		private readonly openSelection: (selection: PeekSelection) => void,
 	) {}
 
 	/**
@@ -48,6 +58,8 @@ export class SelectionPeek {
 	onMouseDown(evt: MouseEvent): void {
 		const el = evt.target instanceof Element ? evt.target : null;
 		if (!el) return;
+		// A sent prompt's card is about history, not the composer's selection: nothing to keep.
+		if (this.chip?.matches(TAG)) return;
 		const onCard = this.card?.contains(el) ?? false;
 		const chip = el.closest<HTMLElement>(CHIP);
 		if (!onCard && !(chip && this.root()?.contains(chip))) return;
@@ -62,8 +74,8 @@ export class SelectionPeek {
 			this.cancelHide();
 			return;
 		}
-		const chip = el?.closest<HTMLElement>(CHIP) ?? null;
-		if (!chip || !this.root()?.contains(chip)) {
+		const chip = this.anchorOf(el);
+		if (!chip) {
 			if (this.chip || this.card) this.scheduleHide();
 			return;
 		}
@@ -78,6 +90,17 @@ export class SelectionPeek {
 		this.showTimer = window.setTimeout(() => this.show(chip), SHOW_DELAY_MS);
 	}
 
+	/** From a capture-phase `click` on the document: a click on a prompt's tag opens its card at once. */
+	onClick(evt: MouseEvent): void {
+		const el = evt.target instanceof Element ? evt.target : null;
+		const tag = el?.closest<HTMLElement>(TAG) ?? null;
+		if (!tag || !this.root()?.contains(tag)) return;
+		this.cancelHide();
+		this.clearShow();
+		this.chip = tag;
+		this.show(tag);
+	}
+
 	hide(): void {
 		this.clearShow();
 		this.cancelHide();
@@ -86,15 +109,29 @@ export class SelectionPeek {
 		this.chip = null;
 	}
 
+	/** The composer's chip or a prompt's tag `el` is in, inside Claudian's view. */
+	private anchorOf(el: Element | null): HTMLElement | null {
+		const anchor = el?.closest<HTMLElement>(CHIP) ?? el?.closest<HTMLElement>(TAG) ?? null;
+		return anchor && this.root()?.contains(anchor) ? anchor : null;
+	}
+
 	private show(chip: HTMLElement): void {
 		this.showTimer = null;
-		const selection = this.selection();
+		const fromTag = chip.matches(TAG);
+		const selection = fromTag ? this.tagSelection(chip) : this.selection();
 		if (!selection?.selectedText.trim() || !chip.isConnected) return;
 		this.card?.remove();
 		const card = chip.doc.body.createDiv({ cls: PEEK_CLS });
 		const head = card.createDiv({ cls: `${PEEK_CLS}-head` });
 		setIcon(head.createSpan({ cls: `${PEEK_CLS}-icon` }), "text-select");
-		head.createSpan({ cls: `${PEEK_CLS}-where`, text: where(selection) });
+		const whereEl = head.createSpan({ cls: `${PEEK_CLS}-where`, text: where(selection) });
+		if (fromTag) {
+			whereEl.addClass("is-link");
+			whereEl.addEventListener("click", () => {
+				this.hide();
+				this.openSelection(selection);
+			});
+		}
 		const { body, more } = condense(selection.selectedText);
 		card.createDiv({ cls: `${PEEK_CLS}-quote`, text: body });
 		if (more > 0) {

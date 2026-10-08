@@ -408,7 +408,8 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 
 /* The note lines a prompt was sent with (tagSentSelections in main.ts): Claudian strips the
    selection from the bubble once sent, so this names it under the prompt's text. Muted and
-   small — it's a reference, not part of the question — and a link to those lines. */
+   small — it's a reference, not part of the question. Hovered or clicked, it shows the
+   selected text in the peek card (selection-peek.ts), whose heading goes to the lines. */
 .claudian-enhanced-selection-tag {
 	display: flex;
 	align-items: center;
@@ -480,4 +481,14 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	padding-inline-start: calc(var(--size-4-3) + 3px);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
+}
+
+/* A sent prompt's card (selection-peek.ts): its heading goes to the lines. */
+.claudian-enhanced-peek-where.is-link {
+	cursor: pointer;
+}
+
+.claudian-enhanced-peek-where.is-link:hover {
+	color: var(--text-accent);
+	text-decoration: underline;
 }

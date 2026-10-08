@@ -1,7 +1,7 @@
 import { FileSystemAdapter, MarkdownView, Platform, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
-import { SelectionPeek } from "./selection-peek";
+import { type PeekSelection, SelectionPeek } from "./selection-peek";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
 const CLAUDIAN_VIEW = "claudian-view";
@@ -326,6 +326,8 @@ interface SentSelection {
 	path: string;
 	start: number;
 	end: number;
+	/** The selected text, as sent; shown in the tag's peek card. */
+	text: string;
 }
 
 /**
@@ -348,6 +350,7 @@ interface ClaudianMessage {
 interface ClaudianSelectionContext {
 	notePath?: string;
 	mode?: string;
+	selectedText?: string;
 	startLine?: number;
 	lineCount?: number;
 }
@@ -403,6 +406,7 @@ function sentLines(selection: ClaudianSelectionContext | null | undefined): Sent
 		path: selection.notePath,
 		start: selection.startLine,
 		end: selection.startLine + Math.max(1, selection.lineCount ?? 1) - 1,
+		text: selection.selectedText ?? "",
 	};
 }
 
@@ -418,6 +422,38 @@ function decodeAttribute(value: string): string {
 
 function nodeRequire<T>(id: string): T {
 	return (window as unknown as { require: (id: string) => T }).require(id);
+}
+
+/** A `<br>` as it reads once escaped to text. */
+const BR_TEXT = /<br\s*\/?>/i;
+
+/**
+ * Turn the `<br>`s in the table cells under `root` back into line breaks.
+ *
+ * Markdown has no line break inside a table cell, so a reply breaks one with `<br>` — and
+ * Claudian escapes every bit of raw HTML in a reply before rendering it, so the cell showed
+ * the tag as text. Only `<br>`, the one tag a cell needs, and only in text outside code,
+ * where a literal `<br>` is meant to be read as one.
+ */
+function breakCellLines(root: Node): void {
+	if (!(root instanceof HTMLElement)) return;
+	const cells = root.matches("td, th") ? [root] : Array.from(root.querySelectorAll<HTMLElement>("td, th"));
+	for (const cell of cells) {
+		if (!cell.textContent || !BR_TEXT.test(cell.textContent) || !cell.closest(".claudian-message")) continue;
+		const doc = cell.ownerDocument;
+		const walker = doc.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+		const texts: Text[] = [];
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) texts.push(node as Text);
+		for (const text of texts) {
+			if (!BR_TEXT.test(text.data) || text.parentElement?.closest("code")) continue;
+			const fragment = doc.createDocumentFragment();
+			text.data.split(/<br\s*\/?>/i).forEach((part, index) => {
+				if (index > 0) fragment.appendChild(doc.createElement("br"));
+				if (part) fragment.appendChild(doc.createTextNode(part));
+			});
+			text.replaceWith(fragment);
+		}
+	}
 }
 
 /**
@@ -516,6 +552,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * for them; null for one sent with none. See tagSentSelections.
 	 */
 	private sentSelections = new Map<string, SentSelection | null>();
+	/** What each prompt's tag stands for; see renderSelectionTag. */
+	private tagSelections = new WeakMap<HTMLElement, SentSelection>();
 	/** Passes in a row that found a prompt not filled in yet; see tagSentSelections. */
 	private tagRetries = 0;
 	private tagRetryTimer: number | null = null;
@@ -545,6 +583,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		() => this.getClaudianLeaf()?.view.containerEl ?? null,
 		() => this.getSelectionController()?.storedSelection ?? null,
 		() => this.visibleInput()?.querySelector<HTMLElement>(".cm-content")?.focus(),
+		(tag) => this.peekForTag(tag),
+		(selection) => this.openSelection(selection),
 	);
 
 	async onload(): Promise<void> {
@@ -608,6 +648,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			{ capture: true },
 		);
 		this.registerDomEvent(document, "mousedown", (e) => this.selectionPeek.onMouseDown(e), { capture: true });
+		this.registerDomEvent(document, "click", (e) => this.selectionPeek.onClick(e), { capture: true });
 		this.register(() => this.selectionPeek.hide());
 		// Escape cancels a live 划词 (see onEscapeCapture). Listened for on window in
 		// the capture phase so it runs regardless of where focus currently sits.
@@ -817,7 +858,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const existing = this.getClaudianLeaf();
 		if (existing) {
 			this.ensureSideOpen(this.sidebarOf(existing));
-			void this.app.workspace.revealLeaf(existing).then(() => this.returnToSpot(false));
+			const swapping = this.catchUpBeforeShow();
+			void this.app.workspace.revealLeaf(existing).then(() => {
+				this.returnToSpot(false);
+				if (swapping) this.liftVeilWhenSettled(existing.view.containerEl);
+			});
 		} else {
 			(this.app as unknown as AppWithCommands).commands.executeCommandById(
 				OPEN_COMMAND,
@@ -831,6 +876,30 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// re-asserting the note (see syncCurrentNoteChip).
 		this.lastSyncedPath = null;
 		this.scheduleChipSync();
+	}
+
+	/**
+	 * Before ⌘L shows Claudian, put the open note's conversation in it — when what it holds
+	 * is the conversation of a note left while it was hidden. Shown first and caught up by
+	 * the sync after (which waits out keepNoteActive, most of a second), that other
+	 * conversation was on screen until the swap; a note with none flashed someone else's
+	 * history before its fresh one. Swapped while still hidden, and veiled until it lands,
+	 * the note's own conversation — or a fresh one — is the first thing shown.
+	 *
+	 * Reports whether a swap was started. Needs Claudian mounted: never opened this session,
+	 * it has no conversation to show yet, and its own restore is reconciled on startup.
+	 */
+	private catchUpBeforeShow(): boolean {
+		const path = this.activeNotePath();
+		if (!path || !this.claudianMounted()) return false;
+		// First show this session: the conversation Claudian restored belongs to the note it
+		// is linked to, as reconcileChipOnStartup reads it.
+		if (this.lastOpenedPath === null) this.lastOpenedPath = this.linkedNotePath();
+		if (this.lastOpenedPath === null || this.lastOpenedPath === path) return false;
+		this.veilUntilSettled(path, false);
+		this.lastSyncedPath = path;
+		this.handleNoteChange(path);
+		return true;
 	}
 
 	/**
@@ -1917,12 +1986,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 									.map((block) => block.text ?? "")
 									.join("\n")
 							: "";
-				const found = /<editor_selection path="([^"]*)" lines="(\d+)-(\d+)"/.exec(prompt);
+				const found = /<editor_selection path="([^"]*)" lines="(\d+)-(\d+)">([\s\S]*?)<\/editor_selection>/.exec(prompt);
 				if (!found) continue;
+				// Claudian writes the text as CDATA, splitting it wherever it holds `]]>`.
+				const text = Array.from((found[4] ?? "").matchAll(/<!\[CDATA\[([\s\S]*?)\]\]>/g), (piece) => piece[1] ?? "").join("");
 				this.sentSelections.set(entry.uuid, {
 					path: decodeAttribute(found[1] ?? ""),
 					start: Number(found[2]),
 					end: Number(found[3]),
+					text,
 				});
 			}
 		}
@@ -1941,18 +2013,34 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const linked = this.linkedNotePath();
 		const note = selection.path === linked ? "" : `${selection.path.split("/").pop()?.replace(/\.md$/, "")} · `;
 		const label = `${note}${lines}`;
-		if (existing?.dataset.label === label) return;
+		if (existing?.dataset.label === label) {
+			this.tagSelections.set(existing, selection);
+			return;
+		}
 		existing?.remove();
-		const tag = content.createDiv({ cls: SELECTION_TAG_CLS, attr: { "aria-label": selection.path, "data-label": label } });
+		// No tooltip: hovering it shows the peek card, which says more (selection-peek.ts).
+		const tag = content.createDiv({ cls: SELECTION_TAG_CLS, attr: { "data-label": label } });
 		setIcon(tag.createSpan({ cls: `${SELECTION_TAG_CLS}-icon` }), "text-select");
 		tag.createSpan({ text: label });
-		// To those lines in the note, as the selection was made there.
-		tag.addEventListener("click", (event) => {
-			event.preventDefault();
-			event.stopPropagation();
-			void this.app.workspace.openLinkText(selection.path, "", false, {
-				eState: { line: selection.start - 1 },
-			});
+		this.tagSelections.set(tag, selection);
+	}
+
+	/** The selection a prompt's tag stands for, as the peek card shows it. */
+	private peekForTag(tag: HTMLElement): PeekSelection | null {
+		const selection = this.tagSelections.get(tag);
+		if (!selection) return null;
+		return {
+			notePath: selection.path,
+			selectedText: selection.text,
+			startLine: selection.start,
+			lineCount: selection.end - selection.start + 1,
+		};
+	}
+
+	/** To a sent selection's lines in its note, from its peek card. */
+	private openSelection(selection: PeekSelection): void {
+		void this.app.workspace.openLinkText(selection.notePath, "", false, {
+			eState: { line: (selection.startLine ?? 1) - 1 },
 		});
 	}
 
@@ -2004,6 +2092,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				// of Claudian's; read as streaming, every scroll would answer itself.
 				if (record.type === "attributes" && onlyOwnClassesChanged(record)) continue;
 				this.hideIfRebuilding(record);
+				for (const node of Array.from(record.addedNodes)) breakCellLines(node);
 				const added = this.addedUserMessage(record);
 				submitted ??= added;
 				streamed ??= this.messagesListOf(record.target);
@@ -2031,6 +2120,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			}
 			if (queued) this.handleQueueChange();
 		});
+		breakCellLines(container);
 		this.submitScrollObserver.observe(container, {
 			childList: true,
 			subtree: true,
@@ -2884,12 +2974,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				const pinned = this.pinnedPrompt;
 				const target = event.target as HTMLElement | null;
 				if (!pinned || !target || !pinned.contains(target)) return;
-				// The bubble hosts Claudian's copy / rewind / fork toolbar and can hold
-				// links, all of which keep their own meaning.
+				// The bubble hosts Claudian's copy / rewind / fork toolbar, our fold toggle and
+				// line tag, and can hold links, all of which keep their own meaning.
 				if (
 					target.closest(CLAUDIAN_USER_ACTIONS) ??
 					target.closest(CLAUDIAN_LINK) ??
-					target.closest(`button, .${FOLD_TOGGLE_CLS}`)
+					target.closest(`button, .${FOLD_TOGGLE_CLS}, .${SELECTION_TAG_CLS}`)
 				) {
 					return;
 				}
