@@ -27,8 +27,8 @@ const MAX_LINE_CHARS = 120;
  * back to the note. A long selection is cut to its first lines with a count of the rest; the
  * card stays open while the pointer is over it, to scroll what is shown.
  *
- * A sent prompt's line tag shows the same card for the selection the prompt went with — on
- * hover, and at once on a click — and there the card's heading goes to those lines.
+ * A sent prompt's line tag shows the same card, on hover, for the selection the prompt went
+ * with; a click on the tag, or on the card's heading, goes to those lines.
  */
 export class SelectionPeek {
 	private card: HTMLElement | null = null;
@@ -90,15 +90,15 @@ export class SelectionPeek {
 		this.showTimer = window.setTimeout(() => this.show(chip), SHOW_DELAY_MS);
 	}
 
-	/** From a capture-phase `click` on the document: a click on a prompt's tag opens its card at once. */
+	/** From a capture-phase `click` on the document: a click on a prompt's tag goes to its lines. */
 	onClick(evt: MouseEvent): void {
 		const el = evt.target instanceof Element ? evt.target : null;
 		const tag = el?.closest<HTMLElement>(TAG) ?? null;
 		if (!tag || !this.root()?.contains(tag)) return;
-		this.cancelHide();
-		this.clearShow();
-		this.chip = tag;
-		this.show(tag);
+		const selection = this.tagSelection(tag);
+		if (!selection) return;
+		this.hide();
+		this.openSelection(selection);
 	}
 
 	hide(): void {

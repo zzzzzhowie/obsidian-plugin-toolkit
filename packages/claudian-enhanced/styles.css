@@ -408,8 +408,8 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 
 /* The note lines a prompt was sent with (tagSentSelections in main.ts): Claudian strips the
    selection from the bubble once sent, so this names it under the prompt's text. Muted and
-   small — it's a reference, not part of the question. Hovered or clicked, it shows the
-   selected text in the peek card (selection-peek.ts), whose heading goes to the lines. */
+   small — it's a reference, not part of the question. Hovered, it shows the selected text in
+   the peek card (selection-peek.ts); clicked, it goes to the lines. */
 .claudian-enhanced-selection-tag {
 	display: flex;
 	align-items: center;
@@ -491,4 +491,12 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 .claudian-enhanced-peek-where.is-link:hover {
 	color: var(--text-accent);
 	text-decoration: underline;
+}
+
+/* A list in a prompt starts where the prompt's text does. Claudian draws the numbers inside
+   the items and indents the list too, so a numbered prompt sat 20px right of a plain one and
+   of its line tag. Only the outermost list: a nested one keeps its indent. (0,3,1) to beat
+   Claudian's own list padding whatever the stylesheet order. */
+.claudian-message-user.claudian-message-user > .claudian-message-content > .claudian-text-block > :is(ol, ul) {
+	padding-inline-start: 0;
 }

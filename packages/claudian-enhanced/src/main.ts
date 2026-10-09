@@ -231,6 +231,8 @@ interface ClaudianStoredSelection {
  */
 interface ClaudianTab {
 	id?: string;
+	/** Draws the conversation; `removeMessage` takes one message's element away. */
+	renderer?: { removeMessage?: (id: string) => void };
 	conversationId?: string | null;
 	/**
 	 * How far Claudian has got loading this tab's conversation history: "loading", then
@@ -339,6 +341,7 @@ interface ClaudianMessage {
 	id?: string;
 	/** The id Claude Code's session file knows the prompt by; a fresh prompt's `id` is Claudian's own. */
 	userMessageId?: string;
+	role?: string;
 	executionInput?: {
 		context?: {
 			editorSelection?: ClaudianSelectionContext;
@@ -564,6 +567,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** Claude Code session files already read for sentSelections, with the mtime read. */
 	private readSessions = new Map<string, number>();
 	private tagFrame: number | null = null;
+	private dedupeFrame: number | null = null;
 	/** See StoredData.clearedNotes. */
 	private clearedNotes: Record<string, number> = {};
 	/** Message lists a conversation is being restored into; our own scrolling leaves these alone. */
@@ -1846,6 +1850,51 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return leaf.view.getViewType() === "markdown" && this.sidebarOf(leaf) === null;
 	}
 
+	private scheduleDedupe(): void {
+		if (this.dedupeFrame !== null) return;
+		this.dedupeFrame = requestAnimationFrame(() => {
+			this.dedupeFrame = null;
+			this.dropDuplicateTurns();
+		});
+	}
+
+	/**
+	 * Take the second copy of a turn out of a conversation. Claudian has been keeping a turn
+	 * twice — the copy it made as the prompt was sent and streamed (its own `msg-…` ids), and
+	 * the same turn as Claude Code recorded it (the prompt under its session id) — so the
+	 * prompt and its reply showed twice, every turn of a conversation from some point on. The
+	 * two are the same prompt by `userMessageId`. Only once Claude Code's copy is there with its
+	 * reply is the sent copy dropped, from the conversation and from the page; a tab still
+	 * working is left alone. What sets it off in Claudian isn't pinned down; this undoes it.
+	 */
+	private dropDuplicateTurns(): void {
+		const manager = this.getTabManager();
+		for (const tab of manager?.getAllTabs?.() ?? []) {
+			if (this.tabWorking(manager, tab)) continue;
+			const messages = tab.state?.messages as ClaudianMessage[] | undefined;
+			if (!Array.isArray(messages)) continue;
+			// Claude Code's copy of a prompt: its id is the session's, and its reply follows it.
+			const recorded = new Set<string>();
+			messages.forEach((message, i) => {
+				if (message.role !== "user" || !message.userMessageId || message.id !== message.userMessageId) return;
+				if (messages[i + 1]?.role === "assistant") recorded.add(message.userMessageId);
+			});
+			const dropped: number[] = [];
+			messages.forEach((message, i) => {
+				if (message.role !== "user" || !message.userMessageId || message.id === message.userMessageId) return;
+				if (!recorded.has(message.userMessageId)) return;
+				dropped.push(i);
+				for (let j = i + 1; j < messages.length && messages[j]?.role !== "user"; j++) {
+					if (String(messages[j]?.id ?? "").startsWith("msg-")) dropped.push(j);
+				}
+			});
+			for (const i of dropped.sort((a, b) => b - a)) {
+				const [message] = messages.splice(i, 1);
+				if (message?.id) tab.renderer?.removeMessage?.(message.id);
+			}
+		}
+	}
+
 	private scheduleSelectionTags(): void {
 		if (this.tagFrame !== null) return;
 		this.tagFrame = requestAnimationFrame(() => {
@@ -2101,6 +2150,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			}
 			if (promptsChanged) {
 				this.scheduleFold(container);
+				this.scheduleDedupe();
 				this.scheduleSelectionTags();
 			} else if (this.tagsPending && streamed) {
 				this.scheduleSelectionTags();
@@ -2121,6 +2171,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (queued) this.handleQueueChange();
 		});
 		breakCellLines(container);
+		this.scheduleDedupe();
 		this.submitScrollObserver.observe(container, {
 			childList: true,
 			subtree: true,
