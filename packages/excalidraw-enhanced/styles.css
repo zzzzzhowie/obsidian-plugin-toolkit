@@ -106,7 +106,10 @@ body.excalidraw-enhanced-sizing
 	z-index: 10001;
 }
 
-.excalidraw-zoom-toolbar button {
+/* The toolbar's buttons. Tripled to (0,3,1): the Primary theme styles every button through
+   `button:not(button.clickable-icon)` and its states at up to (0,2,2), and its text colour
+   won — the theme's dark text on this dark bar, so the buttons showed blank. */
+.excalidraw-zoom-toolbar.excalidraw-zoom-toolbar.excalidraw-zoom-toolbar button {
 	background-color: rgba(255, 255, 255, 0.1);
 	border: 1px solid rgba(255, 255, 255, 0.2);
 	color: white;
@@ -118,11 +121,11 @@ body.excalidraw-enhanced-sizing
 	transition: background-color 0.2s;
 }
 
-.excalidraw-zoom-toolbar button:hover {
+.excalidraw-zoom-toolbar.excalidraw-zoom-toolbar.excalidraw-zoom-toolbar button:hover {
 	background-color: rgba(255, 255, 255, 0.2);
 }
 
-.excalidraw-zoom-toolbar button:active {
+.excalidraw-zoom-toolbar.excalidraw-zoom-toolbar.excalidraw-zoom-toolbar button:active {
 	background-color: rgba(255, 255, 255, 0.3);
 }
 

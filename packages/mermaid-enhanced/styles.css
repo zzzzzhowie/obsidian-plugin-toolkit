@@ -115,6 +115,18 @@
 	cursor: inherit !important;
 }
 
+/* Labels stay text in the zoom: a drag on one selects it (selectableText in main.ts), with
+   the text cursor to say so. The container keeps user-select off for everything else, so a
+   pan never starts a selection. */
+.mermaid-zoom-container svg :is(foreignObject, text) {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+.mermaid-zoom-container svg :is(foreignObject, foreignObject *, text, text *) {
+	cursor: text !important;
+}
+
 .mermaid-zoom-toolbar {
 	display: flex;
 	align-items: center;
@@ -128,7 +140,10 @@
 	z-index: 10001;
 }
 
-.mermaid-zoom-toolbar button {
+/* The toolbar's buttons. Tripled to (0,3,1): the Primary theme styles every button through
+   `button:not(button.clickable-icon)` and its states at up to (0,2,2), and its text colour
+   won — the theme's dark text on this dark bar, so the buttons showed blank. */
+.mermaid-zoom-toolbar.mermaid-zoom-toolbar.mermaid-zoom-toolbar button {
 	background-color: rgba(255, 255, 255, 0.1);
 	border: 1px solid rgba(255, 255, 255, 0.2);
 	color: white;
@@ -140,11 +155,11 @@
 	transition: background-color 0.2s;
 }
 
-.mermaid-zoom-toolbar button:hover {
+.mermaid-zoom-toolbar.mermaid-zoom-toolbar.mermaid-zoom-toolbar button:hover {
 	background-color: rgba(255, 255, 255, 0.2);
 }
 
-.mermaid-zoom-toolbar button:active {
+.mermaid-zoom-toolbar.mermaid-zoom-toolbar.mermaid-zoom-toolbar button:active {
 	background-color: rgba(255, 255, 255, 0.3);
 }
 
@@ -209,4 +224,79 @@
 .markdown-source-view.mod-cm6 .cm-embed-block:not(.cm-table-widget):hover .mermaid-caption-btn:hover {
 	background: var(--embed-edit-btn-bg-hover);
 	box-shadow: var(--embed-edit-btn-shadow-hover);
+}
+
+/* Paging through the note's diagrams (gallery in main.ts): a strip of thumbnails under the
+   toolbar, the one on show outlined. The container gives up the strip's height. */
+.mermaid-zoom-overlay.mermaid-zoom-has-strip .mermaid-zoom-container {
+	max-height: calc(96vh - 60px - 80px);
+}
+
+/* With a strip under it the toolbar sits closer, to leave the diagram the room. */
+.mermaid-zoom-overlay.mermaid-zoom-has-strip .mermaid-zoom-toolbar {
+	margin-bottom: 8px;
+	padding-block: 8px;
+}
+
+.mermaid-zoom-strip {
+	display: flex;
+	gap: 6px;
+	max-width: 90vw;
+	overflow-x: auto;
+	padding: 2px 4px 4px;
+	margin-bottom: 8px;
+	pointer-events: auto;
+}
+
+.mermaid-zoom-strip .mermaid-zoom-thumb.mermaid-zoom-thumb.mermaid-zoom-thumb {
+	flex: 0 0 auto;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+	width: 96px;
+	height: auto;
+	padding: 4px;
+	background-color: rgba(255, 255, 255, 0.08);
+	border: 2px solid transparent;
+	border-radius: 8px;
+	box-shadow: none;
+	color: rgba(255, 255, 255, 0.85);
+	cursor: pointer;
+}
+
+.mermaid-zoom-strip .mermaid-zoom-thumb.mermaid-zoom-thumb.mermaid-zoom-thumb:hover {
+	background-color: rgba(255, 255, 255, 0.16);
+}
+
+.mermaid-zoom-strip .mermaid-zoom-thumb.mermaid-zoom-thumb.mermaid-zoom-thumb.is-current {
+	border-color: var(--interactive-accent);
+	background-color: rgba(255, 255, 255, 0.16);
+}
+
+.mermaid-zoom-thumb-picture {
+	width: 86px;
+	height: 44px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background-color: var(--background-primary);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.mermaid-zoom-thumb-picture svg {
+	width: 100%;
+	height: 100%;
+	max-width: 100%;
+	pointer-events: none;
+}
+
+.mermaid-zoom-thumb-label {
+	width: 100%;
+	font-size: 11px;
+	line-height: 1.2;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }

@@ -1,5 +1,9 @@
+import { EditorState, type Text, type Transaction, type TransactionSpec } from "@codemirror/state";
+import { EditorView, type ViewUpdate } from "@codemirror/view";
 import {
 	App,
+	editorLivePreviewField,
+	loadMermaid,
 	MarkdownView,
 	Modal,
 	Notice,
@@ -13,8 +17,10 @@ import {
 	MermaidEnhancedSettings,
 	MermaidEnhancedSettingTab,
 } from "./settings";
-import { ZoomOverlay } from "../../../shared/zoom-overlay";
+import { type Gallery, ZoomOverlay, type ZoomTarget } from "../../../shared/zoom-overlay";
 
+/** Attribute stamped on a reading-view block naming the note line its diagram starts on. */
+const LINE_ATTR = "data-mermaid-line";
 /** Attribute stamped on a block container carrying its `%% fit: ... %%` value. */
 const FIT_ATTR = "data-mermaid-fit-override";
 
@@ -52,6 +58,10 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	private sectionLines: string[] = [];
 	/** Debounce timer for window resize. */
 	private resizeTimer: number | null = null;
+	/** When the edit button of a diagram was last pressed; see keepCursorOutOfDiagrams. */
+	private editPressedAt = 0;
+	/** Where the diagram being edited (opened with its edit button) starts. */
+	private editingDiagramAt: number | null = null;
 	/** The diagram currently being dragged via its slider (skip re-fitting it). */
 	private draggingSvg: SVGSVGElement | null = null;
 
@@ -61,11 +71,47 @@ export default class MermaidEnhancedPlugin extends Plugin {
 
 		// Click a diagram to open a zoomable/pannable overlay: Cmd/Ctrl-click on
 		// desktop, plain tap on mobile. The overlay itself is shared with Excalidraw
-		// Enhanced; only the two lines below are ours.
+		// Enhanced; only the options below are ours.
 		new ZoomOverlay(this, {
 			target: ".mermaid svg",
 			cssPrefix: "mermaid-zoom",
+			// Node and edge labels stay text in the zoom, to select and copy.
+			selectableText: "foreignObject, text",
+			// Every diagram in the note, to page through from the one clicked.
+			gallery: (target) => this.diagramsAround(target),
 		}).register();
+
+		// A diagram shows as code only once its edit button is pressed.
+		this.registerEditorExtension([
+			EditorState.transactionFilter.of((tr) => this.keepCursorOutOfDiagrams(tr)),
+			EditorView.updateListener.of((update) => this.stepOutOfDiagram(update)),
+		]);
+		this.registerDomEvent(
+			document,
+			"click",
+			(event: MouseEvent) => {
+				const target = event.target instanceof Element ? event.target : null;
+				const button = target?.closest(".edit-block-button");
+				if (button?.closest(".cm-embed-block")?.querySelector(".mermaid")) this.editPressedAt = Date.now();
+			},
+			{ capture: true },
+		);
+		// A press on a diagram focuses the editor, and a focused editor shows as code the
+		// block its cursor is in. The cursor is moved out first, so focus finds it outside.
+		this.registerDomEvent(
+			document,
+			"mousedown",
+			(event: MouseEvent) => {
+				const target = event.target instanceof Element ? event.target : null;
+				const block = target?.closest(".cm-embed-block");
+				if (!block?.querySelector(".mermaid") || target?.closest(".edit-block-button")) return;
+				const editorEl = block.closest<HTMLElement>(".cm-editor");
+				const view = editorEl ? EditorView.findFromDOM(editorEl) : null;
+				const pos = view ? this.outsideDiagram(view.state) : null;
+				if (view && pos !== null) view.dispatch({ selection: { anchor: pos } });
+			},
+			{ capture: true },
+		);
 
 		// Read per-diagram directives (`%% fit: ... %%`) from the block source and
 		// stamp them onto the rendered container so fitSvg can honor them.
@@ -87,6 +133,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 				info.lineStart > 0 ? (lines[info.lineStart - 1] ?? "") : "";
 			const value = this.parseFitLine(src) ?? this.parseFitLine(above);
 			if (value) el.setAttribute(FIT_ATTR, value);
+			// Which block of the note this is, for paging through its diagrams (diagramsAround).
+			el.setAttribute(LINE_ATTR, String(info.lineStart));
 			const caption = this.parseCaption(src);
 			if (caption) el.setAttribute(CAPTION_ATTR, caption);
 		});
@@ -107,7 +155,12 @@ export default class MermaidEnhancedPlugin extends Plugin {
 				// Only a diagram arriving matters. The workspace changes on every keystroke, and
 				// a pass reads the layout of every diagram open.
 				if (!this.bringsDiagram(m)) continue;
-				this.scheduleProcess();
+				// Now, not on the next frame: this callback runs before the browser paints, and
+				// a frame later Mermaid's own size (as wide as its viewBox, up to the full
+				// width) had already been drawn and then shrunk to the fit — a jump every time
+				// Live Preview redraws a diagram, as it does scrolling back to one or when the
+				// blocks around it change height.
+				this.processAll();
 				return;
 			}
 		});
@@ -147,6 +200,118 @@ export default class MermaidEnhancedPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	/**
+	 * Keep the cursor out of a Mermaid block in Live Preview unless its edit button put it
+	 * there. Live Preview shows a block as source whenever the cursor is inside it, and the
+	 * cursor got there in ways that had nothing to do with editing — the press that opens the
+	 * zoom, a click on the diagram, closing the zoom — so the diagram kept turning into code.
+	 * The edit button is the one way in: the cursor it places is let through, and stays free
+	 * in that block until it leaves. Any other move into a diagram is turned away — the cursor
+	 * stays where it was, or, moving with the keys, steps over the diagram to the other side.
+	 */
+	private keepCursorOutOfDiagrams(tr: Transaction): Transaction | TransactionSpec[] {
+		if (!tr.selection || !tr.state.field(editorLivePreviewField, false)) return tr;
+		const head = tr.selection.main.head;
+		const block = mermaidBlockAt(tr.state.doc, head);
+		if (!block) {
+			this.editingDiagramAt = null;
+			return tr;
+		}
+		if (Date.now() - this.editPressedAt < 1500) {
+			this.editPressedAt = 0;
+			this.editingDiagramAt = block.from;
+			return tr;
+		}
+		if (this.editingDiagramAt === block.from) return tr;
+		const before = tr.startState.selection.main.head;
+		// Where it was — unless that is inside the diagram too (a note opens with its cursor at
+		// the top, which is inside a diagram the note starts with): then past the diagram.
+		const kept = tr.startState.selection.map(tr.changes);
+		const keptBlock = mermaidBlockAt(tr.state.doc, kept.main.head);
+		const stay: TransactionSpec = {
+			selection: keptBlock ? { anchor: afterBlock(tr.state.doc, keptBlock) ?? kept.main.head } : kept,
+			sequential: true,
+		};
+		// A click or a programmatic move: the cursor stays where it was.
+		if (!tr.isUserEvent("select") || tr.isUserEvent("select.pointer")) return [tr, stay];
+		// Moving with the keys: over the diagram, to the line past it on the side it was heading.
+		const doc = tr.state.doc;
+		const past = before <= block.from ? block.to + 1 : block.from - 1;
+		if (past < 0 || past > doc.length) return [tr, stay];
+		const { anchor, empty } = tr.selection.main;
+		return [tr, { selection: { anchor: empty ? past : anchor, head: past }, sequential: true }];
+	}
+
+	/**
+	 * Every Mermaid diagram in the note the clicked one is in, for the zoom to page through,
+	 * or null when the clicked one can't be placed among them. Read from the note's source
+	 * rather than the page: Live Preview and reading view only keep the blocks near the
+	 * screen in the page, so a long note's far diagrams aren't there to clone. The clicked one
+	 * is taken as it is; the others are drawn by Obsidian's own Mermaid when first shown.
+	 */
+	private async diagramsAround(target: ZoomTarget): Promise<Gallery | null> {
+		let view: MarkdownView | null = null;
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!view && leaf.view instanceof MarkdownView && leaf.view.containerEl.contains(target)) view = leaf.view;
+		});
+		const found = view as MarkdownView | null;
+		if (!found) return null;
+		const blocks = mermaidSources(found.getViewData());
+		if (blocks.length < 2) return null;
+		const line = this.lineOf(target);
+		const index = line === null ? -1 : blocks.findIndex((block) => block.start <= line && line <= block.end);
+		if (index < 0) return null;
+		return {
+			index,
+			items: blocks.map((block, i) => ({
+				label: block.caption ?? `Diagram ${i + 1}`,
+				element: () => (i === index ? Promise.resolve(target) : renderDiagram(block.code)),
+			})),
+		};
+	}
+
+	/** The note line (0-based) a diagram on the page starts on: from the editor in Live Preview, the post-processor's stamp in reading view. */
+	private lineOf(target: ZoomTarget): number | null {
+		const stamped = target.closest(`[${LINE_ATTR}]`)?.getAttribute(LINE_ATTR);
+		if (stamped) return Number(stamped);
+		const editorEl = target.closest<HTMLElement>(".cm-editor");
+		const view = editorEl ? EditorView.findFromDOM(editorEl) : null;
+		if (!view) return null;
+		try {
+			return view.state.doc.lineAt(view.posAtDOM(target)).number - 1;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Where to put a cursor that sits inside a diagram it wasn't let into, or null when it
+	 * doesn't. Its cursor can be inside one without ever moving there: a note opens with the
+	 * cursor at its start, which is inside a diagram the note begins with, and the editor
+	 * shows that block as code the moment it is focused.
+	 */
+	private outsideDiagram(state: EditorState): number | null {
+		if (!state.field(editorLivePreviewField, false)) return null;
+		const block = mermaidBlockAt(state.doc, state.selection.main.head);
+		if (!block || this.editingDiagramAt === block.from) return null;
+		return afterBlock(state.doc, block);
+	}
+
+	/**
+	 * The net under the two above: whenever the editor gains focus or its cursor moves, a
+	 * cursor left inside a diagram is moved past it. After the update, since an editor can't
+	 * be changed from inside one.
+	 */
+	private stepOutOfDiagram(update: ViewUpdate): void {
+		if (!update.focusChanged && !update.selectionSet) return;
+		if (!update.view.hasFocus) return;
+		const pos = this.outsideDiagram(update.state);
+		if (pos === null) return;
+		window.setTimeout(() => {
+			if (this.outsideDiagram(update.view.state) === pos) update.view.dispatch({ selection: { anchor: pos } });
+		});
 	}
 
 	/** Whether a mutation added a rendered diagram, or the SVG of one. */
@@ -868,4 +1033,110 @@ class CaptionModal extends Modal {
 	onClose() {
 		this.contentEl.empty();
 	}
+}
+
+/** The Mermaid code blocks of a document, by position; worked out once per document. */
+const diagramBlocks = new WeakMap<Text, { from: number; to: number }[]>();
+
+/** The fenced Mermaid block `pos` is in — from its opening fence to its closing one — or null. */
+function mermaidBlockAt(doc: Text, pos: number): { from: number; to: number } | null {
+	let blocks = diagramBlocks.get(doc);
+	if (!blocks) {
+		blocks = [];
+		let open: { fence: string; from: number; mermaid: boolean } | null = null;
+		for (let n = 1; n <= doc.lines; n++) {
+			const line = doc.line(n);
+			const fence = /^[\s>]*(`{3,}|~{3,})(.*)$/.exec(line.text);
+			if (!fence) continue;
+			const marks = fence[1] ?? "";
+			const rest = (fence[2] ?? "").trim();
+			if (!open) {
+				open = { fence: marks, from: line.from, mermaid: /^mermaid\b/i.test(rest) };
+			} else if (marks[0] === open.fence[0] && marks.length >= open.fence.length && !rest) {
+				if (open.mermaid) blocks.push({ from: open.from, to: line.to });
+				open = null;
+			}
+		}
+		diagramBlocks.set(doc, blocks);
+	}
+	return blocks.find((block) => block.from <= pos && pos <= block.to) ?? null;
+}
+
+/**
+ * The first position past a diagram: the start of the line after it, or the end of the line
+ * before it when it ends the note; null when the diagram is the whole note.
+ */
+function afterBlock(doc: Text, block: { from: number; to: number }): number | null {
+	if (block.to + 1 <= doc.length) return block.to + 1;
+	if (block.from > 0) return block.from - 1;
+	return null;
+}
+
+/** A Mermaid block of a note: its lines (0-based, fences included), code, and caption. */
+interface MermaidSource {
+	start: number;
+	end: number;
+	code: string;
+	/** Its `%% caption %%`, else the heading it sits under; null for neither. */
+	caption: string | null;
+}
+
+/** The note's Mermaid blocks, in order. Fences are matched as mermaidBlockAt matches them. */
+function mermaidSources(text: string): MermaidSource[] {
+	const lines = text.split("\n");
+	const blocks: MermaidSource[] = [];
+	let open: { fence: string; start: number; mermaid: boolean } | null = null;
+	lines.forEach((line, n) => {
+		const fence = /^[\s>]*(`{3,}|~{3,})(.*)$/.exec(line);
+		if (!fence) return;
+		const marks = fence[1] ?? "";
+		const rest = (fence[2] ?? "").trim();
+		if (!open) {
+			open = { fence: marks, start: n, mermaid: /^mermaid\b/i.test(rest) };
+		} else if (marks[0] === open.fence[0] && marks.length >= open.fence.length && !rest) {
+			if (open.mermaid) {
+				const code = lines.slice(open.start + 1, n).join("\n");
+				const caption = /%%\s*caption\s*[:=]?\s*(.+?)\s*%%/i.exec(code)?.[1] ?? headingAbove(lines, open.start);
+				blocks.push({ start: open.start, end: n, code, caption });
+			}
+			open = null;
+		}
+	});
+	return blocks;
+}
+
+/** The text of the nearest heading above line `n`, or null. */
+function headingAbove(lines: string[], n: number): string | null {
+	for (let i = n - 1; i >= 0; i--) {
+		const heading = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(lines[i] ?? "");
+		if (heading) return heading[1] ?? null;
+	}
+	return null;
+}
+
+/** Diagrams drawn for the zoom, by their code: each is drawn once. */
+const drawnDiagrams = new Map<string, Promise<ZoomTarget | null>>();
+let drawnCount = 0;
+
+/** Draw a Mermaid diagram with Obsidian's own Mermaid (its theme and settings), off the page. */
+function renderDiagram(code: string): Promise<ZoomTarget | null> {
+	let drawn = drawnDiagrams.get(code);
+	if (!drawn) {
+		drawn = (async () => {
+			const mermaid = (await loadMermaid()) as {
+				render: (id: string, code: string) => Promise<{ svg: string }>;
+			};
+			const { svg } = await mermaid.render(`mermaid-enhanced-zoom-${++drawnCount}`, code);
+			// Read as HTML, not XML: a label's line break comes out as `<br>`, which isn't XML,
+			// and one in any label failed the whole diagram — an empty thumbnail.
+			const parsed = new DOMParser().parseFromString(svg, "text/html").body.querySelector("svg");
+			return parsed instanceof SVGSVGElement ? (document.importNode(parsed, true) as SVGSVGElement) : null;
+		})().catch((error: unknown) => {
+			console.error("mermaid-enhanced: couldn't draw a diagram for the zoom", error);
+			drawnDiagrams.delete(code);
+			return null;
+		});
+		drawnDiagrams.set(code, drawn);
+	}
+	return drawn;
 }

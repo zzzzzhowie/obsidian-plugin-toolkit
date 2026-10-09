@@ -7,6 +7,20 @@ import { Platform, Plugin, setIcon } from "obsidian";
  */
 export type ZoomTarget = SVGElement | HTMLImageElement;
 
+/** A drawing the zoom can page to; see {@link ZoomOverlayOptions.gallery}. */
+export interface GalleryItem {
+	/** Its name under the thumbnail: a diagram's caption, say. */
+	label: string;
+	/** The drawing, made when first needed (the one clicked is already on the page); null if it can't be. */
+	element: () => Promise<ZoomTarget | null>;
+}
+
+/** The drawings a zoom pages through, and which of them was clicked. */
+export interface Gallery {
+	items: GalleryItem[];
+	index: number;
+}
+
 export interface ZoomOverlayOptions {
 	/**
 	 * Selector for the elements a click zooms — `.mermaid svg`,
@@ -20,6 +34,18 @@ export interface ZoomOverlayOptions {
 	 * fight over the same rules.
 	 */
 	cssPrefix: string;
+	/**
+	 * Selector for the text inside the drawing that can be selected, as on the page: a drag
+	 * that starts on it selects instead of panning. A Mermaid diagram's labels are real text
+	 * (`foreignObject, text`); left out, every drag pans.
+	 */
+	selectableText?: string;
+	/**
+	 * The other drawings to page through from the one clicked — every diagram in its note.
+	 * With two or more, a strip of thumbnails runs under the zoom, the toolbar gets previous
+	 * and next, and ←/→ step through them; left out, the zoom shows the one drawing.
+	 */
+	gallery?: (target: ZoomTarget) => Promise<Gallery | null>;
 }
 
 /** Zoom range, shared by every way of changing it. */
@@ -68,6 +94,16 @@ export class ZoomOverlay {
 	private translateX = 0;
 	private translateY = 0;
 	private isDragging = false;
+	/** The drawing on show, at its own size; what fitting it to the screen measures. */
+	private drawingSize = { width: 800, height: 600 };
+	/** The filter the clicked drawing had in its note, given to every drawing paged to. */
+	private drawingFilter = "";
+	private gallery: Gallery | null = null;
+	/** Each gallery drawing once made, by index. */
+	private galleryDrawings = new Map<number, Promise<ZoomTarget | null>>();
+	/** Bumped on every open and close, so a gallery still loading for an earlier one bows out. */
+	private galleryToken = 0;
+	private strip: HTMLElement | null = null;
 
 	private get isMobile(): boolean {
 		return Platform.isMobile;
@@ -96,6 +132,23 @@ export class ZoomOverlay {
 				event.stopPropagation();
 				event.stopImmediatePropagation();
 				this.showZoomed(target);
+			},
+			{ capture: true },
+		);
+		// The press before that click is the editor's: in Live Preview, Cmd/Ctrl + mousedown
+		// adds a cursor where it lands — inside the diagram's block, which Live Preview then
+		// shows as source, so closing the zoom found the diagram turned to code. The press
+		// that will zoom is kept from the editor too.
+		this.plugin.registerDomEvent(
+			document,
+			"mousedown",
+			(event: MouseEvent) => {
+				if (event.button !== 0) return;
+				if (!this.isMobile && !event.metaKey && !event.ctrlKey) return;
+				if (!this.zoomTargetFor(event.target as HTMLElement)) return;
+				event.preventDefault();
+				event.stopPropagation();
+				event.stopImmediatePropagation();
 			},
 			{ capture: true },
 		);
@@ -133,9 +186,13 @@ export class ZoomOverlay {
 		this.overlay = overlay;
 		this.plugin.register(() => overlay.remove());
 
-		// Desktop: click the backdrop to close.
+		// Desktop: click the backdrop to close — but not the click that ends a drag selecting
+		// text and lets go past the drawing, which lands on the backdrop as well.
 		overlay.addEventListener("click", (e) => {
-			if (e.target === overlay) this.close();
+			if (e.target !== overlay) return;
+			const selection = overlay.win.getSelection();
+			if (selection && !selection.isCollapsed && overlay.contains(selection.anchorNode)) return;
+			this.close();
 		});
 
 		// Mobile: the container fills most of the screen, so a tap in the black area
@@ -188,26 +245,62 @@ export class ZoomOverlay {
 		// Prevent click-through.
 		overlay.addEventListener("mousedown", (e) => e.stopPropagation());
 
-		// ESC closes (desktop).
-		this.plugin.registerDomEvent(document, "keydown", (e: KeyboardEvent) => {
-			if (e.key === "Escape" && this.overlay?.style.display === "flex") {
-				this.close();
-			}
-		});
+		// ESC closes (desktop), and ←/→ page through a gallery. On the window in the capture
+		// phase, ahead of everything else:
+		// on the document, listening as the key bubbled up, it never came when focus was in an
+		// editor that stops its own Escape — Claudian's composer, typed in just before — and
+		// that editor acted on it instead (Escape there interrupts a reply). While the zoom is
+		// open the key is the zoom's alone.
+		this.plugin.registerDomEvent(
+			window,
+			"keydown",
+			(e: KeyboardEvent) => {
+				if (e.isComposing || this.overlay?.style.display !== "flex") return;
+				const step = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+				if (e.key !== "Escape" && !(step && this.gallery)) return;
+				e.preventDefault();
+				e.stopPropagation();
+				e.stopImmediatePropagation();
+				if (step) void this.step(step);
+				else this.close();
+			},
+			{ capture: true },
+		);
 	}
 
 	private showZoomed(target: ZoomTarget): void {
 		if (!this.overlay) return;
+		this.overlay.empty();
+		this.resetGallery();
+		// Whatever filter the note gives the element, the clone gets too: it is part of how
+		// the drawing looks, and it comes from rules the clone no longer matches once it
+		// leaves the note. In dark mode Obsidian renders Mermaid in its light theme and
+		// flips it with `.theme-dark .mermaid > svg { filter: invert… }`, so without this
+		// the overlay showed the raw light-theme colours, nothing like the note. Kept for the
+		// drawings paged to from here, which never were in the note to pick it up.
+		const filter = getComputedStyle(target).filter;
+		this.drawingFilter = filter && filter !== "none" ? filter : "";
+		this.mountDrawing(target);
+		this.createToolbar();
+		this.overlay.style.display = "flex";
+		this.fitToRoom();
+		if (this.options.gallery) void this.loadGallery(target, this.options.gallery);
+	}
+
+	/** Put a clone of `target` on show, replacing the one there, at the fit-to-screen scale. */
+	private mountDrawing(target: ZoomTarget): void {
+		if (!this.overlay) return;
 		this.translateX = 0;
 		this.translateY = 0;
-		this.overlay.empty();
-
-		const container = this.overlay.createDiv(`${this.options.cssPrefix}-container`);
+		this.overlay.querySelector(`:scope > .${this.options.cssPrefix}-container`)?.remove();
+		const container = createDiv(`${this.options.cssPrefix}-container`);
+		this.overlay.prepend(container);
 
 		// Clone so we never mutate what is in the note, and drop the sizing that came
 		// with it (the host's own max-width, and any note-sizing rule over it).
 		const clone = target.cloneNode(true) as ZoomTarget;
 		const { width, height } = this.naturalSizeOf(target);
+		this.drawingSize = { width, height };
 		// Size the clone in px. `width/height: auto` collapses an SVG that ships
 		// `width="100%"` plus a viewBox and no intrinsic size, which with the white
 		// backing renders as a small white square instead of the drawing. Explicit px
@@ -219,13 +312,7 @@ export class ZoomOverlay {
 		clone.style.maxHeight = "none";
 		// Block, so an inline element's baseline gap doesn't add a strip under it.
 		clone.style.display = "block";
-		// Whatever filter the note gives the element, the clone gets too: it is part of how
-		// the drawing looks, and it comes from rules the clone no longer matches once it
-		// leaves the note. In dark mode Obsidian renders Mermaid in its light theme and
-		// flips it with `.theme-dark .mermaid > svg { filter: invert… }`, so without this
-		// the overlay showed the raw light-theme colours, nothing like the note.
-		const filter = getComputedStyle(target).filter;
-		if (filter && filter !== "none") clone.style.filter = filter;
+		if (this.drawingFilter) clone.style.filter = this.drawingFilter;
 
 		// The frame is what's transformed, and where a plugin puts its backing. Kept apart
 		// from the clone so a filter on the clone recolours the drawing only, not the
@@ -246,21 +333,119 @@ export class ZoomOverlay {
 		this.initialScale = this.initialScaleFor(width, height);
 		this.scale = this.initialScale;
 		this.setupZoomAndDrag(container);
-		this.createToolbar();
+	}
 
-		this.overlay.style.display = "flex";
-		// Fit against the room actually left, now that the overlay is laid out. The estimate
-		// guesses the toolbar at 60px and the screen at the window's size; on a phone the
-		// toolbar wraps taller and the overlay keeps clear of the notch and home bar, so the
-		// estimate promised more room than there was and the drawing opened too large,
-		// running off the screen.
-		const measured = this.measuredScaleFor(width, height);
+	/**
+	 * Fit against the room actually left, now that the overlay is laid out. The estimate
+	 * guesses the toolbar at 60px and the screen at the window's size; on a phone the
+	 * toolbar wraps taller and the overlay keeps clear of the notch and home bar, so the
+	 * estimate promised more room than there was and the drawing opened too large,
+	 * running off the screen.
+	 */
+	private fitToRoom(): void {
+		const measured = this.measuredScaleFor(this.drawingSize.width, this.drawingSize.height);
 		if (measured !== null) {
 			this.initialScale = measured;
 			this.scale = measured;
-			this.updateTransform(true);
-			this.updateToolbar();
 		}
+		this.updateTransform(true);
+		this.updateToolbar();
+	}
+
+	/** Ask for the drawings around the one clicked, and give them a strip if there are others. */
+	// Promise chains rather than `async`: compiled for ES6 that needs tslib's helpers, and
+	// this folder sits outside every package's node_modules.
+	private loadGallery(target: ZoomTarget, gallery: NonNullable<ZoomOverlayOptions["gallery"]>): Promise<void> {
+		const token = this.galleryToken;
+		return gallery(target).then(
+			(found) => {
+				if (token !== this.galleryToken || !found || found.items.length < 2) return;
+				this.gallery = found;
+				this.galleryDrawings.set(found.index, Promise.resolve(target));
+				this.buildStrip();
+				this.fitToRoom();
+			},
+			(error: unknown) => console.error("zoom-overlay: couldn't list the drawings to page through", error),
+		);
+	}
+
+	/** The gallery's drawing at `index`, made once. */
+	private galleryDrawing(index: number): Promise<ZoomTarget | null> {
+		let made = this.galleryDrawings.get(index);
+		if (!made) {
+			const item = this.gallery?.items[index];
+			made = item ? item.element().catch(() => null) : Promise.resolve(null);
+			this.galleryDrawings.set(index, made);
+		}
+		return made;
+	}
+
+	/** Thumbnails of the gallery under the toolbar, and previous / next on the toolbar. */
+	private buildStrip(): void {
+		const gallery = this.gallery;
+		if (!this.overlay || !this.toolbar || !gallery) return;
+		const prefix = this.options.cssPrefix;
+		this.overlay.addClass(`${prefix}-has-strip`);
+		const prev = createEl("button", { cls: `${prefix}-prev`, attr: { "aria-label": "Previous" } });
+		setIcon(prev, "chevron-left");
+		prev.addEventListener("click", () => void this.step(-1));
+		this.toolbar.prepend(prev);
+		const next = this.toolbar.createEl("button", { cls: `${prefix}-next`, attr: { "aria-label": "Next" } });
+		setIcon(next, "chevron-right");
+		next.addEventListener("click", () => void this.step(1));
+
+		const strip = this.overlay.createDiv(`${prefix}-strip`);
+		this.strip = strip;
+		gallery.items.forEach((item, index) => {
+			const thumb = strip.createEl("button", { cls: `${prefix}-thumb`, attr: { "aria-label": item.label } });
+			const picture = thumb.createDiv(`${prefix}-thumb-picture`);
+			thumb.createDiv({ cls: `${prefix}-thumb-label`, text: item.label });
+			thumb.addEventListener("click", () => void this.goTo(index));
+			void this.galleryDrawing(index).then((drawing) => {
+				if (!drawing || !picture.isConnected) return;
+				const copy = drawing.cloneNode(true) as ZoomTarget;
+				copy.removeAttribute("style");
+				if (this.drawingFilter) copy.style.filter = this.drawingFilter;
+				picture.appendChild(copy);
+			});
+		});
+		this.markCurrent();
+	}
+
+	private markCurrent(): void {
+		const index = this.gallery?.index ?? -1;
+		this.strip?.querySelectorAll(`.${this.options.cssPrefix}-thumb`).forEach((thumb, i) => {
+			thumb.toggleClass("is-current", i === index);
+			if (i === index) thumb.scrollIntoView({ block: "nearest", inline: "nearest" });
+		});
+	}
+
+	private step(by: number): Promise<void> {
+		const count = this.gallery?.items.length ?? 0;
+		if (count < 2 || !this.gallery) return Promise.resolve();
+		return this.goTo((((this.gallery.index + by) % count) + count) % count);
+	}
+
+	/** Show the gallery's drawing at `index`, keeping the toolbar and the strip. */
+	private goTo(index: number): Promise<void> {
+		const gallery = this.gallery;
+		if (!gallery || index === gallery.index) return Promise.resolve();
+		const token = this.galleryToken;
+		return this.galleryDrawing(index).then((drawing) => {
+			if (token !== this.galleryToken || !drawing || this.gallery !== gallery) return;
+			gallery.index = index;
+			this.mountDrawing(drawing);
+			this.fitToRoom();
+			this.markCurrent();
+		});
+	}
+
+	private resetGallery(): void {
+		this.galleryToken++;
+		this.gallery = null;
+		this.galleryDrawings.clear();
+		this.strip = null;
+		this.overlay?.removeClass(`${this.options.cssPrefix}-has-strip`);
 	}
 
 	/**
@@ -283,6 +468,10 @@ export class ZoomOverlay {
 			const bar = getComputedStyle(this.toolbar);
 			toolbarHeight = this.toolbar.getBoundingClientRect().height + px(bar.marginTop) + px(bar.marginBottom);
 		}
+		if (this.strip) {
+			const own = getComputedStyle(this.strip);
+			toolbarHeight += this.strip.getBoundingClientRect().height + px(own.marginTop) + px(own.marginBottom);
+		}
 		let padX = 0;
 		let padY = 0;
 		for (const el of [frame, clone]) {
@@ -290,9 +479,11 @@ export class ZoomOverlay {
 			padX += px(own.paddingLeft) + px(own.paddingRight);
 			padY += px(own.paddingTop) + px(own.paddingBottom);
 		}
-		// The same 90% the estimate uses, so there is still a margin around the drawing.
+		// A margin around the drawing: 90% across, and down what the toolbar (and a strip)
+		// leave, less a little — taking 10% of the whole height on top of the bars had left
+		// the drawing small once a strip was under it.
 		const availWidth = innerWidth * 0.9 - padX;
-		const availHeight = innerHeight * 0.9 - toolbarHeight - padY;
+		const availHeight = (innerHeight - toolbarHeight) * 0.94 - padY;
 		if (availWidth <= 0 || availHeight <= 0) return null;
 		return Math.min(availWidth / width, availHeight / height);
 	}
@@ -350,7 +541,8 @@ export class ZoomOverlay {
 		// Trackpad: pinch (ctrlKey) zooms, two-finger scroll pans.
 		container.addEventListener("wheel", (e: WheelEvent) => {
 			e.preventDefault();
-			if (e.ctrlKey) {
+			// A pinch arrives as ctrlKey; Cmd/Ctrl with a mouse wheel zooms the same way.
+			if (e.ctrlKey || e.metaKey) {
 				this.scale = this.clampScale(
 					this.scale * Math.exp(-e.deltaY * PINCH_SENSITIVITY),
 				);
@@ -367,6 +559,9 @@ export class ZoomOverlay {
 		let moveHandler: ((e: MouseEvent) => void) | null = null;
 		let upHandler: (() => void) | null = null;
 		container.addEventListener("mousedown", (e: MouseEvent) => {
+			// On text that can be selected, the press is the browser's: it starts a selection.
+			const selectable = this.options.selectableText;
+			if (selectable && e.target instanceof Element && e.target.closest(selectable)) return;
 			e.preventDefault();
 			this.isDragging = true;
 			const startX = e.clientX - this.translateX;
@@ -521,6 +716,7 @@ export class ZoomOverlay {
 
 	private close(): void {
 		if (!this.overlay) return;
+		this.resetGallery();
 		this.overlay.style.display = "none";
 		this.overlay.empty();
 		this.current = null;
