@@ -225,6 +225,13 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			return tr;
 		}
 		if (this.editingDiagramAt === block.from) return tr;
+		// Typing in it is editing it, the cursor going where the edit put it. Otherwise writing
+		// a fence was turned back: the closing "d" of ```mermaid made the block a diagram with
+		// the cursor in it, and the cursor was put back where it stood before the "d".
+		if (tr.docChanged) {
+			this.editingDiagramAt = block.from;
+			return tr;
+		}
 		const before = tr.startState.selection.main.head;
 		// Where it was — unless that is inside the diagram too (a note opens with its cursor at
 		// the top, which is inside a diagram the note starts with): then past the diagram.
