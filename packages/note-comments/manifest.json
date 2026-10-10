@@ -1,7 +1,7 @@
 {
 	"id": "note-comments",
 	"name": "Note Comments",
-	"version": "1.0.0",
+	"version": "100.0.0",
 	"minAppVersion": "1.7.2",
 	"description": "Select text, attach a comment to it, and see it again as a highlight with a hover card. Comments are stored beside the note, so its Markdown is never touched.",
 	"author": "yeyan1996",

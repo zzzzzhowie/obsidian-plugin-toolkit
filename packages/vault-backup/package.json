@@ -1,6 +1,6 @@
 {
 	"name": "@obsidian-plugin-toolkit/vault-backup",
-	"version": "1.0.0",
+	"version": "100.0.0",
 	"description": "Periodic git commit + push for the vault, gated per machine.",
 	"author": "yeyan1996",
 	"main": "main.js",
