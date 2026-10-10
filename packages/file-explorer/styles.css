@@ -244,3 +244,12 @@
 .file-count-enabled .nav-folder-title-content {
 	padding-right: 30px;
 }
+
+/* The folder standing for the open folder note carries the active highlight (folder-note.ts,
+   markActiveFolderNote): its own file row is hidden, so Obsidian's highlight — and its reveal,
+   Cmd/Ctrl+Shift+E — landed on nothing visible. Drawn as Obsidian draws an active row. */
+.nav-folder-title.is-folder-note-active {
+	background-color: var(--nav-item-background-active);
+	color: var(--nav-item-color-active);
+	font-weight: var(--nav-item-weight-active);
+}

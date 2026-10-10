@@ -1,6 +1,15 @@
 import { App, TFolder, TFile, Notice } from "obsidian";
 import { getFolderNote, escapeCSSSelector, getFolderFromNote } from "./utils";
 import { goToOpenTab } from "./reuse-tab";
+
+/**
+ * On the folder row standing for the open folder note. Its own file row is hidden, so the
+ * active highlight goes here instead — a class of ours, since Obsidian moves `is-active`
+ * around itself (its reveal puts it back on the hidden file row).
+ */
+const ACTIVE_FOLDER_NOTE_CLS = "is-folder-note-active";
+/** Obsidian's "Reveal current file in navigation", Cmd/Ctrl+Shift+E by default. */
+const REVEAL_COMMAND = "file-explorer:reveal-active-file";
 import type FileExplorerPlugin from "./main";
 
 export class FolderNoteManager {
@@ -133,6 +142,8 @@ export class FolderNoteManager {
 		this.plugin.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => this.scheduleUpdateAll()),
 		);
+
+		this.app.workspace.onLayoutReady(() => this.followReveal());
 	}
 
 	/**
@@ -193,6 +204,64 @@ export class FolderNoteManager {
 		// Then update each folder (for click handlers and has-folder-note class)
 		const folders = this.getAllFolders();
 		folders.forEach((folder) => this.updateFolderNote(folder));
+		this.markActiveFolderNote();
+	}
+
+	/** Give the open folder note's folder row the active highlight; take it off any other. */
+	private markActiveFolderNote(): void {
+		const active = this.app.workspace.getActiveFile();
+		const folder = active && this.plugin.settings.showFolderNotes ? getFolderFromNote(active, this.app) : null;
+		const target = folder ? this.getFolderElement(folder) : null;
+		document.querySelectorAll(`.${ACTIVE_FOLDER_NOTE_CLS}`).forEach((el) => {
+			if (el !== target) el.removeClass(ACTIVE_FOLDER_NOTE_CLS);
+		});
+		target?.addClass(ACTIVE_FOLDER_NOTE_CLS);
+	}
+
+	/**
+	 * After Obsidian reveals the current file, show the folder when that file is a folder
+	 * note: the reveal scrolls to and highlights the file's own row, which is hidden, so it
+	 * looked as if nothing happened. The command is wrapped, so it follows its hotkey.
+	 */
+	private followReveal(): void {
+		type Command = { callback?: () => unknown; checkCallback?: (checking: boolean) => boolean | void };
+		const command = (this.app as unknown as { commands?: { commands?: Record<string, Command | undefined> } })
+			.commands?.commands?.[REVEAL_COMMAND];
+		if (!command) return;
+		const showFolder = (): void => {
+			const file = this.app.workspace.getActiveFile();
+			const folder = file ? getFolderFromNote(file, this.app) : null;
+			if (!folder) return;
+			window.setTimeout(() => {
+				this.markActiveFolderNote();
+				this.scrollToFolder(folder);
+			}, 50);
+		};
+		const check = command.checkCallback;
+		if (typeof check === "function") {
+			const wrapped = (checking: boolean): boolean | void => {
+				const result = check.call(command, checking);
+				if (!checking && result !== false) showFolder();
+				return result;
+			};
+			command.checkCallback = wrapped;
+			this.plugin.register(() => {
+				if (command.checkCallback === wrapped) command.checkCallback = check;
+			});
+			return;
+		}
+		const run = command.callback;
+		if (typeof run === "function") {
+			const wrapped = (): unknown => {
+				const result = run.call(command);
+				showFolder();
+				return result;
+			};
+			command.callback = wrapped;
+			this.plugin.register(() => {
+				if (command.callback === wrapped) command.callback = run;
+			});
+		}
 	}
 
 	private showAllHiddenFolderNotes() {
@@ -224,6 +293,7 @@ export class FolderNoteManager {
 	}
 
 	private removeAllFolderNoteStyles() {
+		document.querySelectorAll(`.${ACTIVE_FOLDER_NOTE_CLS}`).forEach((el) => el.removeClass(ACTIVE_FOLDER_NOTE_CLS));
 		const fileExplorerLeaves =
 			this.app.workspace.getLeavesOfType("file-explorer");
 		if (!fileExplorerLeaves || fileExplorerLeaves.length === 0) {
