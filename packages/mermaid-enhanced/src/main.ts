@@ -92,7 +92,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			(event: MouseEvent) => {
 				const target = event.target instanceof Element ? event.target : null;
 				const button = target?.closest(".edit-block-button");
-				if (button?.closest(".cm-embed-block")?.querySelector(".mermaid")) this.editPressedAt = Date.now();
+				if (isDiagramBlock(button?.closest(".cm-embed-block"))) this.editPressedAt = Date.now();
 			},
 			{ capture: true },
 		);
@@ -104,7 +104,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			(event: MouseEvent) => {
 				const target = event.target instanceof Element ? event.target : null;
 				const block = target?.closest(".cm-embed-block");
-				if (!block?.querySelector(".mermaid") || target?.closest(".edit-block-button")) return;
+				if (!isDiagramBlock(block) || target?.closest(".edit-block-button")) return;
 				const editorEl = block.closest<HTMLElement>(".cm-editor");
 				const view = editorEl ? EditorView.findFromDOM(editorEl) : null;
 				const pos = view ? this.outsideDiagram(view.state) : null;
@@ -261,13 +261,17 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const blocks = mermaidSources(found.getViewData());
 		if (blocks.length < 2) return null;
 		const line = this.lineOf(target);
-		const index = line === null ? -1 : blocks.findIndex((block) => block.start <= line && line <= block.end);
-		if (index < 0) return null;
+		const clicked = line === null ? undefined : blocks.find((block) => block.start <= line && line <= block.end);
+		if (!clicked) return null;
+		// A diagram with a syntax error has nothing to show but its error, so it isn't paged to.
+		const parsed = await Promise.all(blocks.map((block) => (block === clicked ? true : parses(block.code))));
+		const pages = blocks.filter((_, i) => parsed[i]);
+		if (pages.length < 2) return null;
 		return {
-			index,
-			items: blocks.map((block, i) => ({
+			index: pages.indexOf(clicked),
+			items: pages.map((block, i) => ({
 				label: block.caption ?? `Diagram ${i + 1}`,
-				element: () => (i === index ? Promise.resolve(target) : renderDiagram(block.code)),
+				element: () => (block === clicked ? Promise.resolve(target) : renderDiagram(block.code)),
 			})),
 		};
 	}
@@ -389,22 +393,22 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * Fit the diagram inside the container's content box using a "contain" rule:
-	 * the rendered width is capped at `min(heightCappedWidth, containerWidth)`,
-	 * preserving the aspect ratio derived from the viewBox.
+	 * Fit the diagram inside its block using a "contain" rule: the rendered width
+	 * is capped at `min(heightCappedWidth, 100%)`, preserving the aspect ratio
+	 * derived from the viewBox.
 	 *
 	 * - `heightCappedWidth` (= targetH * aspect) is the width at which the
 	 *   diagram would be exactly `targetH` tall. This keeps tall/thin diagrams
 	 *   from scrolling several screens.
-	 * - `containerWidth` caps wide diagrams at 100% of the content width so they
-	 *   never overflow horizontally (no X-axis scroll).
+	 * - `100%` caps wide diagrams at the block's width so they never overflow
+	 *   horizontally (no X-axis scroll), whatever width the block has later.
 	 *
-	 * A px `max-width` clamps the SVG even when a theme forces
+	 * A `max-width` clamps the SVG even when a theme forces
 	 * `width: 100% !important`, since max-width and width are independent
 	 * properties.
 	 *
 	 * Without a directive the constraint is a cap: it only shrinks oversized
-	 * diagrams, never enlarges small ones (a px `max-width` clamps the SVG even
+	 * diagrams, never enlarges small ones (a `max-width` clamps the SVG even
 	 * when a theme forces `width: 100% !important`).
 	 *
 	 * A per-diagram `%% fit: ... %%` directive (read by the post-processor and
@@ -426,33 +430,29 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		}
 
 		const aspect = vb.width / vb.height; // width / height
-		const containerWidth = this.getContainerWidth(svg);
 
 		if (override === "full" || override === "100%") {
 			// Explicitly fill the width (grows small diagrams), no height cap.
-			const w = containerWidth > 0 ? containerWidth : vb.width;
-			svg.style.width = `${Math.round(w)}px`;
-			svg.style.maxWidth = "100%";
-			svg.style.height = "auto";
+			svg.setCssStyles({ width: "100%", maxWidth: "100%", height: "auto" });
 			svg.dataset.mermaidFit = "1";
 			return;
 		}
 
-		const targetH = this.resolveTargetHeight(override);
-		const heightCappedWidth = targetH * aspect;
-		const fitW =
-			containerWidth > 0
-				? Math.min(heightCappedWidth, containerWidth)
-				: heightCappedWidth;
+		// The width at which the diagram is exactly the target height, and never wider than
+		// its block: `100%` in the CSS rather than a width measured here, so the browser keeps
+		// to it as the block narrows (a sidebar opening, a split) and while it isn't laid out
+		// yet. A measured width went stale — and Obsidian's Mermaid draws flowcharts, sequence
+		// and ER diagrams at a fixed px width, which then ran past the block and scrolled.
+		const fitW = `min(${Math.round(this.resolveTargetHeight(override) * aspect)}px, 100%)`;
 
 		if (this.isExplicitHeight(override)) {
 			// A per-diagram vh/px directive: size it exactly (grow or shrink).
-			svg.style.width = `${Math.round(fitW)}px`;
+			svg.style.width = fitW;
 			svg.style.maxWidth = "100%";
 		} else {
 			// Global default: cap only, never upscale.
 			svg.style.removeProperty("width");
-			svg.style.maxWidth = `${Math.round(fitW)}px`;
+			svg.style.maxWidth = fitW;
 		}
 		svg.style.height = "auto";
 		svg.dataset.mermaidFit = "1";
@@ -475,25 +475,6 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			if (vh) return window.innerHeight * (parseFloat(vh[1]!) / 100);
 		}
 		return window.innerHeight * (this.settings.maxHeightVh / 100);
-	}
-
-	/**
-	 * Available content width for the diagram's block, i.e. how wide it can grow
-	 * before it overflows and triggers horizontal scrolling. Prefers Obsidian's
-	 * content containers (reading view sizer / live-preview content) and
-	 * subtracts their horizontal padding; falls back to the immediate parent.
-	 */
-	private getContainerWidth(svg: SVGSVGElement): number {
-		const container =
-			svg.closest<HTMLElement>(
-				".markdown-preview-sizer, .cm-content, .markdown-rendered"
-			) ?? svg.parentElement;
-		if (!container) return 0;
-		const style = getComputedStyle(container);
-		const padX =
-			(parseFloat(style.paddingLeft) || 0) +
-			(parseFloat(style.paddingRight) || 0);
-		return Math.max(0, container.clientWidth - padX);
 	}
 
 	/**
@@ -621,18 +602,11 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const vb = svg.viewBox.baseVal;
 		if (!vb || vb.width === 0 || vb.height === 0) return;
 		const aspect = vb.width / vb.height;
-		const containerWidth = this.getContainerWidth(svg);
-		let fitW: number;
-		if (value >= SLIDER_MAX) {
-			fitW = containerWidth > 0 ? containerWidth : vb.width;
-		} else {
-			const targetH = window.innerHeight * (value / 100);
-			fitW =
-				containerWidth > 0
-					? Math.min(targetH * aspect, containerWidth)
-					: targetH * aspect;
-		}
-		svg.style.width = `${Math.round(fitW)}px`;
+		// As fitSvg sizes it: never wider than the block, by CSS rather than a measured width.
+		svg.style.width =
+			value >= SLIDER_MAX
+				? "100%"
+				: `min(${Math.round(window.innerHeight * (value / 100) * aspect)}px, 100%)`;
 		svg.style.maxWidth = "100%";
 		svg.style.height = "auto";
 		svg.dataset.mermaidFit = "1";
@@ -1035,6 +1009,15 @@ class CaptionModal extends Modal {
 	}
 }
 
+/**
+ * Whether a Live Preview block is a Mermaid one. By the block's language, not by a drawn
+ * diagram in it: one Mermaid couldn't parse holds only its error, and its edit button has to
+ * get the cursor in all the same — the cursor is kept out by the source (mermaidBlockAt).
+ */
+function isDiagramBlock(block: Element | null | undefined): block is Element {
+	return !!block && (block.classList.contains("cm-lang-mermaid") || block.querySelector(".mermaid") !== null);
+}
+
 /** The Mermaid code blocks of a document, by position; worked out once per document. */
 const diagramBlocks = new WeakMap<Text, { from: number; to: number }[]>();
 
@@ -1112,6 +1095,24 @@ function headingAbove(lines: string[], n: number): string | null {
 		if (heading) return heading[1] ?? null;
 	}
 	return null;
+}
+
+/** Whether Mermaid can parse each diagram's code, asked once per code. */
+const parsedDiagrams = new Map<string, Promise<boolean>>();
+
+/** Whether Obsidian's Mermaid can parse a diagram: a check only, nothing is drawn. */
+function parses(code: string): Promise<boolean> {
+	let parsed = parsedDiagrams.get(code);
+	if (!parsed) {
+		parsed = (async () => {
+			const mermaid = (await loadMermaid()) as {
+				parse: (code: string, options: { suppressErrors: boolean }) => Promise<unknown>;
+			};
+			return (await mermaid.parse(code, { suppressErrors: true })) !== false;
+		})().catch(() => false);
+		parsedDiagrams.set(code, parsed);
+	}
+	return parsed;
 }
 
 /** Diagrams drawn for the zoom, by their code: each is drawn once. */
