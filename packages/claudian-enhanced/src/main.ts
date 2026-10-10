@@ -96,7 +96,7 @@ const OPEN_COMMAND = "realclaudian:open-view";
  */
 const NEW_SESSION_COMMAND = "realclaudian:new-session";
 /**
- * What clear-tab's hotkey does when the pointer isn't over Claudian: a new draft (the Drafts
+ * What clear-tab's hotkey does outside Claudian (see inClaudian): a new draft (the Drafts
  * plugin, VS Code's ⌘N), or core "New tab" (⌘T) without it.
  */
 const NEW_DRAFT_COMMAND = "yeyan-drafts:new-draft";
@@ -587,7 +587,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private readonly heldControllers = new WeakSet<ClaudianSelectionController>();
 	/** Pushed while Claudian's image preview is open, so Escape closes it; see watchImagePreview. */
 	private previewScope: Scope | null = null;
-	/** Whether the pointer last rested over Claudian's view; decides what clear-tab's key does. */
+	/** Whether the pointer last rested over Claudian's view; see inClaudian. */
 	private pointerOverClaudian = false;
 	/** The card a hovered selection chip shows its text in; see selection-peek.ts. */
 	private readonly selectionPeek = new SelectionPeek(
@@ -617,20 +617,19 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// exactly what the user cleared. Drive its command and drop the note in one act, so
 		// one key means the note genuinely starts over.
 		//
-		// One key, two meanings, picked by where the pointer is: over Claudian it clears the
-		// tab, anywhere else it opens a new draft (Drafts), or a new tab like ⌘T without it.
-		// Both live here rather than as two bindings of ⌘N because Obsidian runs only the first
-		// command bound to a key, whether or not it applies. The
-		// pointer rather than focus, because clicking a sidebar never moves DOM focus off
-		// <body>. Core "Create new note" (file-explorer:new-file) must stay unbound in
-		// hotkeys.json so it doesn't race us for ⌘N.
+		// One key, two meanings, picked by where you are: in Claudian (the cursor in it, or
+		// the pointer over it — see inClaudian) it starts a new session in the tab, anywhere
+		// else it opens a new draft (Drafts), or a new tab like ⌘T without it. Both live here
+		// rather than as two bindings of ⌘N because Obsidian runs only the first command bound
+		// to a key, whether or not it applies. Core "Create new note" (file-explorer:new-file)
+		// must stay unbound in hotkeys.json so it doesn't race us for ⌘N.
 		this.addCommand({
 			id: "clear-tab",
 			// "Claudian" is a proper noun (the plugin's name), so it stays capitalized.
 			// eslint-disable-next-line obsidianmd/ui/sentence-case
-			name: "New draft, or clear Claudian's tab when the pointer is over it",
+			name: "New draft, or a new Claudian session when in Claudian",
 			checkCallback: (checking: boolean) => {
-				if (!this.pointerOverClaudian) {
+				if (!this.inClaudian()) {
 					if (!checking) {
 						const { commands } = this.app as unknown as AppWithCommands;
 						if (!commands.executeCommandById(NEW_DRAFT_COMMAND)) {
@@ -780,6 +779,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		for (const el of [view, ...Array.from(view.querySelectorAll<HTMLElement>(marks.map((cls) => `.${cls}`).join(", ")))]) {
 			el.removeClasses(marks);
 		}
+	}
+
+	/**
+	 * Whether clear-tab's key is meant for Claudian: the cursor is in it (typing in its
+	 * composer, with the pointer resting anywhere), or the pointer is over it (clicking a
+	 * sidebar leaves focus on <body>, so focus alone would miss a click into its messages).
+	 */
+	private inClaudian(): boolean {
+		const view = this.getClaudianLeaf()?.view.containerEl;
+		const focused = view?.doc.activeElement;
+		return (!!focused && view.contains(focused)) || this.pointerOverClaudian;
 	}
 
 	private onEscapeCapture = (e: KeyboardEvent): void => {
