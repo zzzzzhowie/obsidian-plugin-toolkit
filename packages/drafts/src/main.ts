@@ -44,6 +44,8 @@ export default class DraftsPlugin extends Plugin {
 	private lastNotePath = "";
 	private saving = false;
 	private unloaded = false;
+	/** The save button in a draft's header on a phone or tablet, by view; see markSaveAction. */
+	private readonly saveActions = new Map<MarkdownView, HTMLElement>();
 	private refreshFrame: number | null = null;
 
 	onload(): void {
@@ -104,6 +106,8 @@ export default class DraftsPlugin extends Plugin {
 			leaf.view.containerEl.style.removeProperty("--drafts-hint");
 			leaf.view.containerEl.querySelectorAll(`.${NEW_DRAFT_BUTTON_CLS}`).forEach((el) => el.remove());
 		});
+		for (const action of this.saveActions.values()) action.remove();
+		this.saveActions.clear();
 	}
 
 	private scheduleRefresh(): void {
@@ -253,6 +257,7 @@ export default class DraftsPlugin extends Plugin {
 			this.markTab(leaf, draft);
 			if (view instanceof MarkdownView) {
 				view.containerEl.toggleClass(DRAFT_CLS, draft);
+				this.markSaveAction(view, draft);
 				if (draft && view.file) {
 					open.add(view.file.path);
 					const hint = JSON.stringify(this.hint());
@@ -268,6 +273,8 @@ export default class DraftsPlugin extends Plugin {
 		for (const path of this.openDrafts) {
 			if (!open.has(path) && !this.settling.has(path)) void this.leftBehind(path);
 		}
+		// Closed views' buttons went with them.
+		for (const [view, action] of this.saveActions) if (!action.isConnected) this.saveActions.delete(view);
 		this.openDrafts = open;
 	}
 
@@ -312,8 +319,30 @@ export default class DraftsPlugin extends Plugin {
 
 	/** The faint line over an empty draft, as VS Code writes over an untitled file. */
 	private hint(): string {
+		// No keyboard to press ⌘S on: the button markSaveAction puts in the header instead.
+		if (Platform.isMobile) return "Draft — start typing. The save button at the top saves it into the vault.";
 		const save = this.hotkeyOf(SAVE_COMMAND);
 		return `Draft — start typing. ${save ? `${save} saves` : "“Save draft to the vault” saves"} it into the vault.`;
+	}
+
+	/**
+	 * On a phone or tablet, a save button in a draft's header — the way to save it there, with
+	 * no ⌘S to press and the command otherwise only in the palette. Gone once it's saved.
+	 */
+	private markSaveAction(view: MarkdownView, draft: boolean): void {
+		const action = this.saveActions.get(view);
+		if (!Platform.isMobile || !draft) {
+			action?.remove();
+			this.saveActions.delete(view);
+			return;
+		}
+		if (action?.isConnected) return;
+		this.saveActions.set(
+			view,
+			view.addAction("save", "Save draft to the vault", () => {
+				if (view.file && isDraft(view.file)) void this.saveDraft(view.file);
+			}),
+		);
 	}
 
 	private hotkeyOf(id: string): string {
