@@ -234,7 +234,7 @@ export class FolderNoteManager {
 			if (!folder) return;
 			window.setTimeout(() => {
 				this.markActiveFolderNote();
-				this.scrollToFolder(folder);
+				if (!this.focusFolderInTree(folder)) this.scrollToFolder(folder);
 			}, 50);
 		};
 		const check = command.checkCallback;
@@ -627,6 +627,30 @@ export class FolderNoteManager {
 	/**
 	 * Scroll to a folder in the file explorer
 	 */
+	/**
+	 * Do for the folder what the reveal does for a file: make it the tree's focused row (the
+	 * `has-focus` highlight), scroll to it and flash it. The reveal did all three to the folder
+	 * note's own row, which is hidden, so none of it showed. False when the tree's internals
+	 * aren't there to do it with.
+	 */
+	private focusFolderInTree(folder: TFolder): boolean {
+		type Item = { selfEl: HTMLElement };
+		type ExplorerView = {
+			fileItems?: Record<string, Item | undefined>;
+			tree?: { setFocusedItem?: (item: Item, scroll?: boolean) => void };
+		};
+		const view = this.app.workspace.getLeavesOfType("file-explorer")[0]?.view as unknown as ExplorerView | undefined;
+		const item = view?.fileItems?.[folder.path];
+		if (!item || typeof view?.tree?.setFocusedItem !== "function") return false;
+		view.tree.setFocusedItem(item, true);
+		const row = item.selfEl;
+		row.removeClass("is-flashing");
+		void row.offsetWidth; // restart the flash animation
+		row.addClass("is-flashing");
+		window.setTimeout(() => row.removeClass("is-flashing"), 750); // as long as Obsidian's own flash
+		return true;
+	}
+
 	private scrollToFolder(folder: TFolder) {
 		const folderTitleEl = this.getFolderElement(folder);
 		if (!folderTitleEl) {

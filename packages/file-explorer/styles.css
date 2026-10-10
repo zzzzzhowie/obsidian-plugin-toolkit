@@ -247,9 +247,14 @@
 
 /* The folder standing for the open folder note carries the active highlight (folder-note.ts,
    markActiveFolderNote): its own file row is hidden, so Obsidian's highlight — and its reveal,
-   Cmd/Ctrl+Shift+E — landed on nothing visible. Drawn as Obsidian draws an active row. */
-.nav-folder-title.is-folder-note-active {
+   Cmd/Ctrl+Shift+E — landed on nothing visible. Drawn as the active *file* row is, theme's
+   shadow included. Repeated to (0,5,0): themes paint folder rows with their own background
+   (`.nav-folder-children > .nav-folder .nav-folder-title`, (0,3,0)) and give an active folder
+   a thin inset border (`.tree-item-self.is-clickable.is-active:not(.nav-file-title)`, (0,4,0),
+   loaded after us), which hid the highlight and left only that border. */
+.nav-folder-title.nav-folder-title.is-folder-note-active.is-folder-note-active.is-folder-note-active {
 	background-color: var(--nav-item-background-active);
 	color: var(--nav-item-color-active);
 	font-weight: var(--nav-item-weight-active);
+	box-shadow: var(--nav-file-shadow-active, none);
 }
