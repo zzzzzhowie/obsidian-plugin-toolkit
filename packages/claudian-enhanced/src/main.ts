@@ -243,7 +243,14 @@ interface ClaudianTab {
 	hydrationState?: string;
 	state?: ClaudianTabState;
 	ui?: { linkedContentController?: ClaudianLinkedContent };
-	controllers?: { selectionController?: ClaudianSelectionController };
+	/**
+	 * The editor 划词 controller: `composerSelections.editor` since Claudian 2.3.16, which
+	 * gathered the editor, browser and canvas selections under one; `selectionController` before.
+	 */
+	controllers?: {
+		composerSelections?: { editor?: ClaudianSelectionController };
+		selectionController?: ClaudianSelectionController;
+	};
 	/** The composer; Claudian gives its CodeMirror host a `value` that reads the text in it. */
 	dom?: { inputEl?: { value?: unknown } };
 }
@@ -1716,7 +1723,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 
 	/** Claudian's 划词 controller for the active tab, or null if absent / internals renamed. */
 	private getSelectionController(): ClaudianSelectionController | null {
-		return this.getActiveTab()?.controllers?.selectionController ?? null;
+		const controllers = this.getActiveTab()?.controllers;
+		return controllers?.composerSelections?.editor ?? controllers?.selectionController ?? null;
 	}
 
 	/**
