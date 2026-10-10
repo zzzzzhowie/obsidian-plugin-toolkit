@@ -93,6 +93,18 @@ body.excalidraw-enhanced-sizing
 	cursor: inherit !important;
 }
 
+/* Text stays text in the zoom: a drag on it selects (selectableText in main.ts), with the
+   text cursor to say so. The container keeps user-select off for everything else, so a pan
+   never starts a selection. */
+.excalidraw-zoom-container svg text {
+	-webkit-user-select: text;
+	user-select: text;
+}
+
+.excalidraw-zoom-container svg :is(text, text *) {
+	cursor: text !important;
+}
+
 .excalidraw-zoom-toolbar {
 	display: flex;
 	align-items: center;
@@ -134,4 +146,79 @@ body.excalidraw-enhanced-sizing
 	font-size: 14px;
 	min-width: 60px;
 	text-align: center;
+}
+
+/* Paging through the note's drawings (gallery.ts), as Mermaid (Enhanced) does: a strip of thumbnails under the
+   toolbar, the one on show outlined. The container gives up the strip's height. */
+.excalidraw-zoom-overlay.excalidraw-zoom-has-strip .excalidraw-zoom-container {
+	max-height: calc(96vh - 60px - 80px);
+}
+
+/* With a strip under it the toolbar sits closer, to leave the diagram the room. */
+.excalidraw-zoom-overlay.excalidraw-zoom-has-strip .excalidraw-zoom-toolbar {
+	margin-bottom: 8px;
+	padding-block: 8px;
+}
+
+.excalidraw-zoom-strip {
+	display: flex;
+	gap: 6px;
+	max-width: 90vw;
+	overflow-x: auto;
+	padding: 2px 4px 4px;
+	margin-bottom: 8px;
+	pointer-events: auto;
+}
+
+.excalidraw-zoom-strip .excalidraw-zoom-thumb.excalidraw-zoom-thumb.excalidraw-zoom-thumb {
+	flex: 0 0 auto;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 2px;
+	width: 96px;
+	height: auto;
+	padding: 4px;
+	background-color: rgba(255, 255, 255, 0.08);
+	border: 2px solid transparent;
+	border-radius: 8px;
+	box-shadow: none;
+	color: rgba(255, 255, 255, 0.85);
+	cursor: pointer;
+}
+
+.excalidraw-zoom-strip .excalidraw-zoom-thumb.excalidraw-zoom-thumb.excalidraw-zoom-thumb:hover {
+	background-color: rgba(255, 255, 255, 0.16);
+}
+
+.excalidraw-zoom-strip .excalidraw-zoom-thumb.excalidraw-zoom-thumb.excalidraw-zoom-thumb.is-current {
+	border-color: var(--interactive-accent);
+	background-color: rgba(255, 255, 255, 0.16);
+}
+
+.excalidraw-zoom-thumb-picture {
+	width: 86px;
+	height: 44px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background-color: var(--background-primary);
+	border-radius: 4px;
+	overflow: hidden;
+}
+
+.excalidraw-zoom-thumb-picture svg {
+	width: 100%;
+	height: 100%;
+	max-width: 100%;
+	pointer-events: none;
+}
+
+.excalidraw-zoom-thumb-label {
+	width: 100%;
+	font-size: 11px;
+	line-height: 1.2;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }

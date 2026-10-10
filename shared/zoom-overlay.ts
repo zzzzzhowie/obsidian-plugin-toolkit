@@ -46,6 +46,12 @@ export interface ZoomOverlayOptions {
 	 * and next, and ←/→ step through them; left out, the zoom shows the one drawing.
 	 */
 	gallery?: (target: ZoomTarget) => Promise<Gallery | null>;
+	/**
+	 * What to show in place of the clicked element, when it can do better — an inline `<svg>`
+	 * for a drawing the note shows as an `<img>`, so its text is text (see selectableText).
+	 * Null, or a failure, shows the element itself.
+	 */
+	inline?: (target: ZoomTarget) => Promise<ZoomTarget | null>;
 }
 
 /** Zoom range, shared by every way of changing it. */
@@ -131,7 +137,15 @@ export class ZoomOverlay {
 				event.preventDefault();
 				event.stopPropagation();
 				event.stopImmediatePropagation();
-				this.showZoomed(target);
+				const inline = this.options.inline;
+				if (!inline) {
+					this.showZoomed(target);
+					return;
+				}
+				inline(target).then(
+					(shown) => this.showZoomed(target, shown ?? target),
+					() => this.showZoomed(target),
+				);
 			},
 			{ capture: true },
 		);
@@ -268,7 +282,8 @@ export class ZoomOverlay {
 		);
 	}
 
-	private showZoomed(target: ZoomTarget): void {
+	/** Open the zoom for `target`, showing `shown` — the target itself, or what `inline` gave for it. */
+	private showZoomed(target: ZoomTarget, shown: ZoomTarget = target): void {
 		if (!this.overlay) return;
 		this.overlay.empty();
 		this.resetGallery();
@@ -280,11 +295,11 @@ export class ZoomOverlay {
 		// drawings paged to from here, which never were in the note to pick it up.
 		const filter = getComputedStyle(target).filter;
 		this.drawingFilter = filter && filter !== "none" ? filter : "";
-		this.mountDrawing(target);
+		this.mountDrawing(shown);
 		this.createToolbar();
 		this.overlay.style.display = "flex";
 		this.fitToRoom();
-		if (this.options.gallery) void this.loadGallery(target, this.options.gallery);
+		if (this.options.gallery) void this.loadGallery(target, shown, this.options.gallery);
 	}
 
 	/** Put a clone of `target` on show, replacing the one there, at the fit-to-screen scale. */
@@ -355,13 +370,14 @@ export class ZoomOverlay {
 	/** Ask for the drawings around the one clicked, and give them a strip if there are others. */
 	// Promise chains rather than `async`: compiled for ES6 that needs tslib's helpers, and
 	// this folder sits outside every package's node_modules.
-	private loadGallery(target: ZoomTarget, gallery: NonNullable<ZoomOverlayOptions["gallery"]>): Promise<void> {
+	private loadGallery(target: ZoomTarget, shown: ZoomTarget, gallery: NonNullable<ZoomOverlayOptions["gallery"]>): Promise<void> {
 		const token = this.galleryToken;
 		return gallery(target).then(
 			(found) => {
 				if (token !== this.galleryToken || !found || found.items.length < 2) return;
 				this.gallery = found;
-				this.galleryDrawings.set(found.index, Promise.resolve(target));
+				// Paging back to the one clicked shows it as it was first shown — inline, when it was.
+				this.galleryDrawings.set(found.index, Promise.resolve(shown));
 				this.buildStrip();
 				this.fitToRoom();
 			},
