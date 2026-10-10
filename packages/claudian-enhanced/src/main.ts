@@ -294,6 +294,8 @@ interface ClaudianPluginApi {
 	getCachedConversation?: (id: string) => unknown;
 	/** Every conversation it knows, newest first; the fields we read are below. */
 	getConversationList?: () => ClaudianConversationSummary[];
+	/** Loads the whole conversation from disk; its summary's messageCount is right only after. */
+	getConversationById?: (id: string) => Promise<unknown>;
 }
 
 interface ClaudianConversationSummary {
@@ -512,6 +514,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * just for toggling the panel with ⌘L. Only a real note change moves this.
 	 */
 	private lastOpenedPath: string | null = null;
+	/** Claudian's conversations, each loaded once so their message counts are real; see loadConversationCounts. */
+	private conversationCounts: Promise<void> | null = null;
 	/** The note whose conversation a veiled view is waiting for (see veilUntilSettled). */
 	private veiledFor: string | null = null;
 	/** The note the sidebar was last matched to (see matchSidebarToNote): once per visit. */
@@ -1202,14 +1206,45 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (previous !== null && previous !== path) {
 			this.saveScrollSpot();
 			this.rememberConversation(previous);
-			this.closeExtraTabs(path);
-			if (this.activeTabWorking()) {
-				if (this.openBesideRunningReply(path)) return;
-			} else if (this.restoreConversationFor(path) || this.resetSessionForNoteChange()) {
-				return;
-			}
+			if (this.replaceConversationFor(path)) return;
 		}
 		this.followNoteInDraft(path);
+	}
+
+	/**
+	 * Put `path`'s conversation on screen in place of the one showing — its own, or a fresh one
+	 * — or beside it while a reply is still running. Whether it did; if not, the caller has the
+	 * note followed in the draft as it is.
+	 */
+	private replaceConversationFor(path: string): boolean {
+		this.closeExtraTabs(path);
+		if (this.activeTabWorking()) return this.openBesideRunningReply(path);
+		return this.restoreConversationFor(path) || this.resetSessionForNoteChange();
+	}
+
+	/**
+	 * Load each of Claudian's conversations once, so their message counts can be trusted.
+	 *
+	 * Since Claudian 2.3 a conversation's summary says 0 messages until the conversation has
+	 * been loaded, and every one not opened yet this session reads as empty. Finding a note's
+	 * conversation skips empty ones (latestLinkedConversation), so a note whose conversations
+	 * hadn't been opened yet seemed to have none and was met with whatever was on screen.
+	 * Loading is a few milliseconds a conversation, once per session.
+	 */
+	private loadConversationCounts(): Promise<void> {
+		this.conversationCounts ??= (async () => {
+			const api = (this.getClaudianLeaf()?.view as unknown as { plugin?: ClaudianPluginApi } | undefined)?.plugin;
+			if (typeof api?.getConversationList !== "function" || typeof api.getConversationById !== "function") return;
+			for (const conversation of api.getConversationList() ?? []) {
+				if (!conversation.id || conversation.messageCount || conversation.isArchived) continue;
+				try {
+					await api.getConversationById(conversation.id);
+				} catch {
+					// Unreadable: it stays counted as empty, as before.
+				}
+			}
+		})();
+		return this.conversationCounts;
 	}
 
 	/** Whether the active tab has a reply (or anything else) still running. */
@@ -1287,6 +1322,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * although Claudian had one linked to it all along.
 	 */
 	private latestLinkedConversation(notePath: string): string | null {
+		// Counts not loaded yet read as empty; this asks once, for the next time (see there).
+		void this.loadConversationCounts();
 		const view = this.getClaudianLeaf()?.view as unknown as { plugin?: ClaudianPluginApi };
 		const list = view?.plugin?.getConversationList;
 		if (typeof list !== "function") return null;
@@ -1767,39 +1804,56 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 *
 	 * We poll until Claudian's view has mounted (composer present) *and* its restore has
 	 * populated a note — the restore is async and lands around mount, so reading too early
-	 * would see no note and act on the wrong (empty) state. If no note ever gets linked
-	 * within the window (a conversation that genuinely carries none), we give up.
+	 * would see no note and act on the wrong (empty) state. A settled conversation that still
+	 * carries no note gives way to this note's (see squareRestoredConversation).
 	 */
 	private reconcileChipOnStartup(deadline: number): void {
 		const tick = (): void => {
 			if (this.claudianMounted() && this.restoredTabSettled()) {
-				const attached = this.linkedNotePath();
-				if (attached !== null) {
-					const notePath = this.activeNotePath();
-					if (notePath) {
-						if (attached === notePath) {
-							// Already agree — seed the tracker so a *later* switch is the first
-							// thing that clears context, and leave the conversation alone.
-							this.lastOpenedPath = notePath;
-						} else {
-							// The restored conversation belongs to a different note. Dragging it
-							// onto this one (what this used to do) rewrote the conversation's own
-							// note in Claudian's meta, so a conversation merely *held* while some
-							// note happened to be open looked like it was about that note from
-							// then on — and the memory, which trusts that meta, inherited the lie.
-							// Arrive from the note it actually belongs to instead: the restored
-							// conversation is recorded where it can be found again, and this note
-							// gets its own conversation back, or a fresh one.
-							this.lastOpenedPath = attached;
-							this.handleNoteChange(notePath);
-						}
-					}
-					return; // restore settled — done
-				}
+				// Judged once the conversations' message counts are real (loadConversationCounts):
+				// before that, every note's own conversations read as empty.
+				void this.loadConversationCounts().then(() => this.squareRestoredConversation());
+				return;
 			}
 			if (Date.now() < deadline) window.setTimeout(tick, 150);
 		};
 		tick();
+	}
+
+	/** The judgement for reconcileChipOnStartup, once Claudian's restore has settled. */
+	private squareRestoredConversation(): void {
+		const notePath = this.activeNotePath();
+		if (!notePath) return;
+		const attached = this.linkedNotePath();
+		if (attached === null) {
+			// A conversation that carries no note at all (started with none linked) — it belongs
+			// to no note, this one included, yet it stayed on screen whatever note was open. This
+			// note's own conversation replaces it, or a fresh one; it isn't recorded against any
+			// note, and is still in Claudian's history. An empty draft is left to follow the note.
+			const tab = this.getActiveTab();
+			if (tab?.conversationId && tab.state?.messages?.length) {
+				this.lastOpenedPath = notePath;
+				if (this.replaceConversationFor(notePath)) return;
+			}
+			this.lastOpenedPath = notePath;
+			this.followNoteInDraft(notePath);
+			return;
+		}
+		if (attached === notePath) {
+			// Already agree — seed the tracker so a *later* switch is the first thing that
+			// clears context, and leave the conversation alone.
+			this.lastOpenedPath = notePath;
+			return;
+		}
+		// The restored conversation belongs to a different note. Dragging it onto this one
+		// (what this used to do) rewrote the conversation's own note in Claudian's meta, so a
+		// conversation merely *held* while some note happened to be open looked like it was
+		// about that note from then on — and the memory, which trusts that meta, inherited the
+		// lie. Arrive from the note it actually belongs to instead: the restored conversation is
+		// recorded where it can be found again, and this note gets its own conversation back,
+		// or a fresh one.
+		this.lastOpenedPath = attached;
+		this.handleNoteChange(notePath);
 	}
 
 	/**
