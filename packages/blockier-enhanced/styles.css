@@ -26,3 +26,19 @@
 	margin: 0;
 	display: block;
 }
+
+/* Code block language suggestions (fence-suggest.ts): the name and its other names. */
+.blockier-fence-suggestion {
+	display: flex;
+	align-items: baseline;
+	gap: var(--size-4-2);
+}
+
+.blockier-fence-suggestion-name {
+	font-family: var(--font-monospace);
+}
+
+.blockier-fence-suggestion-alias {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}

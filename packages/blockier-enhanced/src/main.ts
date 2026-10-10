@@ -3,6 +3,7 @@ import { keymap } from "@codemirror/view";
 import { tryReplace as tryReplaceBlock } from "replace";
 import { runSelectBlock } from "select";
 import { CalloutSuggest, CheckboxSuggest } from "suggest";
+import { FenceSuggest } from "fence-suggest";
 
 export type PluginSettings = {
 	replaceBlocks: boolean;
@@ -11,6 +12,9 @@ export type PluginSettings = {
 	showCalloutSuggestions: boolean;
 	calloutSuggestions: string;
 	enableSelectBlockEE: boolean;
+	showFenceSuggestions: boolean;
+	fenceLanguages: string;
+	fenceTemplates: string;
 };
 
 const DEFAULT_SETTINGS: PluginSettings = {
@@ -21,7 +25,24 @@ const DEFAULT_SETTINGS: PluginSettings = {
 	calloutSuggestions:
 		"note, summary, info, todo, tip, check, help, warning, fail, error, bug, example, quote",
 	enableSelectBlockEE: true,
+	showFenceSuggestions: true,
+	fenceLanguages:
+		"python, javascript, typescript, shell, bash, sql, mermaid, json, yaml, html, css, go, jsx, tsx, java, c, cpp, rust, markdown, plain, diff, http, dockerfile",
+	fenceTemplates: "",
 };
+
+/** `lang: first line` per line of the setting, a `\n` in it for a line break. */
+function parseTemplates(text: string): Record<string, string> {
+	const templates: Record<string, string> = {};
+	for (const line of text.split("\n")) {
+		const at = line.indexOf(":");
+		if (at <= 0) continue;
+		const lang = line.slice(0, at).trim().toLowerCase();
+		const body = line.slice(at + 1).trim().replace(/\\n/g, "\n");
+		if (lang && body) templates[lang] = body;
+	}
+	return templates;
+}
 
 export default class BlockierPlugin extends Plugin {
 	settings: PluginSettings;
@@ -83,6 +104,18 @@ export default class BlockierPlugin extends Plugin {
 		if (this.settings.showCalloutSuggestions) {
 			this.registerEditorSuggest(
 				new CalloutSuggest(this.app, this, this.settings.calloutSuggestions)
+			);
+		}
+
+		if (this.settings.showFenceSuggestions) {
+			this.registerEditorSuggest(
+				new FenceSuggest(this.app, {
+					languages: this.settings.fenceLanguages
+						.split(",")
+						.map((name) => name.trim().toLowerCase())
+						.filter(Boolean),
+					templates: parseTemplates(this.settings.fenceTemplates),
+				})
 			);
 		}
 	}
@@ -198,6 +231,45 @@ class SettingsTab extends PluginSettingTab {
 			.addTextArea((text) =>
 				text.setValue(this.plugin.settings.calloutSuggestions).onChange(async (value) => {
 					this.plugin.settings.calloutSuggestions = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Show code block language suggestions")
+			.setDesc(
+				"While typing an opening fence (```py), suggest the language, most used in this vault first. Reload required."
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.showFenceSuggestions)
+					.onChange(async (value) => {
+						this.plugin.settings.showFenceSuggestions = value;
+						await this.plugin.saveSettings();
+						new Notice("Reload required!");
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Code block languages")
+			.setDesc(
+				"Offered even before the vault uses them; languages the vault already uses are added. Separate by commas. Reload required."
+			)
+			.addTextArea((text) =>
+				text.setValue(this.plugin.settings.fenceLanguages).onChange(async (value) => {
+					this.plugin.settings.fenceLanguages = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Code block templates")
+			.setDesc(
+				"What a new block starts with, one language per line as `language: text` (\\n for a line break), e.g. `mermaid: sequenceDiagram`. Reload required."
+			)
+			.addTextArea((text) =>
+				text.setValue(this.plugin.settings.fenceTemplates).onChange(async (value) => {
+					this.plugin.settings.fenceTemplates = value;
 					await this.plugin.saveSettings();
 				})
 			);
