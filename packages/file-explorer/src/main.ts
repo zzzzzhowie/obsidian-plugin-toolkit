@@ -29,6 +29,8 @@ export default class FileExplorerPlugin extends Plugin {
 	fileHiderManager: FileHiderManager;
 	// Whether the pane last clicked in was the file tree, which scopes Cmd/Ctrl+B.
 	private lastPointerInFileTree = false;
+	/** The row last pressed in the file tree, folder or file; null for its empty space. */
+	private lastTreePath: string | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -117,9 +119,13 @@ export default class FileExplorerPlugin extends Plugin {
 				this.lastPointerInFileTree = !!target?.closest(
 					'.workspace-leaf-content[data-type="file-explorer"]',
 				);
+				this.lastTreePath = this.lastPointerInFileTree
+					? (target?.closest<HTMLElement>(".nav-folder-title, .nav-file-title")?.dataset.path ?? null)
+					: null;
 			},
 			{ capture: true },
 		);
+		this.app.workspace.onLayoutReady(() => this.revealPressedRowInFinder());
 
 		this.registerDomEvent(
 			window,
@@ -141,6 +147,42 @@ export default class FileExplorerPlugin extends Plugin {
 
 		// Add settings tab
 		this.addSettingTab(new FileExplorerSettingTab(this.app, this));
+	}
+
+	/**
+	 * "Reveal in Finder" (Option+Cmd+R here) shows the row last clicked in the file tree when
+	 * that is where you are, a folder included; with no file open either, the vault's folder. Obsidian's own reveals only the open note, so
+	 * pressed on a folder in the tree it showed some other file — or nothing changed at all.
+	 * Wrapped rather than the key caught, so it follows whatever hotkey the command has.
+	 */
+	private revealPressedRowInFinder(): void {
+		type Command = { checkCallback?: (checking: boolean) => boolean | void };
+		type App = {
+			commands?: { commands?: Record<string, Command | undefined> };
+			showInFolder?: (path: string) => void;
+			openWithDefaultApp?: (path: string) => unknown;
+		};
+		const app = this.app as unknown as App;
+		const command = app.commands?.commands?.["open-with-default-app:show"];
+		const original = command?.checkCallback;
+		if (!command || typeof original !== "function" || typeof app.showInFolder !== "function") return;
+		const guarded = (checking: boolean): boolean | void => {
+			const path = this.lastPointerInFileTree ? this.lastTreePath : null;
+			if (path !== null && this.app.vault.getAbstractFileByPath(path)) {
+				if (!checking) app.showInFolder?.(path);
+				return true;
+			}
+			if (this.app.workspace.getActiveFile()) return original.call(command, checking);
+			// Nothing to reveal — an empty tab, say: Obsidian's own does nothing then, which left
+			// Finder on the last folder it showed. The vault's own folder instead.
+			if (typeof app.openWithDefaultApp !== "function") return original.call(command, checking);
+			if (!checking) void app.openWithDefaultApp("");
+			return true;
+		};
+		command.checkCallback = guarded;
+		this.register(() => {
+			if (command.checkCallback === guarded) command.checkCallback = original;
+		});
 	}
 
 	onunload() {
