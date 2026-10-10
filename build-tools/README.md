@@ -12,7 +12,7 @@ Unified esbuild build configuration function `createBuildContext()`, providing t
 - Automatically copy manifest.json and styles.css to build directory
 - Automatically copy main.js to project root (required by Obsidian)
 - Support for custom options:
-  - `distDir`: Build output directory
+  - `distDir`: Build output directory (default `dist`); the vault folder is always named after the manifest `id`
   - `entryPoint`: Entry file (default "src/main.ts")
   - `minify`: Whether to minify (default true)
   - `keepNames`: Whether to keep function names (default false)
@@ -23,9 +23,7 @@ Unified esbuild build configuration function `createBuildContext()`, providing t
 ```javascript
 import { createBuildContext } from "../../build-tools/esbuild.config.mjs";
 
-await createBuildContext({
-	distDir: "obsidian-plugin-file-explorer",
-});
+await createBuildContext(); // builds into dist/, copied to <vault>/.obsidian/plugins/<manifest id>/
 ```
 
 ### `version-bump.mjs`
