@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS: PluginSettings = {
 	enableSelectBlockEE: true,
 	showFenceSuggestions: true,
 	fenceLanguages:
-		"python, javascript, typescript, shell, bash, sql, mermaid, json, yaml, html, css, go, jsx, tsx, java, c, cpp, rust, markdown, plain, diff, http, dockerfile",
+		"python, javascript, typescript, shell, bash, sql, mermaid, excalidraw, json, yaml, html, css, go, jsx, tsx, java, c, cpp, rust, markdown, plain, diff, http, dockerfile",
 	fenceTemplates: "",
 };
 
