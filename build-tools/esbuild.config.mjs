@@ -41,8 +41,14 @@ export function updateManifestVersion(manifestPath = "manifest.json") {
 	}
 }
 
+/** The plugin's manifest id, from the package's manifest.json: the name of its folder in a vault. */
+function pluginIdOf(packagePath) {
+	return JSON.parse(readFileSync(join(packagePath, "manifest.json"), "utf-8")).id;
+}
+
 /**
- * Sync plugin to Obsidian plugins directory
+ * Sync plugin to Obsidian plugins directory, into a folder named after its manifest id
+ * (Obsidian's convention), whatever the build output directory is called.
  * @param {string} distDir - Build output directory name
  * @param {string} packagePath - Path to the package directory
  * @param {boolean} isDev - Whether in development mode (symlink) or build mode (copy)
@@ -55,8 +61,9 @@ function syncToObsidian(distDir, packagePath, isDev) {
 		return;
 	}
 	
+	const pluginId = pluginIdOf(packagePath);
 	const sourcePath = resolve(packagePath, distDir);
-	const targetPath = join(OBSIDIAN_PLUGINS_DIR, distDir);
+	const targetPath = join(OBSIDIAN_PLUGINS_DIR, pluginId);
 	
 	if (!existsSync(sourcePath)) {
 		console.warn(`⚠️  Source directory does not exist: ${sourcePath}`);
@@ -106,7 +113,7 @@ function syncToObsidian(distDir, packagePath, isDev) {
 					console.warn(`⚠️  Failed to preserve data.json: ${error.message}`);
 				}
 			}
-			console.log(`✓ Symlinked ${distDir} -> Obsidian plugins`);
+			console.log(`✓ Symlinked ${distDir} -> Obsidian plugins/${pluginId}`);
 		} else {
 			cpSync(sourcePath, targetPath, { recursive: true });
 
@@ -120,7 +127,7 @@ function syncToObsidian(distDir, packagePath, isDev) {
 				}
 			}
 
-			console.log(`✓ Copied ${distDir} -> Obsidian plugins`);
+			console.log(`✓ Copied ${distDir} -> Obsidian plugins/${pluginId}`);
 		}
 	} catch (error) {
 		console.error(`✗ Failed to ${isDev ? 'symlink' : 'copy'} ${distDir}:`, error.message);
@@ -130,7 +137,7 @@ function syncToObsidian(distDir, packagePath, isDev) {
 /**
  * Create esbuild configuration for Obsidian plugins
  * @param {Object} options - Configuration options
- * @param {string} options.distDir - Build output directory (e.g., "obsidian-plugin-file-explorer")
+ * @param {string} [options.distDir="dist"] - Build output directory; the vault folder is named after the manifest id regardless
  * @param {string} [options.entryPoint="src/main.ts"] - Entry file
  * @param {boolean} [options.minify=true] - Whether to minify (production mode)
  * @param {boolean} [options.keepNames=false] - Whether to keep function names
@@ -138,12 +145,12 @@ function syncToObsidian(distDir, packagePath, isDev) {
  * @returns {Promise<esbuild.BuildContext>} esbuild context
  */
 export async function createBuildContext({
-	distDir,
+	distDir = "dist",
 	entryPoint = "src/main.ts",
 	minify = true,
 	keepNames = false,
 	onBuildEnd = null,
-}) {
+} = {}) {
 	const prod = process.argv[2] === "production";
 	
 	// Get package directory path (assuming esbuild.config.mjs is in package root)

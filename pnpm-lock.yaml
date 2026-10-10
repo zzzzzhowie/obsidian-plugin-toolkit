@@ -289,7 +289,7 @@ importers:
         specifier: 8.35.1
         version: 8.35.1(eslint@9.30.1(jiti@2.6.1))(typescript@5.8.3)
 
-  packages/file-explorer:
+  packages/file-explorer-enhancements:
     devDependencies:
       '@eslint/js':
         specifier: 9.30.1

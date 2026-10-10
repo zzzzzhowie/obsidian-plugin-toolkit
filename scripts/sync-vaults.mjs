@@ -9,7 +9,7 @@
 // each vault are left alone. Per-vault `data.json` is never copied or deleted.
 //
 // Plugins are matched to a vault's existing folder by manifest `id` (folder
-// names differ across vaults); if absent, the monorepo's distDir name is used.
+// names differ across vaults); if absent, a folder named after the id is made.
 //
 // CSS snippets: the vault that OBSIDIAN_PLUGINS_DIR points to (the "default"
 // vault) is the source of truth for `.obsidian/snippets/*.css`. Its snippets are
@@ -76,17 +76,10 @@ if (filters.length) {
 // ---- built plugins in the monorepo ------------------------------------------
 function distDirOf(pkgPath) {
 	const cfg = join(pkgPath, "esbuild.config.mjs");
-	if (existsSync(cfg)) {
-		const m = readFileSync(cfg, "utf8").match(/distDir:\s*["']([^"']+)["']/);
-		if (m) return m[1];
-	}
-	// fallback: a subdirectory that contains a manifest.json (the build output)
-	for (const e of readdirSync(pkgPath, { withFileTypes: true })) {
-		if (e.isDirectory() && existsSync(join(pkgPath, e.name, "manifest.json"))) {
-			return e.name;
-		}
-	}
-	return null;
+	if (!existsSync(cfg)) return null;
+	// The build output directory: `dist` unless the package's config names another.
+	const m = readFileSync(cfg, "utf8").match(/distDir:\s*["']([^"']+)["']/);
+	return m ? m[1] : "dist";
 }
 
 const plugins = [];
@@ -102,7 +95,7 @@ for (const e of readdirSync(PACKAGES_DIR, { withFileTypes: true })) {
 		continue;
 	}
 	const id = JSON.parse(readFileSync(manifestPath, "utf8")).id;
-	plugins.push({ id, distDir, src });
+	plugins.push({ id, src });
 }
 
 // ---- id -> folder name for a vault's installed plugins ----------------------
@@ -138,8 +131,8 @@ for (const vault of targets) {
 	const base = join(vault, ".obsidian/plugins");
 	console.log(`==> ${basename(vault)}`);
 	const map = idMap(base);
-	for (const { id, distDir, src } of plugins) {
-		const targetFolder = map[id] || distDir;
+	for (const { id, src } of plugins) {
+		const targetFolder = map[id] || id;
 		const dest = join(base, targetFolder);
 		mkdirSync(dest, { recursive: true });
 		const rsyncArgs = [

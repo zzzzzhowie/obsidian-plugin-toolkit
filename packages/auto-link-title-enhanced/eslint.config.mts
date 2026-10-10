@@ -24,7 +24,7 @@ export default tseslint.config(
 	...obsidianmd.configs.recommended,
 	globalIgnores([
 		"node_modules",
-		"obsidian-plugin-auto-link-title-enhanced",
+		"dist",
 		"esbuild.config.mjs",
 		"eslint.config.js",
 		"version-bump.mjs",

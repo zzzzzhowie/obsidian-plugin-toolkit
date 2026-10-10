@@ -21,7 +21,7 @@ export default tseslint.config(
   ...obsidianmd.configs.recommended,
   globalIgnores([
     "node_modules",
-    "image-auto-upload-enhanced",
+    "dist",
     "esbuild.config.mjs",
     "eslint.config.js",
     "version-bump.mjs",

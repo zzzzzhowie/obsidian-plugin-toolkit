@@ -25,7 +25,6 @@ export default tseslint.config(
 	globalIgnores([
 		"node_modules",
 		"dist",
-		"sticky-table-header",
 		"sticky-find",
 		"esbuild.config.mjs",
 		"eslint.config.js",
