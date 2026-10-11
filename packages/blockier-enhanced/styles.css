@@ -42,3 +42,9 @@
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
 }
+
+/* Code blocks don't wrap (codeBlocksNoWrap; once the code-enhancements.css snippet). */
+.blockier-code-nowrap pre > code,
+.blockier-code-nowrap code[class*="language-"] {
+	white-space: pre !important;
+}

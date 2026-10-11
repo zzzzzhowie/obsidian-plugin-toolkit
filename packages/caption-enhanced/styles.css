@@ -70,3 +70,31 @@
 .internal-embed.image-embed img {
 	display: block;
 }
+
+/* ==========================================================================
+   Live Preview 图片的「编辑块」铅笔钉在图片右上角（原 image-edit-button.css snippet）。
+   原生 Obsidian 把它绝对定位在满宽的 .cm-embed-block 右上，图被 resize 变窄后按钮就飘，
+   且外链图与内嵌图落点不一。这里让承载图片的块收缩到图片宽度，于是块的右上角 = 图片右上角。
+   ========================================================================== */
+
+/* 外链图片 ![](https://...) —— 按钮直接挂在 .image-embed 里 */
+.markdown-source-view.mod-cm6 .image-embed {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* 内嵌图片 ![[...]] —— 按钮挂在外层 .cm-embed-block 里 */
+.markdown-source-view.mod-cm6 .cm-embed-block:has(.image-embed) {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* 两种结构都把铅笔钉到承载块的右上角 */
+.markdown-source-view.mod-cm6 .image-embed > .edit-block-button,
+.markdown-source-view.mod-cm6 .cm-embed-block:has(.image-embed) > .edit-block-button {
+  position: absolute;
+  inset: 4px 4px auto auto;
+  margin: 0;
+}

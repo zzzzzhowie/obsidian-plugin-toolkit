@@ -15,6 +15,7 @@ export type PluginSettings = {
 	showFenceSuggestions: boolean;
 	fenceLanguages: string;
 	fenceTemplates: string;
+	codeBlocksNoWrap: boolean;
 };
 
 const DEFAULT_SETTINGS: PluginSettings = {
@@ -29,7 +30,11 @@ const DEFAULT_SETTINGS: PluginSettings = {
 	fenceLanguages:
 		"python, javascript, typescript, shell, bash, sql, mermaid, excalidraw, json, yaml, html, css, go, jsx, tsx, java, c, cpp, rust, markdown, plain, diff, http, dockerfile",
 	fenceTemplates: "",
+	codeBlocksNoWrap: true,
 };
+
+/** On <body> while code blocks scroll sideways rather than wrap; styles.css. */
+const NO_WRAP_CLS = "blockier-code-nowrap";
 
 /** `lang: first line` per line of the setting, a `\n` in it for a line break. */
 function parseTemplates(text: string): Record<string, string> {
@@ -50,6 +55,8 @@ export default class BlockierPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		this.addSettingTab(new SettingsTab(this.app, this));
+		this.applyCodeWrap();
+		this.register(() => document.body.removeClass(NO_WRAP_CLS));
 
 		this.addCommand({
 			id: "select-block",
@@ -132,6 +139,11 @@ export default class BlockierPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	/** Code blocks keep their lines whole and scroll sideways (once a CSS snippet of its own). */
+	applyCodeWrap() {
+		document.body.toggleClass(NO_WRAP_CLS, this.settings.codeBlocksNoWrap);
 	}
 }
 
@@ -232,6 +244,17 @@ class SettingsTab extends PluginSettingTab {
 				text.setValue(this.plugin.settings.calloutSuggestions).onChange(async (value) => {
 					this.plugin.settings.calloutSuggestions = value;
 					await this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Don't wrap code blocks")
+			.setDesc("Long lines in rendered code blocks scroll sideways instead of wrapping.")
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.codeBlocksNoWrap).onChange(async (value) => {
+					this.plugin.settings.codeBlocksNoWrap = value;
+					await this.plugin.saveSettings();
+					this.plugin.applyCodeWrap();
 				})
 			);
 

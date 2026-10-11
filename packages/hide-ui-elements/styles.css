@@ -9,3 +9,35 @@ body.hue-hide-character-count .status-bar-item.plugin-word-count .status-bar-ite
 body.hue-hide-character-count .status-bar-item.plugin-word-count .status-bar-item-segment { margin-right: 0 !important; }
 body.hue-hide-file-properties-tab .workspace-tab-header[data-type="file-properties"] { display: none !important; }
 body.hue-hide-vault-name .workspace-sidedock-vault-profile { display: none !important; }
+
+/* ==========================================================================
+   Primary 主题下弹窗右上角关闭按钮的尺寸（原 fix-modal-close-button.css snippet）。
+   原先还修过它的背景图重复；现在主题给的是纯色背景，那几行已不起作用，去掉了。
+   ========================================================================== */
+.modal-close-button.clickable-icon {
+	min-width: 24px !important;
+	min-height: 24px !important;
+	touch-action: manipulation !important; /* 改善移动端触摸响应 */
+}
+
+/* 手机：稍微放大，便于点击 */
+@media (max-width: 768px) {
+	.modal-close-button.clickable-icon {
+		min-width: 32px !important;
+		min-height: 32px !important;
+		padding: 4px !important;
+	}
+
+	.modal-close-button.clickable-icon svg {
+		width: 20px !important;
+		height: 20px !important;
+	}
+}
+
+/* 平板 */
+@media (min-width: 769px) and (max-width: 1024px) {
+	.modal-close-button.clickable-icon {
+		min-width: 28px !important;
+		min-height: 28px !important;
+	}
+}
