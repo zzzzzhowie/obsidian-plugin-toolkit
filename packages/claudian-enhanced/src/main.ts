@@ -111,6 +111,8 @@ const REMEMBERED_NOTES = 5;
 const SELECTION_TAG_CLS = "claudian-enhanced-selection-tag";
 /** How often, and how many times, a prompt not filled in yet is looked at again (~30s). */
 const TAG_RETRY_MS = 400;
+/** How long after a note switch its result is checked; see verifySoon. */
+const VERIFY_AFTER_MS = 1500;
 const TAG_RETRIES = 75;
 /** Claudian's replies. Prompts are left out on purpose: they're sticky (see styles.css), so
  *  where one is drawn says where it's pinned, not where it sits in the conversation. */
@@ -281,6 +283,8 @@ interface ClaudianTabManager {
 	) => Promise<ClaudianTab | null>;
 	/** Saves the conversation and closes the tab; refuses one still streaming. */
 	closeTab?: (id: string) => Promise<boolean>;
+	/** A fresh conversation in the active tab — what Claudian's "new session" command runs. */
+	createNewConversation?: () => Promise<void>;
 	/** Streaming, or anything else still running for it — subagents, background work. */
 	isTabWorking?: (id: string) => boolean;
 }
@@ -571,6 +575,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** Passes in a row that found a prompt not filled in yet; see tagSentSelections. */
 	private tagRetries = 0;
 	private tagRetryTimer: number | null = null;
+	/** Pending check that a note switch landed; see verifySoon. */
+	private verifyTimer: number | null = null;
+	/** Watches Claudian's view for being shown; see watchClaudianVisibility. */
+	private visibilityObserver: ResizeObserver | null = null;
+	private visibilityWatched: HTMLElement | null = null;
+	private claudianShown = false;
 	/** Whether the last pass found a prompt not filled in yet, so a reply streaming looks again. */
 	private tagsPending = false;
 	/** Fresh prompts already tagged from the composer while Claude Code takes the turn. */
@@ -676,6 +686,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// file-open fires — so leaf changes are watched too. See syncCurrentNoteChip.
 		this.registerEvent(
 			this.app.workspace.on("active-leaf-change", () => {
+				this.watchClaudianVisibility();
 				this.scheduleChipSync();
 				// A deferred/collapsed Claudian leaf can swap in a new view (new
 				// containerEl) when revealed — re-bind the submit-scroll observer to it.
@@ -691,6 +702,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on("file-open", () => this.syncCurrentNoteChip()),
 		);
+		// Claudian shown any other way than ⌘L — its tab clicked in the sidebar, a layout
+		// restored — changes neither the active leaf nor the file; see watchClaudianVisibility.
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.watchClaudianVisibility()));
+		this.app.workspace.onLayoutReady(() => this.watchClaudianVisibility());
+		this.register(() => this.visibilityObserver?.disconnect());
 		// Notes are remembered by path, so a rename would otherwise strand a conversation
 		// under a path that no longer exists — and, worse, make the next sync read the new
 		// path as a note change and clear the session. Both trackers move with the file.
@@ -771,6 +787,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.gen++;
 		if (this.syncTimer !== null) window.clearTimeout(this.syncTimer);
 		if (this.tagRetryTimer !== null) window.clearTimeout(this.tagRetryTimer);
+		if (this.verifyTimer !== null) window.clearTimeout(this.verifyTimer);
 		for (const frame of [this.pinnedFrame, this.foldFrame, this.tagFrame]) {
 			if (frame !== null) cancelAnimationFrame(frame);
 		}
@@ -1073,9 +1090,38 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			return;
 		}
 		const path = this.activeNotePath();
-		if (!path || path === this.lastSyncedPath) return;
+		// Synced already — unless the conversation is still another note's.
+		if (!path || (path === this.lastSyncedPath && path === this.lastOpenedPath)) return;
 		this.lastSyncedPath = path;
 		this.handleNoteChange(path);
+	}
+
+	/**
+	 * Catch up when Claudian comes into view by any means. A note with no conversation
+	 * shows Outline in its place (matchSidebarToNote), and the switch waits until Claudian
+	 * is back — but only ⌘L ran that catch-up. Clicking Claudian's tab in the sidebar fires no
+	 * active-leaf-change and no file-open, so the last note's conversation stayed on screen
+	 * under this one: the recurring "Claudian shows another note's session". Its view going
+	 * from hidden to shown is watched directly (a hidden sidebar tab is display:none, so its
+	 * size changes), and that is a sync like any other.
+	 */
+	private watchClaudianVisibility(): void {
+		const leaf = this.getClaudianLeaf();
+		const el = leaf?.view.containerEl ?? null;
+		if (!leaf || !el || el === this.visibilityWatched) return;
+		this.visibilityObserver?.disconnect();
+		this.visibilityWatched = el;
+		this.claudianShown = this.isLeafVisible(leaf);
+		this.visibilityObserver = new ResizeObserver(() => {
+			const current = this.getClaudianLeaf();
+			const shown = !!current && this.isLeafVisible(current);
+			if (shown && !this.claudianShown) {
+				this.lastSyncedPath = null;
+				this.scheduleChipSync();
+			}
+			this.claudianShown = shown;
+		});
+		this.visibilityObserver.observe(el);
 	}
 
 	/**
@@ -1201,6 +1247,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private handleNoteChange(path: string): void {
 		const previous = this.lastOpenedPath;
 		this.lastOpenedPath = path;
+		this.verifySoon(path);
 		// First note we've seen (fresh load, or Claudian just appeared): there is no
 		// previous conversation to clear.
 		if (previous !== null && previous !== path) {
@@ -1220,6 +1267,44 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.closeExtraTabs(path);
 		if (this.activeTabWorking()) return this.openBesideRunningReply(path);
 		return this.restoreConversationFor(path) || this.resetSessionForNoteChange();
+	}
+
+	/** The note Claudian's own record links a conversation to: "" for none, null when unknown. */
+	private conversationNote(conversationId: string): string | null {
+		const api = (this.getClaudianLeaf()?.view as unknown as { plugin?: ClaudianPluginApi } | undefined)?.plugin;
+		const summary = api?.getConversationList?.()?.find((c) => c.id === conversationId);
+		return summary ? (summary.linkedContentPath ?? "") : null;
+	}
+
+	/**
+	 * Check, once a note switch has had time to land, that the conversation on screen isn't
+	 * another note's — and switch again if it is. Every way into a switch (the sync, ⌘L's
+	 * catch-up, the startup reconcile) ends in Claudian calls that can fail quietly: a command
+	 * refused while its view was hidden, a restore read before Claudian had filled in the
+	 * conversation's note. Each left the last note's conversation under this one with the
+	 * switch already counted as done, so nothing ever tried again. Judged by Claudian's own
+	 * record of the conversation's note, not its chip; a conversation with no note, or one
+	 * still replying, is left alone, as is anything once you've moved on.
+	 */
+	private verifySoon(path: string): void {
+		if (this.verifyTimer !== null) window.clearTimeout(this.verifyTimer);
+		this.verifyTimer = window.setTimeout(() => {
+			this.verifyTimer = null;
+			if (this.lastOpenedPath !== path || this.activeNotePath() !== path) return;
+			const restoring = Array.from(this.restores.values()).some((restore) => restore.phase !== "holding");
+			if (restoring || this.veiledFor !== null || this.activeTabWorking()) {
+				this.verifySoon(path); // still settling: look again shortly
+				return;
+			}
+			const conversationId = this.getActiveTab()?.conversationId;
+			if (!conversationId) return;
+			const note = this.conversationNote(conversationId);
+			if (!note || note === path) return;
+			console.debug(`Claudian (Enhanced): ${path} still showed ${note}'s conversation; switching again`);
+			// Filed under its own note first, so going back there finds it.
+			this.rememberConversation(note);
+			if (!this.replaceConversationFor(path)) this.followNoteInDraft(path);
+		}, VERIFY_AFTER_MS);
 	}
 
 	/**
@@ -1741,6 +1826,16 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const state = this.getActiveTabState();
 		if (!state || state.isStreaming) return false;
 		if (!this.conversationStarted()) return false;
+		// Straight to the tab manager, which is what Claudian's command runs: the command can
+		// refuse — while its view is behind another sidebar tab, as on a switch to a note with
+		// no conversation, which shows Outline — and the old conversation then stayed on.
+		const manager = this.getTabManager();
+		if (typeof manager?.createNewConversation === "function") {
+			void manager.createNewConversation().catch((error: unknown) => {
+				console.warn("Claudian (Enhanced): couldn't start a fresh conversation", error);
+			});
+			return true;
+		}
 		return (this.app as unknown as AppWithCommands).commands.executeCommandById(
 			NEW_SESSION_COMMAND,
 		);
@@ -1824,8 +1919,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private squareRestoredConversation(): void {
 		const notePath = this.activeNotePath();
 		if (!notePath) return;
-		const attached = this.linkedNotePath();
-		if (attached === null) {
+		// Claudian's record of the conversation's note first: its chip can still be empty when
+		// the messages are in, and reading that as "no note" switched away from a conversation
+		// that has one — through a path that recorded nothing and could fail.
+		const conversationId = this.getActiveTab()?.conversationId;
+		const recorded = conversationId ? this.conversationNote(conversationId) : null;
+		const attached = recorded || this.linkedNotePath();
+		if (!attached && recorded === "") {
 			// A conversation that carries no note at all (started with none linked) — it belongs
 			// to no note, this one included, yet it stayed on screen whatever note was open. This
 			// note's own conversation replaces it, or a fresh one; it isn't recorded against any
