@@ -49,7 +49,7 @@ There are no automated tests — plugins are tested in the running Obsidian (see
 - `build-tools/` — Shared build infrastructure (esbuild config, tsconfig base, version-bump script). Not an Obsidian plugin.
 - `shared/` — Runtime code used by more than one plugin (e.g. `zoom-overlay.ts`, the click-to-zoom overlay behind Mermaid (Enhanced) and Excalidraw (Enhanced)). Imported by relative path (`../../../shared/x`), bundled into each plugin by esbuild, and listed in the importing package's `tsconfig.json` `include`. Its own imports of `obsidian` resolve against the root `node_modules`, which is why `obsidian` is a root devDependency.
 - `packages/<name>/` — Each Obsidian plugin. Source lives in `src/`, build output in `packages/<name>/dist/` (ignored by git).
-- `scripts/sync-vaults.mjs` — Copies built plugins (plus CSS snippets and shared app/appearance/hotkey/core-plugin settings) from the default vault to the others, matching plugins by manifest `id` and never touching a vault's `data.json`.
+- `scripts/sync-vaults.mjs` — Copies built plugins (plus CSS snippets, shared app/appearance/hotkey/core-plugin settings and Claudian's `systemPrompt`) from the default vault to the others, matching plugins by manifest `id` and never touching a vault's `data.json`.
 - Root `package.json` provides convenience scripts that delegate to all packages via `pnpm --filter`.
 
 ### Shared build system (`build-tools/esbuild.config.mjs`)
@@ -97,7 +97,9 @@ Uses ESLint 9 flat config (`eslint.config.mts`) with `typescript-eslint` strict 
 
 ### Testing in Obsidian
 
-Obsidian is run with `--remote-debugging-port=9222` (`open -a Obsidian --args --remote-debugging-port=9222`), so a script can evaluate JS in a vault's window over CDP: find the page in `http://127.0.0.1:9222/json/list` whose title contains ` - <vault> - `, then `Runtime.evaluate` with `awaitPromise`/`returnByValue`. `app` is global (`require("obsidian")` is not); reload a rebuilt plugin with `app.plugins.disablePlugin(id)` then `enablePlugin(id)` (call `app.plugins.loadManifests()` first if its manifest changed).
+The Obsidian CLI (`/Applications/Obsidian.app/Contents/MacOS/obsidian`, on PATH as `obsidian`) talks to the running app with no debug port: `obsidian vault=default plugin:reload id=<id>` reloads a rebuilt plugin, `obsidian vault=default eval code='<js>'` evaluates JS and prints the result (keep it synchronous — a returned promise prints nothing; poll in a second call), `obsidian vault=default dev:errors` lists captured errors. Its `dev:screenshot` does not capture the window as laid out, so judge layout from DOM measurements.
+
+For heavier scripting, Obsidian can be run with `--remote-debugging-port=9222` (`open -a Obsidian --args --remote-debugging-port=9222`), so a script can evaluate JS in a vault's window over CDP: find the page in `http://127.0.0.1:9222/json/list` whose title contains ` - <vault> - `, then `Runtime.evaluate` with `awaitPromise`/`returnByValue`. `app` is global (`require("obsidian")` is not); reload a rebuilt plugin with `app.plugins.disablePlugin(id)` then `enablePlugin(id)` (call `app.plugins.loadManifests()` first if its manifest changed).
 - A background Obsidian window throttles timers and pauses `requestAnimationFrame`, and an unfocused editor never opens an `EditorSuggest` or shows Live Preview source — test the logic directly (call the method, dispatch the transaction) rather than waiting on those.
 - Restore anything a test changes (note text, cursor, active leaf); stub side effects such as `app.showInFolder`.
 - Quitting Obsidian mid-write can truncate a plugin's `data.json`; back up `.obsidian/plugins` before migrations.

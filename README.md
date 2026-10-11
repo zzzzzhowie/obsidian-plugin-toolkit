@@ -132,7 +132,7 @@ pnpm lint
 
 ## Sync to other vaults
 
-`pnpm build:<name>` copies a plugin into the vault set by `OBSIDIAN_PLUGINS_DIR` in `.env`. `pnpm sync` (`node scripts/sync-vaults.mjs [vault…]`) then mirrors every built plugin into the other vaults — matched by manifest `id`, each vault's own `data.json` kept — along with CSS snippets and the shared app / appearance / hotkey / core-plugin settings. The `.githooks/pre-push` hook runs it on every push (skip with `git push --no-verify`), so build before pushing.
+`pnpm build:<name>` copies a plugin into the vault set by `OBSIDIAN_PLUGINS_DIR` in `.env`. `pnpm sync` (`node scripts/sync-vaults.mjs [vault…]`) then mirrors every built plugin into the other vaults — matched by manifest `id`, each vault's own `data.json` kept — along with CSS snippets (prefer a plugin's `styles.css`: a snippet is one more file to keep in step), the shared app / appearance / hotkey / core-plugin settings, and Claudian's system prompt (only the prompt — model, permission mode and the rest stay per vault; Claudian (Enhanced) carries a prompt changed on disk into the running Claudian). The `.githooks/pre-push` hook runs it on every push (skip with `git push --no-verify`), so build before pushing.
 
 ## Plugin IDs, folders and versions
 
@@ -151,7 +151,7 @@ Copy absolute path of current file with optional header anchor (cmd+option+C).
 Enhanced paste functionality that automatically detects code blocks and pastes content accordingly.
 
 ### @obsidian-plugin-toolkit/hide-ui-elements
-Toggle visibility of sidebar tabs and status bar items.
+Toggle visibility of sidebar tabs and status bar items. Also sizes the modal close button under the Primary theme.
 
 ### @obsidian-plugin-toolkit/image-auto-upload-enhanced
 Upload images from your clipboard via PicGo.
@@ -184,10 +184,10 @@ Following a link to a note that is already open goes to its tab instead of openi
 Auto-titles pasted links. Enhanced fork: generates the title with an OpenAI-compatible LLM by default, falling back to a requestUrl scraper with per-URL custom request headers (for intranet pages needing an injected cookie/token).
 
 ### @obsidian-plugin-toolkit/blockier-enhanced
-Extra block editing utilities: callout/checkbox suggestions, block selection (`Cmd/Ctrl+A`) and replacement. Enhanced fork, adding code block language suggestions: typing an opening fence (```` ```py ````) suggests the language — exact, then prefix, then fuzzy matches, each ordered by how often the vault's code blocks use it, aliases (`ts`, `js`, `py`, `sh`, `yml`…) included. Enter, Tab or a click writes it and puts the cursor inside the block, closing it if needed, with an optional per-language template. Nothing is suggested for a closing fence or before the first letter, so ```` ``` ```` + Enter still makes a plain block.
+Extra block editing utilities: callout/checkbox suggestions, block selection (`Cmd/Ctrl+A`) and replacement. Enhanced fork, adding code block language suggestions: typing an opening fence (```` ```py ````) suggests the language — exact, then prefix, then fuzzy matches, each ordered by how often the vault's code blocks use it, aliases (`ts`, `js`, `py`, `sh`, `yml`…) included. Enter, Tab or a click writes it and puts the cursor inside the block, closing it if needed, with an optional per-language template. Nothing is suggested for a closing fence or before the first letter, so ```` ``` ```` + Enter still makes a plain block. A setting (on by default) keeps rendered code blocks from wrapping.
 
 ### @obsidian-plugin-toolkit/caption-enhanced
-Show elegant captions under images in both Live Preview and Reading Mode.
+Show elegant captions under images in both Live Preview and Reading Mode, and pin an image's edit button to its top-right corner in Live Preview (it drifted once the image was resized).
 
 ### @obsidian-plugin-toolkit/claudian-enhanced
 Claudian, tuned for notes. One hotkey toggles the chat (`Cmd/Ctrl+L`), focusing its input and keeping the editor selection highlighted. Each note keeps its own conversation: switching notes puts the note's conversation back (or starts a fresh one linked to it), reading position included, and a reply still running carries on in its own tab. Selections from rendered tables and blocks reach Claudian; a hover card on the "N lines selected" chip shows what goes with the prompt, and every prompt is tagged with the note lines it was sent with (click to go there). `Cmd/Ctrl+N` starts a new session when you're in Claudian (cursor or pointer), else a new draft. Also: long prompts fold, the current prompt stays pinned while its reply scrolls, streaming follows the bottom until you scroll up, with a jump-to-latest button.
