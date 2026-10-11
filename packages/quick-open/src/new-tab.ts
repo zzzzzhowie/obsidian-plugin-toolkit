@@ -85,6 +85,11 @@ class TabSearch {
 	private selected = 0;
 	private scoped = false;
 	private frame: number | null = null;
+	/** What the list last drew, so a redraw that would change nothing is skipped. */
+	private drawn = "";
+	/** A press is under way in the page; a redraw asked for meanwhile waits for its release. */
+	private pressing = false;
+	private redrawAfterPress = false;
 
 	constructor(
 		private readonly app: App,
@@ -95,6 +100,24 @@ class TabSearch {
 		this.el = host.createDiv({ cls: PAGE_CLASS });
 		// Above Obsidian's title and links, which follow wherever the theme puts them.
 		host.prepend(this.el);
+		// See scheduleUpdate: a redraw waits out a press, then happens.
+		this.el.addEventListener(
+			"pointerdown",
+			() => {
+				this.pressing = true;
+				const release = (): void => {
+					this.el.win.removeEventListener("pointerup", release, true);
+					this.el.win.removeEventListener("pointercancel", release, true);
+					this.pressing = false;
+					if (!this.redrawAfterPress) return;
+					this.redrawAfterPress = false;
+					this.scheduleUpdate();
+				};
+				this.el.win.addEventListener("pointerup", release, true);
+				this.el.win.addEventListener("pointercancel", release, true);
+			},
+			true,
+		);
 		const inner = this.el.createDiv({ cls: "quick-open-page-inner" });
 
 		const box = inner.createDiv({ cls: "quick-open-page-search" });
@@ -146,8 +169,17 @@ class TabSearch {
 		this.update();
 	}
 
-	/** Update on the next frame; asked again before then, it still updates once. */
+	/**
+	 * Update on the next frame; asked again before then, it still updates once. Not while a
+	 * press is under way: clicking into a tab that wasn't active makes it active, which asks
+	 * for a redraw, and a list rebuilt between the press and the release swallowed the click
+	 * (the row pressed was gone) — the row needed a second click. It redraws after the release.
+	 */
 	scheduleUpdate(): void {
+		if (this.pressing) {
+			this.redrawAfterPress = true;
+			return;
+		}
 		if (this.frame !== null) return;
 		this.frame = this.el.win.requestAnimationFrame(() => {
 			this.frame = null;
@@ -161,6 +193,16 @@ class TabSearch {
 		this.items = this.search
 			.suggest(query, { limit: query ? SEARCH_LIMIT : RECENT_LIMIT, filesOnly: true })
 			.filter((item: Item): item is FileItem => item.kind === "file");
+		const openedAt = new Map(this.history.entries().map((entry) => [entry.file.path, entry.openedAt]));
+		const now = Date.now();
+		const whens = this.items.map((item) => (item.recent ? since(openedAt.get(item.file.path) ?? 0, now) : ""));
+		// The same rows as on screen: keep them, so a row being clicked isn't swapped out.
+		const drawing = JSON.stringify([query, this.items.map((item, i) => [item.file.path, item.recent, whens[i]])]);
+		if (drawing === this.drawn && this.list.childElementCount > 0) {
+			this.select(Math.min(this.selected, this.items.length - 1), false);
+			return;
+		}
+		this.drawn = drawing;
 		this.rows = [];
 		this.list.empty();
 		if (this.items.length === 0) {
@@ -168,8 +210,6 @@ class TabSearch {
 			return;
 		}
 
-		const openedAt = new Map(this.history.entries().map((entry) => [entry.file.path, entry.openedAt]));
-		const now = Date.now();
 		let section: boolean | null = null;
 		this.items.forEach((item, index) => {
 			if (item.recent !== section) {
@@ -187,7 +227,7 @@ class TabSearch {
 				},
 				{ labels: false },
 			);
-			const when = item.recent ? since(openedAt.get(item.file.path) ?? 0, now) : "";
+			const when = whens[index] ?? "";
 			if (when) row.querySelector(".quick-open-aux")?.prepend(createSpanIn(row, "quick-open-page-when", when));
 			row.addEventListener("mousemove", () => this.select(index, false));
 			row.addEventListener("click", (evt) => {
