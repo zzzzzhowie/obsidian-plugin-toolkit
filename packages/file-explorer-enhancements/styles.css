@@ -11,8 +11,9 @@
 	display: block !important;
 	visibility: visible !important;
 	opacity: 1 !important;
-	/* Ensure it has a background so it's visible */
-	background-color: var(--background-primary);
+	/* The sidebar's own colour shows through, as it does under the file tree: a background of
+	   its own (it was --background-primary, the note's) stood out from the theme. */
+	background-color: transparent;
 	/* iOS specific fixes */
 	-webkit-transform: translateZ(0);
 	transform: translateZ(0);
@@ -32,7 +33,8 @@
 .pinned-item {
 	display: flex;
 	align-items: center;
-	padding: 2px 4px;
+	/* Names start under the header's title, past its chevron, as a folder's children do. */
+	padding: 2px 4px 2px 20px;
 	margin: 0;
 	border-radius: 3px;
 	cursor: pointer;
@@ -54,12 +56,6 @@
 /* Active state for mobile touch feedback */
 .pinned-item:active {
 	background-color: var(--background-modifier-hover);
-}
-
-.pinned-item-icon {
-	margin-right: 4px;
-	font-size: 12px;
-	flex-shrink: 0;
 }
 
 .pinned-item-name {
@@ -257,4 +253,43 @@
 	color: var(--nav-item-color-active);
 	font-weight: var(--nav-item-weight-active);
 	box-shadow: var(--nav-file-shadow-active, none);
+}
+
+/* The pinned section's header: folds the list to this one line (pinnedCollapsed, synced in
+   data.json). Styled like the file tree's own muted section text. */
+.pinned-items-header {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 2px 4px;
+	border-radius: var(--radius-s);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.pinned-items-header:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.pinned-items-header-chevron {
+	display: flex;
+	--icon-size: 12px;
+}
+
+.pinned-items-header-title {
+	flex: 1;
+	font-weight: var(--font-semibold);
+}
+
+/* The tree's count badge, in flow here rather than pinned to a row's right edge; moved in so
+   its right edge lines up with the folders' counts below (theirs sit 4px inside a row that
+   ends 4px further in than this header). */
+.pinned-items-header-count.file-count-badge {
+	position: static;
+	transform: none;
+	margin-right: 8px;
 }

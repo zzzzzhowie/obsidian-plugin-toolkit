@@ -1,6 +1,7 @@
 import {
 	App,
 	Notice,
+	setIcon,
 	TFile,
 	TFolder,
 	TAbstractFile,
@@ -355,6 +356,32 @@ export class PinnedItemsManager {
 			this.pinnedContainerEl.style.padding = "";
 			this.pinnedContainerEl.style.borderBottom = "";
 
+			// The header folds the section to one line. The state is a setting, so it's saved to
+			// data.json and follows the vault to other devices (onExternalSettingsChange redraws).
+			const collapsed = this.plugin.settings.pinnedCollapsed;
+			const header = this.pinnedContainerEl.createDiv({
+				cls: "pinned-items-header",
+				attr: { role: "button", tabindex: "0", "aria-expanded": String(!collapsed) },
+			});
+			setIcon(header.createSpan({ cls: "pinned-items-header-chevron" }), collapsed ? "chevron-right" : "chevron-down");
+			header.createSpan({ cls: "pinned-items-header-title", text: "Pinned" });
+			// The file tree's own count badge, in the same column as its folders' counts.
+			header.createSpan({
+				cls: "pinned-items-header-count file-count-badge",
+				text: String(this.plugin.settings.pinnedItems.length),
+			});
+			const toggle = (evt: Event): void => {
+				evt.preventDefault();
+				evt.stopPropagation();
+				this.plugin.settings.pinnedCollapsed = !collapsed;
+				void this.plugin.saveSettings().then(() => this.refreshPinnedItems());
+			};
+			header.addEventListener("click", toggle);
+			header.addEventListener("keydown", (evt) => {
+				if (evt.key === "Enter" || evt.key === " ") toggle(evt);
+			});
+			if (collapsed) return;
+
 			// Sort pinned items by order, then by name as fallback
 			const sortedItems = [...this.plugin.settings.pinnedItems].sort(
 				(a, b) => {
@@ -380,16 +407,11 @@ export class PinnedItemsManager {
 				itemEl.setAttr("draggable", "true");
 				itemEl.dataset.path = item.path;
 
-				// Icon based on type
-				itemEl.createSpan({
-					cls: "pinned-item-icon",
-					text: item.type === "folder" ? "📁" : "📄",
-				});
-
 				// Name
+				// A note's name without ".md", as the file tree shows it.
 				itemEl.createSpan({
 					cls: "pinned-item-name",
-					text: item.name,
+					text: item.type === "file" ? item.name.replace(/\.md$/i, "") : item.name,
 				});
 
 				// Click handler to open the file/folder

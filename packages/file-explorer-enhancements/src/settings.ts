@@ -15,6 +15,8 @@ export interface FileExplorerSettings {
 	hiddenPaths: string[];
 	/** Wildcard name patterns to hide at any depth (e.g. "attachments") */
 	hiddenPatterns: string[];
+	/** Whether the pinned section is folded to its header. In data.json, so it follows the vault to every device. */
+	pinnedCollapsed: boolean;
 }
 
 export const DEFAULT_SETTINGS: FileExplorerSettings = {
@@ -24,5 +26,6 @@ export const DEFAULT_SETTINGS: FileExplorerSettings = {
 	hideFiles: true,
 	hiddenPaths: [],
 	hiddenPatterns: [],
+	pinnedCollapsed: false,
 };
 

@@ -29,6 +29,9 @@ export default class FileExplorerPlugin extends Plugin {
 	fileHiderManager: FileHiderManager;
 	// Whether the pane last clicked in was the file tree, which scopes Cmd/Ctrl+B.
 	private lastPointerInFileTree = false;
+	/** Keeps the file tree's virtual list sized to its box; see keepTreeSized. */
+	private treeSizeObserver: ResizeObserver | null = null;
+	private treeSized: HTMLElement | null = null;
 	/** The row last pressed in the file tree, folder or file; null for its empty space. */
 	private lastTreePath: string | null = null;
 
@@ -126,6 +129,9 @@ export default class FileExplorerPlugin extends Plugin {
 			{ capture: true },
 		);
 		this.app.workspace.onLayoutReady(() => this.revealPressedRowInFinder());
+		this.app.workspace.onLayoutReady(() => this.keepTreeSized());
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.keepTreeSized()));
+		this.register(() => this.treeSizeObserver?.disconnect());
 
 		this.registerDomEvent(
 			window,
@@ -183,6 +189,28 @@ export default class FileExplorerPlugin extends Plugin {
 		this.register(() => {
 			if (command.checkCallback === guarded) command.checkCallback = original;
 		});
+	}
+
+	/**
+	 * Tell the file tree whenever its scroll box changes size. The tree draws only the rows in
+	 * view, and learns how tall the view is only from Obsidian's resize event — but the box
+	 * also changes with nothing resized: the pinned section folding or unfolding above it,
+	 * or a sidebar shown that was hidden at startup (the tree then measured 0). Left with a
+	 * stale height, the tree drew no rows at all over a list that still scrolled.
+	 */
+	private keepTreeSized(): void {
+		const view = this.app.workspace.getLeavesOfType("file-explorer")[0]?.view as unknown as
+			| { containerEl: HTMLElement; tree?: { infinityScroll?: { onResize?: () => void } } }
+			| undefined;
+		const box = view?.containerEl.querySelector<HTMLElement>(".nav-files-container") ?? null;
+		if (!box || box === this.treeSized) return;
+		this.treeSizeObserver?.disconnect();
+		this.treeSized = box;
+		this.treeSizeObserver = new ResizeObserver(() => {
+			const current = this.app.workspace.getLeavesOfType("file-explorer")[0]?.view as unknown as typeof view;
+			current?.tree?.infinityScroll?.onResize?.();
+		});
+		this.treeSizeObserver.observe(box);
 	}
 
 	onunload() {
