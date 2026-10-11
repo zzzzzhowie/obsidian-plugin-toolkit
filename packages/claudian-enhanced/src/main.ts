@@ -95,6 +95,10 @@ const OPEN_COMMAND = "realclaudian:open-view";
  * Claudian disables it in its wide dual-pane layout, where this reports false.
  */
 const NEW_SESSION_COMMAND = "realclaudian:new-session";
+/** Claudian's settings file, which it reads only at startup; see followSharedPrompt. */
+const CLAUDIAN_SETTINGS_FILE = ".claudian/claudian-settings.json";
+/** How often that file is looked at for a prompt changed from outside. */
+const SETTINGS_POLL_MS = 3000;
 /**
  * What clear-tab's hotkey does outside Claudian (see inClaudian): a new draft (the Drafts
  * plugin, VS Code's ⌘N), or core "New tab" (⌘T) without it.
@@ -575,6 +579,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** Passes in a row that found a prompt not filled in yet; see tagSentSelections. */
 	private tagRetries = 0;
 	private tagRetryTimer: number | null = null;
+	/** Claudian's settings file as last seen (mtime); see followSharedPrompt. */
+	private settingsSeenAt = 0;
 	/** Pending check that a note switch landed; see verifySoon. */
 	private verifyTimer: number | null = null;
 	/** Watches Claudian's view for being shown; see watchClaudianVisibility. */
@@ -777,6 +783,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// note gets its own conversation back, or a fresh one that links the note we
 		// actually have open. We fire only on a real mismatch so a restart never discards a
 		// conversation whose note already matches. See reconcileChipOnStartup.
+		// The system prompt is shared between vaults (scripts/sync-vaults.mjs) and devices
+		// (iCloud); carry a prompt changed on disk into the running Claudian.
+		this.app.workspace.onLayoutReady(() => {
+			void this.followSharedPrompt(true);
+			this.registerInterval(window.setInterval(() => void this.followSharedPrompt(false), SETTINGS_POLL_MS));
+		});
 		this.app.workspace.onLayoutReady(() => {
 			this.reconcileChipOnStartup(Date.now() + 8000);
 		});
@@ -1094,6 +1106,34 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (!path || (path === this.lastSyncedPath && path === this.lastOpenedPath)) return;
 		this.lastSyncedPath = path;
 		this.handleNoteChange(path);
+	}
+
+	/**
+	 * Take a system prompt changed in Claudian's settings file from outside — the vault sync,
+	 * or iCloud bringing another device's — into the running Claudian. Claudian reads the file
+	 * only at startup and writes what it holds whenever it saves a setting, so a prompt written
+	 * under it was put back to the old one at its next save, and the sync then carried the old
+	 * one back to the other vaults. Only the prompt: the rest of the file is this vault's own.
+	 * The first look just notes the file, which Claudian has read itself.
+	 */
+	private async followSharedPrompt(first: boolean): Promise<void> {
+		const adapter = this.app.vault.adapter;
+		const stat = await adapter.stat(CLAUDIAN_SETTINGS_FILE).catch(() => null);
+		if (!stat || stat.mtime === this.settingsSeenAt) return;
+		this.settingsSeenAt = stat.mtime;
+		if (first) return;
+		const plugins = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins?.plugins;
+		const claudian = plugins?.realclaudian as { settings?: { systemPrompt?: unknown } } | undefined;
+		if (!claudian?.settings) return;
+		let prompt: unknown;
+		try {
+			prompt = (JSON.parse(await adapter.read(CLAUDIAN_SETTINGS_FILE)) as { systemPrompt?: unknown }).systemPrompt;
+		} catch {
+			return; // mid-write, or not JSON: the next look will tell
+		}
+		if (typeof prompt !== "string" || prompt === claudian.settings.systemPrompt) return;
+		claudian.settings.systemPrompt = prompt;
+		console.debug("Claudian (Enhanced): took the system prompt changed on disk");
 	}
 
 	/**

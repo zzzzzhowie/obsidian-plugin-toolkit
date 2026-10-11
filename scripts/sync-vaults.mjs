@@ -197,7 +197,18 @@ console.log("Done.");
 // core-plugins.json is read at startup, so a core plugin switched on or off elsewhere
 // takes effect the next time the vault opens.
 function syncSettings(vaults) {
-	const FILES = ["app.json", "appearance.json", "hotkeys.json", "core-plugins.json"];
+	// Each settings file, by its path in the vault; `name` keys the snapshot.
+	const FILES = [
+		{ name: "app.json", path: ".obsidian/app.json" },
+		{ name: "appearance.json", path: ".obsidian/appearance.json" },
+		{ name: "hotkeys.json", path: ".obsidian/hotkeys.json" },
+		{ name: "core-plugins.json", path: ".obsidian/core-plugins.json" },
+		// Claudian's settings: only its system prompt is shared. Model, permission mode and the
+		// rest stay as each vault has them (ByteDance runs yolo). Claudian reads this file only
+		// at startup, so Claudian (Enhanced) carries a changed prompt into the running Claudian
+		// — otherwise its next save would write the old prompt back and sync would spread that.
+		{ name: "claudian-settings.json", path: ".claudian/claudian-settings.json", only: new Set(["systemPrompt"]) },
+	];
 	// Settings about a vault's own folders, not how Obsidian behaves: left as each vault has them.
 	const OWN = {
 		"app.json": new Set(["userIgnoreFilters", "attachmentFolderPath", "newFileLocation", "newFileFolderPath"]),
@@ -210,12 +221,14 @@ function syncSettings(vaults) {
 	const next = { vaults: [...new Set([...state.vaults, ...vaults])], files: { ...state.files } };
 	console.log(`Vault settings across ${vaults.length} vaults${DRY_RUN ? " (dry run)" : ""}\n`);
 
-	for (const file of FILES) {
-		const own = OWN[file] ?? new Set();
+	for (const { name: file, path: relPath, only } of FILES) {
+		const ownKeys = OWN[file] ?? new Set();
+		// A key not shared is the vault's own.
+		const own = { has: (key) => ownKeys.has(key) || (only !== undefined && !only.has(key)) };
 		const copies = [];
 		let unreadable = false;
 		for (const vault of vaults) {
-			const path = join(vault, ".obsidian", file);
+			const path = join(vault, relPath);
 			if (!existsSync(path)) {
 				copies.push({ vault, path, data: null, mtime: 0 });
 				continue;
@@ -247,6 +260,8 @@ function syncSettings(vaults) {
 		next.files[file] = merged;
 
 		for (const { vault, path, data } of copies) {
+			// A shared key or two is no reason to create a plugin's settings file where it has none.
+			if (!data && only) continue;
 			const current = data ?? {};
 			// The file's own key order, then anything new; a vault's own settings kept.
 			const out = {};
