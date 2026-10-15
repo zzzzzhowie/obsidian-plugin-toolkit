@@ -113,6 +113,17 @@ const NEW_TAB_COMMAND = "workspace:new-tab";
 const REMEMBERED_NOTES = 5;
 /** The tag under a prompt naming the lines it was sent with; see tagSentSelections. */
 const SELECTION_TAG_CLS = "claudian-enhanced-selection-tag";
+/** The conversation's session id at the end of the row under the composer; see syncSessionIds. */
+const SESSION_ID_CLS = "claudian-enhanced-session-id";
+/** How long a copied session id says so before showing the id again (ms). */
+const COPIED_MS = 1200;
+/**
+ * What `lastOpenedPath` holds while an empty tab ("New tab") is the one open: no note, so a
+ * conversation of none (see leaveForEmptyTab). Falsy, and never a note's path.
+ */
+const EMPTY_TAB = "";
+/** How often session ids are looked at again outside the view's mutations (ms). */
+const SESSION_ID_POLL_MS = 2000;
 /** How often, and how many times, a prompt not filled in yet is looked at again (~30s). */
 const TAG_RETRY_MS = 400;
 /** How long after a note switch its result is checked; see verifySoon. */
@@ -257,8 +268,11 @@ interface ClaudianTab {
 		composerSelections?: { editor?: ClaudianSelectionController };
 		selectionController?: ClaudianSelectionController;
 	};
-	/** The composer; Claudian gives its CodeMirror host a `value` that reads the text in it. */
-	dom?: { inputEl?: { value?: unknown } };
+	/**
+	 * The composer; Claudian gives its CodeMirror host a `value` that reads the text in it.
+	 * `infoRowEl` is the row under it, with the note chip at its start.
+	 */
+	dom?: { inputEl?: { value?: unknown }; infoRowEl?: HTMLElement };
 }
 
 /**
@@ -522,6 +536,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * just for toggling the panel with ⌘L. Only a real note change moves this.
 	 */
 	private lastOpenedPath: string | null = null;
+	/** The empty tab open while `lastOpenedPath` is EMPTY_TAB, by leaf id; see leaveForEmptyTab. */
+	private emptyLeafId: string | null = null;
+	/** The conversation each empty tab was left with, by leaf id — a note's are in `remembered`. */
+	private emptyTabConversations = new Map<string, string>();
 	/** Claudian's conversations, each loaded once so their message counts are real; see loadConversationCounts. */
 	private conversationCounts: Promise<void> | null = null;
 	/** The note whose conversation a veiled view is waiting for (see veilUntilSettled). */
@@ -789,6 +807,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			void this.followSharedPrompt(true);
 			this.registerInterval(window.setInterval(() => void this.followSharedPrompt(false), SETTINGS_POLL_MS));
 		});
+		// The view observer shows a session id as the conversation changes, but the id can land
+		// after the reply's last mutation; see syncSessionIds.
+		this.registerInterval(window.setInterval(() => this.syncSessionIds(), SESSION_ID_POLL_MS));
 		this.app.workspace.onLayoutReady(() => {
 			this.reconcileChipOnStartup(Date.now() + 8000);
 		});
@@ -804,6 +825,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (frame !== null) cancelAnimationFrame(frame);
 		}
 		this.pinnedPrompt?.style.removeProperty("transform");
+		// Composers of background tabs sit outside the view, so their labels go tab by tab.
+		for (const tab of this.getTabManager()?.getAllTabs?.() ?? []) {
+			tab.dom?.infoRowEl?.querySelector(`:scope > .${SESSION_ID_CLS}`)?.remove();
+		}
 		// Leave Claudian's view as it draws itself: what we added goes, what we marked is unmarked.
 		const view = this.getClaudianLeaf()?.view.containerEl;
 		if (!view) return;
@@ -944,6 +969,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * it has no conversation to show yet, and its own restore is reconciled on startup.
 	 */
 	private catchUpBeforeShow(): boolean {
+		if (this.onEmptyTab() && this.claudianMounted()) {
+			this.leaveForEmptyTab();
+			return false;
+		}
 		const path = this.activeNotePath();
 		if (!path || !this.claudianMounted()) return false;
 		// First show this session: the conversation Claudian restored belongs to the note it
@@ -1101,6 +1130,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			this.lastSyncedPath = null;
 			return;
 		}
+		if (this.onEmptyTab()) {
+			this.leaveForEmptyTab();
+			return;
+		}
 		const path = this.activeNotePath();
 		// Synced already — unless the conversation is still another note's.
 		if (!path || (path === this.lastSyncedPath && path === this.lastOpenedPath)) return;
@@ -1246,7 +1279,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (!container.hasClass(VEILED_CLS)) return;
 			if (this.veiledFor !== wantFor) {
 				wantFor = this.veiledFor;
-				want = wantFor ? this.conversationFor(wantFor) : null;
+				want = wantFor === null || wantFor === undefined ? null : this.conversationFor(wantFor);
 			}
 			const showing = this.getActiveTab()?.conversationId ?? null;
 			const restoring = Array.from(this.restores.values()).some((restore) => restore.phase !== "holding");
@@ -1292,7 +1325,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// previous conversation to clear.
 		if (previous !== null && previous !== path) {
 			this.saveScrollSpot();
-			this.rememberConversation(previous);
+			if (previous === EMPTY_TAB) this.rememberEmptyTabConversation();
+			else this.rememberConversation(previous);
 			if (this.replaceConversationFor(path)) return;
 		}
 		this.followNoteInDraft(path);
@@ -1303,6 +1337,45 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * — or beside it while a reply is still running. Whether it did; if not, the caller has the
 	 * note followed in the draft as it is.
 	 */
+	/** The tab open in the main area when it is an empty one — "New tab", no file in it. */
+	private emptyTab(): WorkspaceLeaf | null {
+		const recent = this.app.workspace.getMostRecentLeaf();
+		if (recent?.view.getViewType() !== "empty" || this.sidebarOf(recent) !== null) return null;
+		return recent;
+	}
+
+	private onEmptyTab(): boolean {
+		return this.emptyTab() !== null;
+	}
+
+	/** Files the conversation on screen under the empty tab it was had in. */
+	private rememberEmptyTabConversation(): void {
+		const conversationId = this.getActiveTab()?.conversationId;
+		if (this.emptyLeafId && conversationId) this.emptyTabConversations.set(this.emptyLeafId, conversationId);
+	}
+
+	/**
+	 * An empty tab has no note, so the conversation on screen is filed under the note it
+	 * belongs to and Claudian shows the empty tab's own: the one last had in that tab, or a
+	 * fresh start. Back at the note, handleNoteChange brings its conversation back — it reads
+	 * EMPTY_TAB as having come from elsewhere, and files the empty tab's by the tab's leaf
+	 * (it belongs to no note). Held for this session only: an empty tab doesn't outlive it.
+	 */
+	private leaveForEmptyTab(): void {
+		const leafId = (this.emptyTab() as unknown as { id?: string } | null)?.id ?? null;
+		const previous = this.lastOpenedPath;
+		if (previous === EMPTY_TAB && leafId === this.emptyLeafId) return;
+		if (previous === EMPTY_TAB) this.rememberEmptyTabConversation();
+		this.lastOpenedPath = EMPTY_TAB;
+		this.emptyLeafId = leafId;
+		this.lastSyncedPath = null;
+		if (previous) {
+			this.saveScrollSpot();
+			this.rememberConversation(previous);
+		}
+		this.replaceConversationFor(EMPTY_TAB);
+	}
+
 	private replaceConversationFor(path: string): boolean {
 		this.closeExtraTabs(path);
 		if (this.activeTabWorking()) return this.openBesideRunningReply(path);
@@ -1426,6 +1499,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * the checks restoreConversationFor makes, without its clean-up.
 	 */
 	private conversationFor(notePath: string): string | null {
+		if (notePath === EMPTY_TAB) {
+			const id = this.emptyLeafId ? this.emptyTabConversations.get(this.emptyLeafId) : undefined;
+			return id && this.conversationExists(id) ? id : null;
+		}
 		const entry = this.remembered.find((note) => note.path === notePath);
 		if (entry) {
 			const id = entry.conversationId;
@@ -2201,9 +2278,6 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (!Platform.isDesktopApp) return;
 		const adapter = this.app.vault.adapter;
 		if (!(adapter instanceof FileSystemAdapter)) return;
-		const view = this.getClaudianLeaf()?.view as unknown as { plugin?: ClaudianPluginApi };
-		const lookup = view?.plugin?.getCachedConversation;
-		if (typeof lookup !== "function") return;
 		const { promises: fs } = nodeRequire<typeof import("fs")>("fs");
 		const path = nodeRequire<typeof import("path")>("path");
 		const os = nodeRequire<typeof import("os")>("os");
@@ -2211,12 +2285,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const config = env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
 		const dir = path.join(config, "projects", path.resolve(adapter.getBasePath()).replace(/[^a-zA-Z0-9]/g, "-"));
 		for (const tab of this.getTabManager()?.getAllTabs?.() ?? []) {
-			if (!tab.conversationId) continue;
-			const conversation = lookup.call(view.plugin, tab.conversationId) as {
-				sessionId?: string | null;
-				providerState?: { providerSessionId?: string | null };
-			} | null;
-			const sessionId = conversation?.providerState?.providerSessionId ?? conversation?.sessionId;
+			const sessionId = this.sessionIdOf(tab);
 			if (!sessionId || !/^[\w-]+$/.test(sessionId)) continue;
 			const file = path.join(dir, `${sessionId}.jsonl`);
 			let mtime: number;
@@ -2262,6 +2331,60 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/** Put the tag under a prompt, or take it away — touching the DOM only when it changes. */
+	/**
+	 * The Claude Code session a tab's conversation runs in — the id of its session file, and
+	 * what `claude --resume` takes. Null for a draft, and for a conversation whose first reply
+	 * hasn't started the session yet.
+	 */
+	private sessionIdOf(tab: ClaudianTab): string | null {
+		if (!tab.conversationId) return null;
+		const view = this.getClaudianLeaf()?.view as unknown as { plugin?: ClaudianPluginApi } | undefined;
+		const conversation = view?.plugin?.getCachedConversation?.(tab.conversationId) as {
+			sessionId?: string | null;
+			providerState?: { providerSessionId?: string | null };
+		} | null | undefined;
+		return conversation?.providerState?.providerSessionId ?? conversation?.sessionId ?? null;
+	}
+
+	/**
+	 * Show each tab's session id at the end of the row under its composer, across from the
+	 * note chip; a click copies it. Claudian empties only the chip's own slot when the note
+	 * changes, so the label stays put in the row once added. Written only when the id
+	 * changes: the view observer calls this on every mutation, its own write included.
+	 */
+	private syncSessionIds(): void {
+		for (const tab of this.getTabManager()?.getAllTabs?.() ?? []) {
+			const row = tab.dom?.infoRowEl;
+			if (!(row instanceof HTMLElement)) continue;
+			const id = this.sessionIdOf(tab);
+			let label = row.querySelector<HTMLElement>(`:scope > .${SESSION_ID_CLS}`);
+			if (!id) {
+				label?.remove();
+				continue;
+			}
+			if (!label) {
+				const created = row.createDiv({ cls: SESSION_ID_CLS, attr: { role: "button", "aria-label": "Copy session ID" } });
+				// Not off the composer: a click is no reason to stop typing.
+				created.addEventListener("mousedown", (e) => e.preventDefault());
+				created.addEventListener("click", () => this.copySessionId(created));
+				label = created;
+			}
+			if (label.dataset.sessionId !== id) {
+				label.dataset.sessionId = id;
+				label.setText(id);
+			}
+		}
+	}
+
+	private copySessionId(label: HTMLElement): void {
+		const id = label.dataset.sessionId;
+		if (!id) return;
+		void navigator.clipboard.writeText(id).then(() => {
+			label.setText("Copied");
+			window.setTimeout(() => label.setText(label.dataset.sessionId ?? ""), COPIED_MS);
+		});
+	}
+
 	private renderSelectionTag(bubble: HTMLElement, selection: SentSelection | null): void {
 		const content = bubble.querySelector<HTMLElement>(".claudian-message-content");
 		if (!content) return;
@@ -2381,6 +2504,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				this.syncJumpButton(streamed);
 			}
 			if (queued) this.handleQueueChange();
+			this.syncSessionIds();
 		});
 		breakCellLines(container);
 		this.scheduleDedupe();
@@ -2402,6 +2526,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// Prompts already on screen when we bind never produce a mutation of their own.
 		this.scheduleFold(container);
 		this.scheduleSelectionTags();
+		this.syncSessionIds();
 	}
 
 	/**
@@ -3399,10 +3524,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * For the *path* of the open note, use {@link activeNotePath} instead — the fallback
 	 * here can still land on a tab other than the front one, which is harmless for
 	 * editor work but not for deciding that the user switched notes.
+	 *
+	 * No fallback while the front tab holds something else — an empty tab, a PDF: there is
+	 * no note being worked in, and ⌘L keeps the leaf it gets here active (keepNoteActive),
+	 * which brought a background note's tab to the front.
 	 */
 	private getNoteLeaf(): WorkspaceLeaf | null {
 		const recent = this.app.workspace.getMostRecentLeaf();
 		if (recent && this.cmOf(recent)) return recent;
+		if (recent && this.sidebarOf(recent) === null) return null;
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			if (this.sidebarOf(leaf) === null && this.cmOf(leaf)) return leaf;
 		}

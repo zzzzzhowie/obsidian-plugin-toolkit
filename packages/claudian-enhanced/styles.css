@@ -430,6 +430,26 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	--icon-size: var(--icon-xs);
 }
 
+/* The conversation's session id, at the far end of the row under the composer from the note
+   chip (syncSessionIds in main.ts); a click copies it. Gives way to the chip when the panel is
+   narrow, cut off at the end like the chip's own label. */
+.claudian-enhanced-session-id {
+	flex: 0 10 auto;
+	min-width: 0;
+	margin-left: auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--font-monospace);
+	font-size: 11px;
+	color: var(--text-faint);
+	cursor: pointer;
+}
+
+.claudian-enhanced-session-id:hover {
+	color: var(--text-normal);
+}
+
 /* A hovered "N lines selected" chip shows what it carries (selection-peek.ts), the way
    Claude's apps show a quoted reply: where it's from, then the text behind a quote bar. */
 .claudian-enhanced-peek {
