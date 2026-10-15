@@ -16,6 +16,8 @@ const CLAUDIAN_NEW_COMMAND = "claudian-enhanced:clear-tab";
 const DRAFT_CLS = "drafts-is-draft";
 const NEW_DRAFT_BUTTON_CLS = "drafts-new-draft";
 const DRAFT_TAB_CLS = "drafts-tab-status";
+/** What every draft's tab says, whatever its file is called; see nameDraftsAlike. */
+const DRAFT_TITLE = "Draft";
 
 /** Commands, which the public typings leave out of `App`. */
 interface AppInternals {
@@ -77,6 +79,7 @@ export default class DraftsPlugin extends Plugin {
 		});
 
 		this.guardClosing();
+		this.nameDraftsAlike();
 		this.app.workspace.onLayoutReady(() => {
 			this.guardSaveCommand();
 			this.excludeFromSearch();
@@ -249,6 +252,34 @@ export default class DraftsPlugin extends Plugin {
 	 * closed while blank, or replaced in its tab by another note. A blank one goes; one with
 	 * text stays where it is and says how to get back to it.
 	 */
+	/**
+	 * Every draft's tab says "Draft". Its file can't: drafts share a folder, so the second is
+	 * "Draft 1", and so on. But that number names nothing the reader chose — a draft's real
+	 * name is the one it gets on saving — so only the file carries it. Taken over at the
+	 * view's display text, which the tab and its tooltip read (the window title goes by the
+	 * file's name, and still says "Draft 1").
+	 */
+	private nameDraftsAlike(): void {
+		const proto = MarkdownView.prototype;
+		// eslint-disable-next-line @typescript-eslint/unbound-method -- called with the view below
+		const original = proto.getDisplayText;
+		const getDisplayText = function (this: MarkdownView): string {
+			return isDraft(this.file) ? DRAFT_TITLE : original.call(this);
+		};
+		proto.getDisplayText = getDisplayText;
+		const updateHeaders = (): void =>
+			this.app.workspace.iterateAllLeaves((leaf) => {
+				if (leaf.view instanceof MarkdownView && isDraft(leaf.view.file)) {
+					(leaf as unknown as { updateHeader?: () => void }).updateHeader?.();
+				}
+			});
+		this.app.workspace.onLayoutReady(updateHeaders);
+		this.register(() => {
+			if (proto.getDisplayText === getDisplayText) proto.getDisplayText = original;
+			updateHeaders();
+		});
+	}
+
 	private refresh(): void {
 		const open = new Set<string>();
 		this.app.workspace.iterateAllLeaves((leaf) => {

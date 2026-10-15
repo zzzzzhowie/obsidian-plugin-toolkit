@@ -9,8 +9,10 @@ import { type App, normalizePath, type TAbstractFile, TFile } from "obsidian";
  */
 export const DRAFTS_FOLDER = "_drafts";
 
-/** What a draft is called until it's saved, as VS Code's "Untitled-1". */
-const DRAFT_NAME = "Untitled";
+/** What a draft is called until it's saved, as VS Code's "Untitled-1": "Draft", "Draft 1"… */
+const DRAFT_NAME = "Draft";
+/** The name a draft with no text in it is offered to be saved under — Obsidian's own. */
+const UNNAMED_NOTE = "Untitled";
 
 /** Characters a note's name can't hold — Obsidian's own list. */
 export const FORBIDDEN_NAME_CHARS = /[\\/:*?"<>|#^[\]]/;
@@ -62,5 +64,5 @@ export function suggestName(text: string): string {
 		.trim()
 		.slice(0, 80)
 		.trim();
-	return name || DRAFT_NAME;
+	return name || UNNAMED_NOTE;
 }
