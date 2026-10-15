@@ -21,6 +21,11 @@ import { type Gallery, ZoomOverlay, type ZoomTarget } from "../../../shared/zoom
 
 /** Attribute stamped on a reading-view block naming the note line its diagram starts on. */
 const LINE_ATTR = "data-mermaid-line";
+/** A diagram in a Claudian reply: the image Claudian draws it as, and the view it's in. */
+const CLAUDIAN_DIAGRAM = ".claudian-mermaid > img";
+const CLAUDIAN_VIEW = '.workspace-leaf-content[data-type="claudian-view"]';
+/** How far past a diagram's source lines a press still counts as on it (px); see closeSourceOnPressOff. */
+const SOURCE_MARGIN_PX = 8;
 /** Attribute stamped on a block container carrying its `%% fit: ... %%` value. */
 const FIT_ATTR = "data-mermaid-fit-override";
 
@@ -62,6 +67,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	private editPressedAt = 0;
 	/** Where the diagram being edited (opened with its edit button) starts. */
 	private editingDiagramAt: number | null = null;
+	/** The editor holding that diagram. */
+	private editingView: EditorView | null = null;
 	/** The diagram currently being dragged via its slider (skip re-fitting it). */
 	private draggingSvg: SVGSVGElement | null = null;
 
@@ -79,6 +86,17 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			selectableText: "foreignObject, text",
 			// Every diagram in the note, to page through from the one clicked.
 			gallery: (target) => this.diagramsAround(target),
+		}).register();
+		// Claudian's replies draw their diagrams themselves, as an <img> of the SVG. The same
+		// zoom, on the SVG put back inline so its labels are text, paging through every
+		// diagram of the conversation.
+		new ZoomOverlay(this, {
+			target: CLAUDIAN_DIAGRAM,
+			within: CLAUDIAN_VIEW,
+			cssPrefix: "mermaid-zoom",
+			selectableText: "foreignObject, text",
+			inline: inlineSvgOf,
+			gallery: (target) => Promise.resolve(claudianDiagramsAround(target)),
 		}).register();
 
 		// A diagram shows as code only once its edit button is pressed.
@@ -110,6 +128,14 @@ export default class MermaidEnhancedPlugin extends Plugin {
 				const pos = view ? this.outsideDiagram(view.state) : null;
 				if (view && pos !== null) view.dispatch({ selection: { anchor: pos } });
 			},
+			{ capture: true },
+		);
+
+		// A diagram being edited goes back to a diagram on a press anywhere off its source.
+		this.registerDomEvent(
+			document,
+			"mousedown",
+			(event: MouseEvent) => this.closeSourceOnPressOff(event.clientX, event.clientY),
 			{ capture: true },
 		);
 
@@ -316,6 +342,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	 * be changed from inside one.
 	 */
 	private stepOutOfDiagram(update: ViewUpdate): void {
+		if (this.editingDiagramAt !== null && update.view.hasFocus) this.editingView = update.view;
 		if (!update.focusChanged && !update.selectionSet) return;
 		if (!update.view.hasFocus) return;
 		const pos = this.outsideDiagram(update.state);
@@ -323,6 +350,30 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		window.setTimeout(() => {
 			if (this.outsideDiagram(update.view.state) === pos) update.view.dispatch({ selection: { anchor: pos } });
 		});
+	}
+
+	/**
+	 * Close the source of the diagram being edited on a press anywhere off it — the heading
+	 * above it, the note's title, another pane — by moving the cursor past it, which Live
+	 * Preview answers by drawing it again. A press in the editor's text moves the cursor out
+	 * by itself; one outside the editor leaves it inside, and the source showed again the
+	 * moment the editor was back in focus. Only a press: the pointer passing over, or leaving
+	 * Obsidian, leaves the source open. Off means past its lines, or outside the editor.
+	 */
+	private closeSourceOnPressOff(x: number, y: number): void {
+		const view = this.editingView;
+		const from = this.editingDiagramAt;
+		if (!view || from === null || !view.dom.isConnected) return;
+		const block = mermaidBlockAt(view.state.doc, from);
+		if (!block || block.from !== from) return;
+		const top = view.coordsAtPos(block.from, 1)?.top;
+		const bottom = view.coordsAtPos(block.to, -1)?.bottom;
+		if (top === undefined || bottom === undefined) return;
+		const editor = view.scrollDOM.getBoundingClientRect();
+		if (y >= top - SOURCE_MARGIN_PX && y <= bottom + SOURCE_MARGIN_PX && x >= editor.left && x <= editor.right) return;
+		const pos = afterBlock(view.state.doc, block);
+		this.editingDiagramAt = null;
+		if (pos !== null) view.dispatch({ selection: { anchor: pos } });
 	}
 
 	/** Whether a mutation added a rendered diagram, or the SVG of one. */
@@ -1014,6 +1065,41 @@ class CaptionModal extends Modal {
 	onClose() {
 		this.contentEl.empty();
 	}
+}
+
+/**
+ * The SVG an <img> shows, as an element of the page, or null when it isn't one. Claudian
+ * serializes the drawing as XML; parsed as HTML too, should a label's <br> not have been.
+ */
+async function inlineSvgOf(target: ZoomTarget): Promise<ZoomTarget | null> {
+	if (!(target instanceof HTMLImageElement)) return null;
+	const src = target.currentSrc || target.src;
+	if (!src) return null;
+	// A data: URL the page made, not the network: requestUrl can't read those.
+	// eslint-disable-next-line no-restricted-globals
+	const text = await (await fetch(src)).text();
+	const xml = new DOMParser().parseFromString(text, "image/svg+xml");
+	const svg = xml.querySelector("parsererror")
+		? new DOMParser().parseFromString(text, "text/html").querySelector("svg")
+		: xml.documentElement;
+	if (svg?.nodeName.toLowerCase() !== "svg") return null;
+	return target.doc.importNode(svg, true) as unknown as SVGSVGElement;
+}
+
+/** Every diagram of the Claudian conversation the clicked one is in, for the zoom to page through. */
+function claudianDiagramsAround(target: ZoomTarget): Gallery | null {
+	const list = target.closest(".claudian-messages");
+	if (!list) return null;
+	const images = Array.from(list.querySelectorAll<HTMLImageElement>(CLAUDIAN_DIAGRAM));
+	const index = images.indexOf(target as HTMLImageElement);
+	if (images.length < 2 || index < 0) return null;
+	return {
+		index,
+		items: images.map((image, i) => ({
+			label: `Diagram ${i + 1}`,
+			element: () => inlineSvgOf(image).then((svg) => svg ?? image),
+		})),
+	};
 }
 
 /**

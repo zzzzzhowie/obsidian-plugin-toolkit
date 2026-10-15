@@ -52,6 +52,11 @@ export interface ZoomOverlayOptions {
 	 * Null, or a failure, shows the element itself.
 	 */
 	inline?: (target: ZoomTarget) => Promise<ZoomTarget | null>;
+	/**
+	 * Selector for the views a target has to be in; a note's (Markdown leaves) by default.
+	 * Another view's drawings are zoomed by a second overlay that names it.
+	 */
+	within?: string;
 }
 
 /** Zoom range, shared by every way of changing it. */
@@ -188,9 +193,9 @@ export class ZoomOverlay {
 	private zoomTargetFor(target: HTMLElement): ZoomTarget | null {
 		const el = target.closest<ZoomTarget>(this.options.target);
 		if (!el) return null;
-		// Only within a Markdown leaf (reading view or live preview) — which also keeps
-		// the overlay's own clone, mounted on body, from re-triggering.
-		if (!el.closest(NOTE_CONTAINER)) return null;
+		// Only within a Markdown leaf (reading view or live preview), or the views `within`
+		// names — which also keeps the overlay's own clone, mounted on body, from re-triggering.
+		if (!el.closest(this.options.within ?? NOTE_CONTAINER)) return null;
 		return el;
 	}
 
