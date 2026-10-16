@@ -1,4 +1,10 @@
 /**
+ * Finding text on a rendered page and painting it, without touching the page: shared by
+ * Sticky Find (a note) and Claudian (Enhanced) (a conversation). Each caller names its own
+ * highlights, so one find bar never clears another's.
+ */
+
+/**
  * Painting matches without touching the document.
  *
  * The whole point of this plugin is to never move the editor selection, because Live
@@ -14,9 +20,6 @@
  * handed to `CSS.highlights`, styled via `::highlight()`. No DOM mutation, no
  * selection, and it reaches inside widget-rendered content.
  */
-
-export const MATCH_HIGHLIGHT = "sticky-find-match";
-export const CURRENT_HIGHLIGHT = "sticky-find-current";
 
 interface TextPiece {
 	node: Text;
@@ -114,9 +117,53 @@ export function paint(name: string, ranges: Range[]): void {
 	reg.set(name, new Ctor(...ranges));
 }
 
-export function clearAll(): void {
+/** Take these highlights off the page. */
+export function clearHighlights(...names: string[]): void {
 	const reg = registry();
 	if (!reg) return;
-	reg.delete(MATCH_HIGHLIGHT);
-	reg.delete(CURRENT_HIGHLIGHT);
+	for (const name of names) reg.delete(name);
+}
+
+export interface Match {
+	from: number;
+	to: number;
+}
+
+/**
+ * Plain-substring scan. Returns every non-overlapping occurrence in document order.
+ *
+ * Case-insensitive mode lowercases the haystack and indexes into it directly, so the
+ * offsets it reports are only valid while lowercasing is length-preserving. A few
+ * code points break that (U+0130 "İ" lowercases to two code units); when it happens
+ * we fall back to a case-sensitive scan instead of reporting shifted positions.
+ */
+export function findInText(haystack: string, needle: string, caseSensitive: boolean): Match[] {
+	if (!needle) return [];
+
+	let hay = haystack;
+	let ned = needle;
+	if (!caseSensitive) {
+		const lowered = haystack.toLowerCase();
+		if (lowered.length === haystack.length) {
+			hay = lowered;
+			ned = needle.toLowerCase();
+		}
+	}
+
+	const matches: Match[] = [];
+	let at = hay.indexOf(ned);
+	while (at !== -1) {
+		matches.push({ from: at, to: at + ned.length });
+		at = hay.indexOf(ned, at + ned.length);
+	}
+	return matches;
+}
+
+/** Index of the first match at or after `pos`, or 0 when there is nothing after it. */
+export function matchIndexNear(matches: Match[], pos: number): number {
+	for (let i = 0; i < matches.length; i++) {
+		const match = matches[i];
+		if (match && match.from >= pos) return i;
+	}
+	return 0;
 }

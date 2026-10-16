@@ -2,15 +2,20 @@ import { EditorView } from "@codemirror/view";
 import { MarkdownView, Notice, setIcon } from "obsidian";
 
 import {
-	clearAll,
+	clearHighlights,
 	collectDomText,
-	CURRENT_HIGHLIGHT,
+	findInText,
 	highlightApiAvailable,
-	MATCH_HIGHLIGHT,
+	type Match,
+	matchIndexNear,
 	paint,
 	rangeFor,
-} from "./highlight";
-import { findInText, type Match, matchIndexNear } from "./search";
+} from "../../../shared/dom-find";
+
+/** This bar's highlights, styled in styles.css. */
+const MATCH_HIGHLIGHT = "sticky-find-match";
+const CURRENT_HIGHLIGHT = "sticky-find-current";
+const clearAll = (): void => clearHighlights(MATCH_HIGHLIGHT, CURRENT_HIGHLIGHT);
 
 const REPAINT_DELAY = 40;
 /** Held off while the user is still typing, so the view does not lurch per keystroke. */

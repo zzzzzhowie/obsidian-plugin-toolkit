@@ -1,6 +1,7 @@
 import { FileSystemAdapter, MarkdownView, Platform, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
+import { ConversationFind } from "./conversation-find";
 import { type PeekSelection, SelectionPeek } from "./selection-peek";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
@@ -627,6 +628,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private previewScope: Scope | null = null;
 	/** Whether the pointer last rested over Claudian's view; see inClaudian. */
 	private pointerOverClaudian = false;
+	/** ⌘F in Claudian: find in the conversation; see conversation-find.ts. */
+	private readonly find = new ConversationFind(this.app, {
+		scroller: () => this.visibleEl<HTMLElement>(CLAUDIAN_MESSAGES),
+		unfold: (prompt) => {
+			this.expandedPrompts.add(prompt);
+			prompt.removeClass(FOLDED_CLS);
+			this.syncFoldToggle(prompt, false);
+		},
+		refocus: () => this.visibleInput()?.querySelector<HTMLElement>(".cm-content")?.focus(),
+		parentScope: () => (this.getClaudianLeaf()?.view as unknown as { scope?: Scope | null } | undefined)?.scope ?? null,
+	});
 	/** The card a hovered selection chip shows its text in; see selection-peek.ts. */
 	private readonly selectionPeek = new SelectionPeek(
 		() => this.getClaudianLeaf()?.view.containerEl ?? null,
@@ -691,10 +703,46 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				this.pointerOverClaudian = !!target?.closest(
 					`.workspace-leaf-content[data-type="${CLAUDIAN_VIEW}"]`,
 				);
+				this.markFindScope();
 				this.selectionPeek.onPointerOver(target);
 			},
 			{ capture: true },
 		);
+		// ⌘F in Claudian finds in the conversation. Sticky Find claims the key for the note,
+		// even with focus on <body> — which is where clicking Claudian's messages leaves it — so
+		// <body> says whose find it is (data-toolkit-find), and Sticky Find stands aside.
+		this.registerDomEvent(document, "focusin", () => this.markFindScope());
+		this.registerDomEvent(
+			window,
+			"keydown",
+			(evt: KeyboardEvent) => {
+				// Escape closes the find bar first, wherever focus sits in Claudian (the bar's own
+				// input, the composer, <body> after a click in the messages), and goes no further:
+				// with a reply running, the next Escape is Claudian's, which stops it.
+				if (evt.key === "Escape" && !evt.isComposing && this.find.isOpen) {
+					const target = evt.target;
+					if (this.find.contains(target) || this.inClaudian() || target === document.body) {
+						evt.preventDefault();
+						evt.stopImmediatePropagation();
+						this.find.close();
+					}
+					return;
+				}
+				if (evt.key.toLowerCase() !== "f" || evt.shiftKey || evt.altKey || evt.isComposing) return;
+				const primary = Platform.isMacOS ? evt.metaKey : evt.ctrlKey;
+				const secondary = Platform.isMacOS ? evt.ctrlKey : evt.metaKey;
+				if (!primary || secondary || !(this.inClaudian() || this.find.contains(evt.target))) return;
+				evt.preventDefault();
+				evt.stopImmediatePropagation();
+				const selected = window.getSelection()?.toString().trim() ?? "";
+				this.find.open(selected && !selected.includes("\n") ? selected : undefined);
+			},
+			{ capture: true },
+		);
+		this.register(() => {
+			this.find.close();
+			delete document.body.dataset.toolkitFind;
+		});
 		this.registerDomEvent(document, "mousedown", (e) => this.selectionPeek.onMouseDown(e), { capture: true });
 		this.registerDomEvent(document, "click", (e) => this.selectionPeek.onClick(e), { capture: true });
 		this.register(() => this.selectionPeek.hide());
@@ -839,6 +887,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		}
 	}
 
+	/** Tell Sticky Find whose ⌘F it is: see the keydown handler in onload. */
+	private markFindScope(): void {
+		const scope = this.inClaudian() ? "claudian" : "";
+		if ((document.body.dataset.toolkitFind ?? "") === scope) return;
+		if (scope) document.body.dataset.toolkitFind = scope;
+		else delete document.body.dataset.toolkitFind;
+	}
+
 	/**
 	 * Whether clear-tab's key is meant for Claudian: the cursor is in it (typing in its
 	 * composer, with the pointer resting anywhere), or the pointer is over it (clicking a
@@ -852,6 +908,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 
 	private onEscapeCapture = (e: KeyboardEvent): void => {
 		if (e.key !== "Escape" || e.isComposing) return;
+		// The find bar's Escape closes the bar, and leaves focus in Claudian.
+		if (this.find.contains(e.target)) return;
 		const cm = this.cmOf(this.getNoteLeaf());
 		if (!cm) return;
 		const main = cm.state.selection.main;

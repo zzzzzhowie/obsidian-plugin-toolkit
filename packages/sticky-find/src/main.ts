@@ -127,6 +127,9 @@ export default class StickyFindPlugin extends Plugin {
 	 * another leaf such as the global search sidebar.
 	 */
 	private shouldClaim(target: EventTarget | null, view: MarkdownView): boolean {
+		// Another find has the key here: Claudian (Enhanced) marks <body> while you're in its
+		// view, where focus often sits on <body> itself and would otherwise count as the note's.
+		if (document.body.dataset.toolkitFind && document.body.dataset.toolkitFind !== "note") return false;
 		if (!(target instanceof HTMLElement)) return true;
 		if (view.containerEl.contains(target)) return true;
 		if (target.closest(".modal-container, .prompt, .suggestion-container, .menu")) return false;
