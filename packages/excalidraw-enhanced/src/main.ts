@@ -4,9 +4,13 @@ import {
 	ExcalidrawEnhancedSettings,
 	ExcalidrawEnhancedSettingTab,
 } from "./settings";
-import { type ZoomTarget, ZoomOverlay } from "../../../shared/zoom-overlay";
+import { type Gallery, type ZoomTarget, ZoomOverlay } from "../../../shared/zoom-overlay";
 import { createDrawingFromFence } from "./fence-drawing";
 import { DrawingGallery } from "./gallery";
+
+/** An image in a Claudian reply — a drawing's PNG, a pasted screenshot — and the view it's in. */
+const CLAUDIAN_IMAGE = ".claudian-embedded-image > img";
+const CLAUDIAN_VIEW = '.workspace-leaf-content[data-type="claudian-view"]';
 
 /** Body class the note-sizing rule in styles.css hangs off. */
 const SIZING_CLASS = "excalidraw-enhanced-sizing";
@@ -36,6 +40,14 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			inline: inlineSvgOf,
 			// Every drawing in the note, to page through from the one clicked.
 			gallery: gallery.around,
+		}).register();
+		// Images in Claudian's replies get the same zoom, as Mermaid (Enhanced) gives its
+		// diagrams there, paging through every image of the conversation.
+		new ZoomOverlay(this, {
+			target: CLAUDIAN_IMAGE,
+			within: CLAUDIAN_VIEW,
+			cssPrefix: "excalidraw-zoom",
+			gallery: (target) => Promise.resolve(claudianImagesAround(target)),
 		}).register();
 
 		// Typing ```excalidraw embeds a new drawing (fence-drawing.ts). After the change, not
@@ -106,4 +118,20 @@ async function inlineSvgOf(target: ZoomTarget): Promise<ZoomTarget | null> {
 	const svg = doc.documentElement;
 	if (svg.nodeName.toLowerCase() !== "svg" || doc.querySelector("parsererror")) return null;
 	return target.doc.importNode(svg, true) as unknown as SVGSVGElement;
+}
+
+/** Every image of the Claudian conversation the clicked one is in, for the zoom to page through. */
+function claudianImagesAround(target: ZoomTarget): Gallery | null {
+	const list = target.closest(".claudian-messages");
+	if (!list) return null;
+	const images = Array.from(list.querySelectorAll<HTMLImageElement>(CLAUDIAN_IMAGE));
+	const index = images.indexOf(target as HTMLImageElement);
+	if (images.length < 2 || index < 0) return null;
+	return {
+		index,
+		items: images.map((image, i) => ({
+			label: image.alt || `Image ${i + 1}`,
+			element: () => Promise.resolve(image),
+		})),
+	};
 }
