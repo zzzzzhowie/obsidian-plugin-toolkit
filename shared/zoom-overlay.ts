@@ -105,6 +105,10 @@ export class ZoomOverlay {
 	private translateX = 0;
 	private translateY = 0;
 	private isDragging = false;
+	/** The last press on the drawing moved it: the click that ends it doesn't close. */
+	private panned = false;
+	/** A transform waiting for the next frame; see scheduleTransform. */
+	private transformFrame: number | null = null;
 	/** The drawing on show, at its own size; what fitting it to the screen measures. */
 	private drawingSize = { width: 800, height: 600 };
 	/** The filter the clicked drawing had in its note, given to every drawing paged to. */
@@ -205,10 +209,19 @@ export class ZoomOverlay {
 		this.overlay = overlay;
 		this.plugin.register(() => overlay.remove());
 
-		// Desktop: click the backdrop to close — but not the click that ends a drag selecting
-		// text and lets go past the drawing, which lands on the backdrop as well.
+		// Desktop: a click anywhere off the drawing closes — the dimmed backdrop, and the empty
+		// part of the container around the drawing, which covers most of the screen. Not the
+		// click that ends a pan or a drag selecting text and lets go past the drawing, which
+		// lands there as well.
 		overlay.addEventListener("click", (e) => {
-			if (e.target !== overlay) return;
+			const onBackdrop =
+				e.target === overlay ||
+				(e.target instanceof HTMLElement && e.target.classList.contains(`${this.options.cssPrefix}-container`));
+			if (!onBackdrop) return;
+			if (this.panned) {
+				this.panned = false;
+				return;
+			}
 			const selection = overlay.win.getSelection();
 			if (selection && !selection.isCollapsed && overlay.contains(selection.anchorNode)) return;
 			this.close();
@@ -567,12 +580,12 @@ export class ZoomOverlay {
 				this.scale = this.clampScale(
 					this.scale * Math.exp(-e.deltaY * PINCH_SENSITIVITY),
 				);
-				this.updateTransform(true);
+				this.scheduleTransform();
 				this.updateToolbar();
 			} else {
 				this.translateX -= e.deltaX * 1.5;
 				this.translateY -= e.deltaY * 1.5;
-				this.updateTransform(true);
+				this.scheduleTransform();
 			}
 		});
 
@@ -580,23 +593,37 @@ export class ZoomOverlay {
 		let moveHandler: ((e: MouseEvent) => void) | null = null;
 		let upHandler: (() => void) | null = null;
 		container.addEventListener("mousedown", (e: MouseEvent) => {
+			this.panned = false;
+			// Only a press on the drawing pans; one beside it is a click that closes the zoom.
+			if (!(e.target instanceof Element) || !this.frame?.contains(e.target)) return;
 			// On text that can be selected, the press is the browser's: it starts a selection.
 			const selectable = this.options.selectableText;
-			if (selectable && e.target instanceof Element && e.target.closest(selectable)) return;
+			if (selectable && e.target.closest(selectable)) return;
 			e.preventDefault();
 			this.isDragging = true;
 			const startX = e.clientX - this.translateX;
 			const startY = e.clientY - this.translateY;
-			container.style.cursor = "grabbing";
+			const downX = e.clientX;
+			const downY = e.clientY;
+			const frame = this.frame;
+			frame.style.cursor = "grabbing";
+			// Its own layer while it's carried, so a move is a composite, not a repaint of the
+			// whole drawing. Dropped on release: kept, a zoomed-in drawing would stay blurry.
+			frame.style.willChange = "transform";
 			moveHandler = (ev: MouseEvent) => {
 				if (!this.isDragging) return;
 				this.translateX = ev.clientX - startX;
 				this.translateY = ev.clientY - startY;
-				this.updateTransform();
+				// A real move, so the click that ends it isn't taken for a click off the drawing.
+				if (Math.abs(ev.clientX - downX) > 3 || Math.abs(ev.clientY - downY) > 3) this.panned = true;
+				// No easing while it follows the pointer: the 0.1s transition the plugins give the
+				// frame made every move chase the pointer, a step behind.
+				this.scheduleTransform();
 			};
 			upHandler = () => {
 				this.isDragging = false;
-				container.style.cursor = "grab";
+				frame.style.cursor = "grab";
+				frame.style.willChange = "";
 				if (moveHandler) document.removeEventListener("mousemove", moveHandler);
 				if (upHandler) document.removeEventListener("mouseup", upHandler);
 				moveHandler = null;
@@ -605,7 +632,9 @@ export class ZoomOverlay {
 			document.addEventListener("mousemove", moveHandler);
 			document.addEventListener("mouseup", upHandler);
 		});
-		container.style.cursor = "grab";
+		// The hand over the drawing only: beside it a click closes.
+		container.style.cursor = "default";
+		if (this.frame) this.frame.style.cursor = "grab";
 
 		// Touch: two-finger pinch to zoom, one-finger drag to pan.
 		let lastDist = 0;
@@ -642,7 +671,7 @@ export class ZoomOverlay {
 					if (lastDist > 0) {
 						// Already proportional: the ratio is how much the fingers spread.
 						this.scale = this.clampScale(this.scale * (d / lastDist));
-						this.updateTransform(true);
+						this.scheduleTransform();
 						this.updateToolbar();
 					}
 					lastDist = d;
@@ -653,7 +682,7 @@ export class ZoomOverlay {
 						this.translateY += t.clientY - lastY;
 						lastX = t.clientX;
 						lastY = t.clientY;
-						this.updateTransform(true);
+						this.scheduleTransform();
 					}
 				}
 			},
@@ -729,6 +758,19 @@ export class ZoomOverlay {
 		this.updateToolbar();
 	}
 
+	/**
+	 * Apply the transform on the next frame, without easing — for the pointer, wheel and touch
+	 * moves that arrive several to a frame. Each wrote the style straight away, so a 120Hz
+	 * trackpad or a fast mouse restyled the drawing more often than it could be drawn.
+	 */
+	private scheduleTransform(): void {
+		if (this.transformFrame !== null) return;
+		this.transformFrame = window.requestAnimationFrame(() => {
+			this.transformFrame = null;
+			this.updateTransform(true);
+		});
+	}
+
 	private updateTransform(disableTransition = false): void {
 		if (!this.frame) return;
 		this.frame.style.transition = disableTransition ? "none" : "";
@@ -737,6 +779,8 @@ export class ZoomOverlay {
 
 	private close(): void {
 		if (!this.overlay) return;
+		if (this.transformFrame !== null) window.cancelAnimationFrame(this.transformFrame);
+		this.transformFrame = null;
 		this.resetGallery();
 		this.overlay.style.display = "none";
 		this.overlay.empty();
