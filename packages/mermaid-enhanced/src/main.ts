@@ -250,6 +250,19 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			this.editingDiagramAt = block.from;
 			return tr;
 		}
+		// A click below a diagram that ends the note: the only place the editor can put the cursor
+		// is the end of the closing fence, still inside the block, so it stayed code whatever
+		// blank space was clicked. A line is opened past the fence and the cursor put there.
+		if (
+			tr.isUserEvent("select.pointer") &&
+			!tr.docChanged &&
+			head === tr.state.doc.length &&
+			block.to === tr.state.doc.length
+		) {
+			this.editingDiagramAt = null;
+			const end = tr.state.doc.length;
+			return [tr, { changes: { from: end, insert: "\n" }, selection: { anchor: end + 1 }, sequential: true }];
+		}
 		if (this.editingDiagramAt === block.from) return tr;
 		// Typing in it is editing it, the cursor going where the edit put it. Otherwise writing
 		// a fence was turned back: the closing "d" of ```mermaid made the block a diagram with
