@@ -201,10 +201,15 @@ body:not(.is-mobile) .quick-open-item:hover .quick-open-action {
 	font-weight: var(--font-semibold);
 }
 
+/* A shadow that fits the list's 8px padding. The theme's --shadow-s reaches ~40px below the
+   card (a 15px-offset, 30px-blur layer), and the scrolling list clips at its padding, so it
+   showed as a hard-edged rectangle behind the rounded card. */
 .quick-open-page-row.is-selected {
 	background-color: var(--background-primary);
 	border-color: var(--interactive-accent);
-	box-shadow: var(--shadow-s);
+	box-shadow:
+		0 1px 2px rgba(0, 0, 0, 0.06),
+		0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
 .quick-open-page-when {
