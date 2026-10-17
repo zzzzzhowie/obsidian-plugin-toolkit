@@ -151,7 +151,21 @@ body.excalidraw-enhanced-sizing
 /* Paging through the note's drawings (gallery.ts), as Mermaid (Enhanced) does: a strip of thumbnails under the
    toolbar, the one on show outlined. The container gives up the strip's height. */
 .excalidraw-zoom-overlay.excalidraw-zoom-has-strip .excalidraw-zoom-container {
-	max-height: calc(96vh - 60px - 80px);
+	max-height: calc(96vh - 60px - 80px - 32px);
+}
+
+/* The name of the diagram on show, at the top while paging (the thumbnails cut theirs short). */
+.excalidraw-zoom-title {
+	max-width: 90vw;
+	margin: 8px 0;
+	padding: 4px 12px;
+	color: rgba(255, 255, 255, 0.92);
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	pointer-events: auto;
 }
 
 /* With a strip under it the toolbar sits closer, to leave the diagram the room. */

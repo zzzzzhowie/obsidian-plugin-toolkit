@@ -119,6 +119,8 @@ export class ZoomOverlay {
 	/** Bumped on every open and close, so a gallery still loading for an earlier one bows out. */
 	private galleryToken = 0;
 	private strip: HTMLElement | null = null;
+	/** The name of the drawing on show, over it, while paging through a gallery. */
+	private title: HTMLElement | null = null;
 
 	private get isMobile(): boolean {
 		return Platform.isMobile;
@@ -327,7 +329,8 @@ export class ZoomOverlay {
 		this.translateY = 0;
 		this.overlay.querySelector(`:scope > .${this.options.cssPrefix}-container`)?.remove();
 		const container = createDiv(`${this.options.cssPrefix}-container`);
-		this.overlay.prepend(container);
+		if (this.title) this.title.after(container);
+		else this.overlay.prepend(container);
 
 		// Clone so we never mutate what is in the note, and drop the sizing that came
 		// with it (the host's own max-width, and any note-sizing rule over it).
@@ -414,7 +417,10 @@ export class ZoomOverlay {
 		return made;
 	}
 
-	/** Thumbnails of the gallery under the toolbar, and previous / next on the toolbar. */
+	/**
+	 * Thumbnails of the gallery under the toolbar, previous / next on the toolbar, and the
+	 * name of the drawing on show at the top — the thumbnails' own labels are cut short.
+	 */
 	private buildStrip(): void {
 		const gallery = this.gallery;
 		if (!this.overlay || !this.toolbar || !gallery) return;
@@ -427,6 +433,8 @@ export class ZoomOverlay {
 		const next = this.toolbar.createEl("button", { cls: `${prefix}-next`, attr: { "aria-label": "Next" } });
 		setIcon(next, "chevron-right");
 		next.addEventListener("click", () => void this.step(1));
+		this.title = createDiv(`${prefix}-title`);
+		this.overlay.prepend(this.title);
 
 		const strip = this.overlay.createDiv(`${prefix}-strip`);
 		this.strip = strip;
@@ -448,6 +456,11 @@ export class ZoomOverlay {
 
 	private markCurrent(): void {
 		const index = this.gallery?.index ?? -1;
+		const label = this.gallery?.items[index]?.label ?? "";
+		if (this.title && this.title.textContent !== label) {
+			this.title.setText(label);
+			this.title.setAttribute("title", label);
+		}
 		this.strip?.querySelectorAll(`.${this.options.cssPrefix}-thumb`).forEach((thumb, i) => {
 			thumb.toggleClass("is-current", i === index);
 			if (i === index) thumb.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -479,6 +492,8 @@ export class ZoomOverlay {
 		this.gallery = null;
 		this.galleryDrawings.clear();
 		this.strip = null;
+		this.title?.remove();
+		this.title = null;
 		this.overlay?.removeClass(`${this.options.cssPrefix}-has-strip`);
 	}
 
@@ -502,9 +517,10 @@ export class ZoomOverlay {
 			const bar = getComputedStyle(this.toolbar);
 			toolbarHeight = this.toolbar.getBoundingClientRect().height + px(bar.marginTop) + px(bar.marginBottom);
 		}
-		if (this.strip) {
-			const own = getComputedStyle(this.strip);
-			toolbarHeight += this.strip.getBoundingClientRect().height + px(own.marginTop) + px(own.marginBottom);
+		for (const bar of [this.strip, this.title]) {
+			if (!bar) continue;
+			const own = getComputedStyle(bar);
+			toolbarHeight += bar.getBoundingClientRect().height + px(own.marginTop) + px(own.marginBottom);
 		}
 		let padX = 0;
 		let padY = 0;
@@ -513,8 +529,8 @@ export class ZoomOverlay {
 			padX += px(own.paddingLeft) + px(own.paddingRight);
 			padY += px(own.paddingTop) + px(own.paddingBottom);
 		}
-		// A margin around the drawing: 90% across, and down what the toolbar (and a strip)
-		// leave, less a little — taking 10% of the whole height on top of the bars had left
+		// A margin around the drawing: 90% across, and down what the toolbar (and a strip and
+		// title) leave, less a little — taking 10% of the whole height on top of the bars had left
 		// the drawing small once a strip was under it.
 		const availWidth = innerWidth * 0.9 - padX;
 		const availHeight = (innerHeight - toolbarHeight) * 0.94 - padY;
