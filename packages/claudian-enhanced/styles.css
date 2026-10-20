@@ -607,3 +607,44 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	background-color: #d98a00;
 	color: #ffffff;
 }
+
+/* A note tab's Claudian status (tab-status.ts), in front of its title — Claudian's own
+   session-list badges and colours: waiting on you, running, stopped with an error, unread. */
+.workspace-tab-header-inner > .claudian-enhanced-tab-status {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	margin-inline-end: var(--size-4-1);
+	--icon-size: var(--icon-xs);
+}
+
+.claudian-enhanced-tab-status.is-running svg {
+	animation: claudian-enhanced-spin 1s linear infinite;
+}
+
+.claudian-enhanced-tab-status.is-action-required {
+	color: var(--color-orange);
+}
+
+.claudian-enhanced-tab-status.is-error {
+	color: var(--text-error);
+}
+
+.claudian-enhanced-tab-status.is-unread {
+	color: var(--text-accent);
+}
+
+.claudian-enhanced-tab-status.is-unread::before {
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: currentcolor;
+	content: "";
+}
+
+@keyframes claudian-enhanced-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}

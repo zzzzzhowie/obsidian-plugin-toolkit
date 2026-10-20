@@ -2,6 +2,7 @@ import { FileSystemAdapter, MarkdownView, Platform, Plugin, Scope, setIcon, TFil
 import { EditorView } from "@codemirror/view";
 
 import { ConversationFind } from "./conversation-find";
+import { type ClaudianStatusSource, NoteTabStatus } from "./tab-status";
 import { type PeekSelection, SelectionPeek } from "./selection-peek";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
@@ -125,6 +126,8 @@ const COPIED_MS = 1200;
 const EMPTY_TAB = "";
 /** How often session ids are looked at again outside the view's mutations (ms). */
 const SESSION_ID_POLL_MS = 2000;
+/** How often the note tabs' Claudian status is looked at again (ms); see NoteTabStatus. */
+const TAB_STATUS_POLL_MS = 1000;
 /** How often, and how many times, a prompt not filled in yet is looked at again (~30s). */
 const TAG_RETRY_MS = 400;
 /** How long after a note switch its result is checked; see verifySoon. */
@@ -639,6 +642,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		refocus: () => this.visibleInput()?.querySelector<HTMLElement>(".cm-content")?.focus(),
 		parentScope: () => (this.getClaudianLeaf()?.view as unknown as { scope?: Scope | null } | undefined)?.scope ?? null,
 	});
+	/** Each note tab's Claudian status icon; see tab-status.ts. */
+	private readonly tabStatus = new NoteTabStatus(
+		this.app,
+		() => (this.getClaudianLeaf()?.view as unknown as ClaudianStatusSource | undefined) ?? null,
+	);
 	/** The card a hovered selection chip shows its text in; see selection-peek.ts. */
 	private readonly selectionPeek = new SelectionPeek(
 		() => this.getClaudianLeaf()?.view.containerEl ?? null,
@@ -858,6 +866,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// The view observer shows a session id as the conversation changes, but the id can land
 		// after the reply's last mutation; see syncSessionIds.
 		this.registerInterval(window.setInterval(() => this.syncSessionIds(), SESSION_ID_POLL_MS));
+		// Note tabs show how their conversations are doing. A turn starting, waiting or ending
+		// changes nothing in the workspace, so a slow look covers those; tabs coming and going
+		// are caught as they happen.
+		this.app.workspace.onLayoutReady(() => this.tabStatus.sync());
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.tabStatus.sync()));
+		this.registerInterval(window.setInterval(() => this.tabStatus.sync(), TAB_STATUS_POLL_MS));
+		this.register(() => this.tabStatus.clear());
 		this.app.workspace.onLayoutReady(() => {
 			this.reconcileChipOnStartup(Date.now() + 8000);
 		});
