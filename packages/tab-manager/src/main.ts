@@ -22,9 +22,27 @@ import { activateTab, tabShowing } from "../../../shared/open-tab";
  * - a link to the note it's written in (`[[#Heading]]`), which scrolls in place;
  * - a link to a note that doesn't exist yet, which creates it;
  * - a note open only in a sidebar or in another window — see `tabShowing`.
+ *
+ * And, as Chrome does, closing a tab you just opened takes you back to the tab you opened it
+ * from — see `followActiveTab`.
  */
 export default class TabManagerPlugin extends Plugin {
+	/** Tabs that were on show before, so a tab's first showing can be told apart. */
+	private readonly shown = new WeakSet<WorkspaceLeaf>();
+	/** The main-area tab on show last; sidebars don't count. */
+	private lastTab: WorkspaceLeaf | null = null;
+	/** A tab just opened and the tab it was opened from, until the reader moves on. */
+	private openedFrom: { tab: WorkspaceLeaf; opener: WorkspaceLeaf } | null = null;
+
 	onload(): void {
+		this.app.workspace.onLayoutReady(() => {
+			this.app.workspace.iterateAllLeaves((leaf) => {
+				this.shown.add(leaf);
+			});
+			this.lastTab = this.mainTab(this.app.workspace.getMostRecentLeaf());
+			this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => this.followActiveTab(leaf)));
+		});
+
 		const workspace = this.app.workspace;
 		// eslint-disable-next-line @typescript-eslint/unbound-method -- called with the workspace below
 		const original = workspace.openLinkText;
@@ -42,6 +60,53 @@ export default class TabManagerPlugin extends Plugin {
 		this.register(() => {
 			if (workspace.openLinkText === openLinkText) workspace.openLinkText = original;
 		});
+	}
+
+	/**
+	 * Remember where a new tab was opened from, and go back there when it's closed. Obsidian
+	 * shows the closed tab's neighbour instead — for a tab opened beside the one you were
+	 * reading, the tab after that one. Chrome's rule: the way back holds only while you stay
+	 * on the new tab; going to any other tab first ends it, and closing then is left to
+	 * Obsidian. A tab is new on its first showing, however it was made — a Cmd/Ctrl-click, a
+	 * link from Claudian, ⌘T.
+	 */
+	private followActiveTab(active: WorkspaceLeaf | null): void {
+		const leaf = this.mainTab(active);
+		if (!leaf) return;
+		const relation = this.openedFrom;
+		if (relation && relation.tab !== leaf) {
+			this.openedFrom = null;
+			// Shown because the new tab was closed: the tab it came from instead.
+			if (relation.opener !== leaf && !this.isOpen(relation.tab) && this.isOpen(relation.opener)) {
+				void activateTab(this.app, relation.opener);
+				return;
+			}
+		}
+		if (!this.shown.has(leaf)) {
+			this.shown.add(leaf);
+			const from = this.lastTab;
+			if (from && from !== leaf && from.getContainer() === leaf.getContainer() && this.isOpen(from)) {
+				this.openedFrom = { tab: leaf, opener: from };
+			}
+		}
+		this.lastTab = leaf;
+	}
+
+	/** `leaf` when it's a tab of the main area (or of a pop-out window), else null. */
+	private mainTab(leaf: WorkspaceLeaf | null): WorkspaceLeaf | null {
+		if (!leaf) return null;
+		const root = leaf.getRoot();
+		const { leftSplit, rightSplit } = this.app.workspace;
+		return root === leftSplit || root === rightSplit ? null : leaf;
+	}
+
+	/** Whether `leaf` is still in the workspace — not closed. */
+	private isOpen(leaf: WorkspaceLeaf): boolean {
+		let found = false;
+		this.app.workspace.iterateAllLeaves((each) => {
+			if (each === leaf) found = true;
+		});
+		return found;
 	}
 
 	/** The tab to go to instead of opening the link, or null to let Obsidian open it. */
