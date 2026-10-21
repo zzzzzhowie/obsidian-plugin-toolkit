@@ -1,4 +1,4 @@
-import { ItemView, Platform, Plugin, type WorkspaceLeaf } from "obsidian";
+import { Platform, Plugin, View, type WorkspaceLeaf } from "obsidian";
 
 /** Obsidian's own "Close current tab", Cmd/Ctrl+W by default. */
 const CLOSE_COMMAND = "workspace:close";
@@ -102,9 +102,13 @@ export default class SidebarGuardPlugin extends Plugin {
 	 * The active tab, when it is a sidebar panel. A panel is a view that isn't for
 	 * navigation — Obsidian's own flag for "don't open links over me", set on every panel
 	 * (file explorer, search, outline, Claudian…) and on no document.
+	 *
+	 * Looked up as a View, not an ItemView: since Obsidian 1.14 the file explorer and search
+	 * aren't ItemViews, so with either active the guard saw no panel, and going to the next
+	 * or previous tab flicked between them instead of the notes.
 	 */
 	private activePanel(): WorkspaceLeaf | null {
-		const view = this.app.workspace.getActiveViewOfType(ItemView);
+		const view = this.app.workspace.getActiveViewOfType(View);
 		if (!view || view.navigation) return null;
 		const root = view.leaf.getRoot();
 		const { leftSplit, rightSplit } = this.app.workspace;
