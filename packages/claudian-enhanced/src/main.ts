@@ -210,6 +210,8 @@ interface ClaudianLinkedContent {
 	getSnapshot?: () => { mode?: string; path?: string | null };
 	handleActiveFileChanged?: (file: TFile | null, isActiveOwner: boolean) => void;
 	resetAutoDraft?: () => void;
+	/** A note picked for the draft by hand — null is the chip's ×, no note; following stops. */
+	selectExplicit?: (path: string | null) => void;
 }
 
 /**
@@ -274,7 +276,7 @@ interface ClaudianTab {
 		composerSelections?: { editor?: ClaudianSelectionController };
 		selectionController?: ClaudianSelectionController;
 		/** Sends what the composer holds, as Enter does. */
-		inputController?: { sendMessage?: () => Promise<void> };
+		inputController?: { sendMessage?: () => Promise<void>; deps?: { canStartTurn?: () => boolean } };
 	};
 	/**
 	 * The composer; Claudian gives its CodeMirror host a `value` that reads the text in it.
@@ -635,16 +637,21 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private previewScope: Scope | null = null;
 	/** Whether the pointer last rested over Claudian's view; see inClaudian. */
 	private pointerOverClaudian = false;
+	/** Which Claudian view the pointer last rested on; see claudianInUse. */
+	private pointerClaudianLeaf: WorkspaceLeaf | null = null;
+	/** Outline and the like blanked for a Claudian in a tab; see syncNoteFollowers. */
+	private followersBlank = false;
 	/** ⌘F in Claudian: find in the conversation; see conversation-find.ts. */
 	private readonly find = new ConversationFind(this.app, {
-		scroller: () => this.visibleEl<HTMLElement>(CLAUDIAN_MESSAGES),
+		scroller: () => this.visibleIn<HTMLElement>(this.claudianInUse(), CLAUDIAN_MESSAGES),
 		unfold: (prompt) => {
 			this.expandedPrompts.add(prompt);
 			prompt.removeClass(FOLDED_CLS);
 			this.syncFoldToggle(prompt, false);
 		},
-		refocus: () => this.visibleInput()?.querySelector<HTMLElement>(".cm-content")?.focus(),
-		parentScope: () => (this.getClaudianLeaf()?.view as unknown as { scope?: Scope | null } | undefined)?.scope ?? null,
+		refocus: () =>
+			this.visibleIn<HTMLElement>(this.claudianInUse(), CLAUDIAN_INPUT)?.querySelector<HTMLElement>(".cm-content")?.focus(),
+		parentScope: () => (this.claudianInUse()?.view as unknown as { scope?: Scope | null } | undefined)?.scope ?? null,
 	});
 	/** Each note tab's Claudian status icon; see tab-status.ts. */
 	private readonly tabStatus = new NoteTabStatus(
@@ -700,6 +707,20 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 					}
 					return true;
 				}
+				// A Claudian in a tab of its own: a new conversation there, nothing about notes.
+				const inUse = this.claudianInUse();
+				if (inUse && this.sidebarOf(inUse) === null) {
+					const manager = (inUse.view as unknown as { getTabManager?: () => ClaudianTabManager | null }).getTabManager?.();
+					const own = manager?.getActiveTab?.();
+					if (!manager || !own || own.state?.isStreaming) return false;
+					if (!checking) {
+						if (own.state?.messages?.length) {
+							void manager.createNewConversation?.().then(() => this.unlinkTabChats());
+						}
+						this.visibleIn<HTMLElement>(inUse, CLAUDIAN_INPUT)?.querySelector<HTMLElement>(".cm-content")?.focus();
+					}
+					return true;
+				}
 				const tab = this.getActiveTab();
 				if (!tab || tab.state?.isStreaming) return false;
 				if (checking) return true;
@@ -712,9 +733,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			"pointerover",
 			(e) => {
 				const target = e.target instanceof Element ? e.target : null;
-				this.pointerOverClaudian = !!target?.closest(
-					`.workspace-leaf-content[data-type="${CLAUDIAN_VIEW}"]`,
-				);
+				const claudianEl = target?.closest(`.workspace-leaf-content[data-type="${CLAUDIAN_VIEW}"]`) ?? null;
+				this.pointerOverClaudian = claudianEl !== null;
+				if (claudianEl) {
+					this.pointerClaudianLeaf =
+						this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW).find((leaf) => leaf.view.containerEl === claudianEl) ?? null;
+					if (this.pointerClaudianLeaf && this.sidebarOf(this.pointerClaudianLeaf) === null) this.unlinkTabChats();
+				}
 				this.markFindScope();
 				this.selectionPeek.onPointerOver(target);
 			},
@@ -723,7 +748,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// ⌘F in Claudian finds in the conversation. Sticky Find claims the key for the note,
 		// even with focus on <body> — which is where clicking Claudian's messages leaves it — so
 		// <body> says whose find it is (data-toolkit-find), and Sticky Find stands aside.
-		this.registerDomEvent(document, "focusin", () => this.markFindScope());
+		this.registerDomEvent(document, "focusin", () => {
+			this.markFindScope();
+			this.unlinkTabChats();
+		});
+		// A draft can appear without any of the events unlinkTabChats watches (Claudian's own +
+		// in its tab bar), but nothing is sent without a key or a click; both land here first.
+		this.registerDomEvent(window, "keydown", () => this.unlinkTabChats(), { capture: true });
+		this.registerDomEvent(window, "pointerdown", () => this.unlinkTabChats(), { capture: true });
 		this.registerDomEvent(
 			window,
 			"keydown",
@@ -769,7 +801,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// sitting on Claudian's sidebar, Obsidian's active *file* stays frozen and no
 		// file-open fires — so leaf changes are watched too. See syncCurrentNoteChip.
 		this.registerEvent(
-			this.app.workspace.on("active-leaf-change", () => {
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				this.syncNoteFollowers(leaf);
 				this.watchClaudianVisibility();
 				this.scheduleChipSync();
 				// A deferred/collapsed Claudian leaf can swap in a new view (new
@@ -784,12 +817,28 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// reports as leaf changes only (Claudian's sidebar holding the active leaf, where
 		// the active *file* never changes and no file-open fires).
 		this.registerEvent(
-			this.app.workspace.on("file-open", () => this.syncCurrentNoteChip()),
+			this.app.workspace.on("file-open", () => {
+				this.syncCurrentNoteChip();
+				this.unlinkTabChats();
+				// Obsidian re-opens the last note for them when a tab turns into Claudian in place.
+				// After the event: a view opened since this plugin loaded hears it after us.
+				window.setTimeout(() => this.syncNoteFollowers(this.app.workspace.getMostRecentLeaf(), true));
+			}),
 		);
 		// Claudian shown any other way than ⌘L — its tab clicked in the sidebar, a layout
 		// restored — changes neither the active leaf nor the file; see watchClaudianVisibility.
-		this.registerEvent(this.app.workspace.on("layout-change", () => this.watchClaudianVisibility()));
-		this.app.workspace.onLayoutReady(() => this.watchClaudianVisibility());
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => {
+				this.watchClaudianVisibility();
+				this.unlinkTabChats();
+				// A tab turned into Claudian where it stands (a new tab's question) isn't a leaf change.
+				this.syncNoteFollowers(this.app.workspace.getMostRecentLeaf());
+			}),
+		);
+		this.app.workspace.onLayoutReady(() => {
+			this.watchClaudianVisibility();
+			this.syncNoteFollowers(this.app.workspace.getMostRecentLeaf());
+		});
 		this.register(() => this.visibilityObserver?.disconnect());
 		// Notes are remembered by path, so a rename would otherwise strand a conversation
 		// under a path that no longer exists — and, worse, make the next sync read the new
@@ -921,9 +970,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * and the question goes into its composer and is sent as Enter sends it. Reports whether
 	 * it was sent; not when Claudian isn't there, or never settled on that conversation.
 	 */
-	async ask(text: string): Promise<boolean> {
+	async ask(text: string, options?: { leaf?: WorkspaceLeaf }): Promise<boolean> {
 		const prompt = text.trim();
 		if (!prompt) return false;
+		if (options?.leaf) return this.askInTab(options.leaf, prompt);
 		const gen = ++this.gen;
 		const leaf = this.getClaudianLeaf();
 		if (!leaf || !this.isLeafVisible(leaf)) this.openClaudian(gen);
@@ -938,6 +988,44 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		input.value = prompt;
 		await send.call(tab.controllers?.inputController);
 		return true;
+	}
+
+	/**
+	 * Ask in a tab of its own, the way ChatGPT's home page turns into the conversation: the
+	 * empty tab the question was typed in becomes a Claudian chat filling the main area, and
+	 * the question is sent there. The sidebar's Claudian is left as it was, still following
+	 * notes; this one is a conversation of its own (getClaudianLeaf leaves it out).
+	 */
+	private async askInTab(leaf: WorkspaceLeaf, prompt: string): Promise<boolean> {
+		await leaf.setViewState({ type: CLAUDIAN_VIEW, active: true });
+		this.app.workspace.setActiveLeaf(leaf, { focus: true });
+		const deadline = Date.now() + ASK_SETTLE_MS;
+		const tab = await new Promise<ClaudianTab | null>((resolve) => {
+			const look = (): void => {
+				const manager = (leaf.view as unknown as { getTabManager?: () => ClaudianTabManager | null }).getTabManager?.();
+				const active = manager?.getActiveTab?.() ?? null;
+				const controller = active?.controllers?.inputController;
+				// Mounted is not enough: a view just made doesn't take a turn yet, and its send
+				// returns without a word — the question was dropped and the box emptied anyway.
+				const ready =
+					active?.dom?.inputEl &&
+					typeof controller?.sendMessage === "function" &&
+					controller.deps?.canStartTurn?.() !== false;
+				if (ready) resolve(active);
+				else if (Date.now() > deadline) resolve(null);
+				else window.setTimeout(look, 50);
+			};
+			look();
+		});
+		const input = tab?.dom?.inputEl;
+		const send = tab?.controllers?.inputController?.sendMessage;
+		if (!tab || !input || typeof send !== "function") return false;
+		this.unlinkTabChats();
+		const before = tab.state?.messages?.length ?? 0;
+		input.value = prompt;
+		await send.call(tab.controllers?.inputController);
+		// Sent means in the conversation, not just handed over.
+		return (tab.state?.messages?.length ?? 0) > before;
 	}
 
 	/**
@@ -970,9 +1058,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * sidebar leaves focus on <body>, so focus alone would miss a click into its messages).
 	 */
 	private inClaudian(): boolean {
-		const view = this.getClaudianLeaf()?.view.containerEl;
-		const focused = view?.doc.activeElement;
-		return (!!focused && view.contains(focused)) || this.pointerOverClaudian;
+		const focused = document.activeElement;
+		const holdsFocus = this.app.workspace
+			.getLeavesOfType(CLAUDIAN_VIEW)
+			.some((leaf) => !!focused && leaf.view.containerEl.contains(focused));
+		return holdsFocus || this.pointerOverClaudian;
 	}
 
 	private onEscapeCapture = (e: KeyboardEvent): void => {
@@ -3654,8 +3744,79 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return mainLeaves[0] ?? null;
 	}
 
+	/**
+	 * The sidebar's Claudian: the one everything here keeps in step with the open note. A
+	 * Claudian opened in a tab of its own (a new tab's question, askInTab) isn't it — that one
+	 * is a conversation of its own, and taking it for the sidebar's would follow notes in it.
+	 */
 	private getClaudianLeaf(): WorkspaceLeaf | null {
-		return this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW)[0] ?? null;
+		return this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW).find((leaf) => this.sidebarOf(leaf) !== null) ?? null;
+	}
+
+	/**
+	 * The sidebar views that show the open note — Outline, Backlinks — go blank while a
+	 * Claudian in a tab of its own is in front, as they do for an empty tab. They follow
+	 * file-open, which Obsidian fires only for views it counts as navigation; Claudian's isn't
+	 * one, so they kept showing the last note. Making it one would have the next note opened
+	 * replace the chat, so they're told directly: no note on the chat, the active one again
+	 * when a tab in the main area comes back. `again` blanks them anew after a file-open that
+	 * reached them with the chat in front. A pinned or linked view is left be, as Obsidian
+	 * leaves it; a sidebar leaf taking focus changes nothing.
+	 */
+	private syncNoteFollowers(leaf: WorkspaceLeaf | null, again = false): void {
+		if (!leaf || leaf.getRoot() !== this.app.workspace.rootSplit) return;
+		const chat = leaf.view.getViewType() === CLAUDIAN_VIEW;
+		if (chat === this.followersBlank && !(chat && again)) return;
+		this.followersBlank = chat;
+		const file = chat ? null : this.app.workspace.getActiveFile();
+		this.app.workspace.iterateAllLeaves((other) => {
+			if (other.getRoot() === this.app.workspace.rootSplit) return;
+			const view = other.view as unknown as { onFileOpen?: (file: TFile | null) => void; isLeafBoundToFile?: boolean };
+			if (typeof view.onFileOpen === "function" && !view.isLeafBoundToFile) view.onFileOpen(file);
+		});
+	}
+
+	/**
+	 * A Claudian in a tab of its own is a chat, not a note's conversation: its drafts link no
+	 * note. Claudian points an unsent draft's chip at whatever note is open (auto-draft) and
+	 * locks it there on the first prompt, so each draft is set to no note before that — the
+	 * chip's × does the same. A note picked into a draft by hand (explicit-draft) is left be.
+	 * Run whenever a draft can have appeared or followed a note: a note opened, the layout
+	 * changed, the pointer over the chat, focus, any key or click, a new conversation, a
+	 * question about to go.
+	 */
+	private unlinkTabChats(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW)) {
+			if (this.sidebarOf(leaf) !== null) continue;
+			const manager = (leaf.view as unknown as { getTabManager?: () => ClaudianTabManager | null }).getTabManager?.();
+			for (const tab of manager?.getAllTabs?.() ?? []) {
+				const linked = tab.ui?.linkedContentController;
+				if (linked?.getSnapshot?.().mode === "auto-draft") linked.selectExplicit?.(null);
+			}
+		}
+	}
+
+	/**
+	 * The Claudian you're in, for keys that act on a conversation (⌘F, ⌘N): the one holding
+	 * focus, else the one the pointer last rested on, else the sidebar's.
+	 */
+	private claudianInUse(): WorkspaceLeaf | null {
+		const focused = document.activeElement;
+		const leaves = this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW);
+		return (
+			leaves.find((leaf) => !!focused && leaf.view.containerEl.contains(focused)) ??
+			(this.pointerOverClaudian && this.pointerClaudianLeaf && leaves.includes(this.pointerClaudianLeaf)
+				? this.pointerClaudianLeaf
+				: null) ??
+			this.getClaudianLeaf()
+		);
+	}
+
+	/** The laid-out instance of `selector` in a given Claudian view (see visibleEl). */
+	private visibleIn<T extends HTMLElement>(leaf: WorkspaceLeaf | null, selector: string): T | null {
+		if (!leaf) return null;
+		const els = Array.from(leaf.view.containerEl.querySelectorAll<T>(selector));
+		return els.find((el) => el.offsetParent !== null) ?? els[0] ?? null;
 	}
 
 	/**

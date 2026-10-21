@@ -62,7 +62,7 @@ export class NewTabSearch {
 			}
 			// Not the box holding Obsidian's title and links: that one is capped at 280px tall.
 			const host = leaf.view.containerEl.querySelector<HTMLElement>(".empty-state");
-			if (host) this.tabs.set(leaf, new TabSearch(this.app, this.search, this.history, host));
+			if (host) this.tabs.set(leaf, new TabSearch(this.app, this.search, this.history, host, leaf));
 		});
 	}
 
@@ -105,6 +105,8 @@ class TabSearch {
 		private readonly search: Search,
 		private readonly history: FileHistory,
 		host: HTMLElement,
+		/** The empty tab this search is on: asking Claudian turns it into the conversation. */
+		private readonly leaf: WorkspaceLeaf,
 	) {
 		this.el = host.createDiv({ cls: PAGE_CLASS });
 		// Above Obsidian's title and links, which follow wherever the theme puts them.
@@ -319,9 +321,16 @@ class TabSearch {
 
 	/** Claudian (Enhanced)'s `ask`, when that plugin is on. */
 	private askClaudian(): ((text: string) => Promise<boolean>) | null {
+		// Never on mobile, even should the new tab's search come to be drawn there.
+		if (Platform.isMobile) return null;
 		const plugins = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins?.plugins;
-		const plugin = plugins?.[CLAUDIAN_ENHANCED] as { ask?: (text: string) => Promise<boolean> } | undefined;
-		return typeof plugin?.ask === "function" ? plugin.ask.bind(plugin) : null;
+		const plugin = plugins?.[CLAUDIAN_ENHANCED] as
+			| { ask?: (text: string, options?: { leaf?: WorkspaceLeaf }) => Promise<boolean> }
+			| undefined;
+		const ask = plugin?.ask;
+		// In this tab: it becomes the conversation, as ChatGPT's home page does, rather than
+		// the question going to the sidebar.
+		return typeof ask === "function" ? (text) => ask.call(plugin, text, { leaf: this.leaf }) : null;
 	}
 
 	/** Hand the query to Claudian as this empty tab's question; the box empties once it's sent. */
