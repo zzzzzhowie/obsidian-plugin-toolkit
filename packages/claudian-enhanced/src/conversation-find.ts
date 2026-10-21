@@ -110,11 +110,17 @@ export class ConversationFind {
 			attr: { type: "text", placeholder: "Find in conversation", spellcheck: "false" },
 		});
 		this.counter = bar.createSpan({ cls: `${BAR}-counter`, text: "0/0" });
-		this.caseButton = bar.createEl("button", { cls: `${BAR}-button ${BAR}-case`, text: "Aa", attr: { "aria-label": "Match case" } });
+		// clickable-icon, as the arrows: without it Obsidian's button fill made Aa look on while off.
+		this.caseButton = bar.createEl("button", {
+			cls: `${BAR}-button ${BAR}-case clickable-icon`,
+			text: "Aa",
+			attr: { "aria-label": "Match case", "aria-pressed": String(this.caseSensitive) },
+		});
 		this.caseButton.toggleClass("is-active", this.caseSensitive);
 		this.caseButton.addEventListener("click", () => {
 			this.caseSensitive = !this.caseSensitive;
 			this.caseButton?.toggleClass("is-active", this.caseSensitive);
+			this.caseButton?.setAttribute("aria-pressed", String(this.caseSensitive));
 			this.search(false);
 		});
 		this.iconButton(bar, "chevron-up", "Previous match", () => this.step(-1));

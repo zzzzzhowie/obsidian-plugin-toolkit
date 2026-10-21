@@ -62,9 +62,9 @@
 	font-weight: var(--font-medium);
 }
 
+/* On is Obsidian's own toggle look (clickable-icon.is-active), as its search's Match case. */
 .sticky-find-bar .sticky-find-case.is-active {
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
+	color: var(--icon-color-active);
 }
 
 /*

@@ -67,11 +67,14 @@ export class FindBar {
 		this.counterEl = this.barEl.createSpan({ cls: "sticky-find-counter", text: "0/0" });
 
 		this.caseButtonEl = this.barEl.createEl("button", {
-			cls: "sticky-find-button sticky-find-case",
+			// clickable-icon, as the arrows: without it Obsidian's button fill made Aa look on
+			// while it was off. On is clickable-icon's is-active fill, and aria-pressed.
+			cls: "sticky-find-button sticky-find-case clickable-icon",
 			text: "Aa",
 			attr: { "aria-label": "Match case" },
 		});
 		this.caseButtonEl.toggleClass("is-active", this.caseSensitive);
+		this.caseButtonEl.setAttribute("aria-pressed", String(this.caseSensitive));
 
 		this.iconButton("chevron-up", "Previous match", () => this.step(-1));
 		this.iconButton("chevron-down", "Next match", () => this.step(1));
@@ -177,6 +180,7 @@ export class FindBar {
 	private toggleCase(): void {
 		this.caseSensitive = !this.caseSensitive;
 		this.caseButtonEl.toggleClass("is-active", this.caseSensitive);
+		this.caseButtonEl.setAttribute("aria-pressed", String(this.caseSensitive));
 		this.inputEl.focus();
 		this.refresh();
 	}

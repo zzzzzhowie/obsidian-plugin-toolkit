@@ -581,9 +581,9 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	font-weight: var(--font-medium);
 }
 
+/* On is Obsidian's own toggle look (clickable-icon.is-active), as its search's Match case. */
 .claudian-find-bar .claudian-find-case.is-active {
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
+	color: var(--icon-color-active);
 }
 
 /* Its highlights: literal colours, as Sticky Find's — highlight pseudo-elements don't
