@@ -22,11 +22,12 @@ const CLAUDIAN_ENHANCED = "claudian-enhanced";
  * Every empty tab gets one, kept for as long as the tab stays empty: the query typed into it
  * survives the list being redrawn when a file is opened elsewhere or another device's list
  * arrives. Opening a file turns the tab into that file (or goes to the tab that already has
- * it); Cmd/Ctrl+Enter, Cmd/Ctrl-click or a middle click opens it in a new tab instead.
+ * it); Shift+Enter, Cmd/Ctrl-click or a middle click opens it in a new tab instead.
  *
  * With Claudian (Enhanced) on, a query can be asked instead of looked up: an "Ask Claudian"
- * row heads the results, chosen like any row — or straight away with Shift+Enter — and the
- * query goes to Claudian as the empty tab's question (see askClaudian).
+ * row heads the results, chosen like any row — or straight away with Cmd/Ctrl+Enter — and
+ * the query goes to Claudian as the empty tab's question (see askClaudian). Without it,
+ * Cmd/Ctrl+Enter opens in a new tab, as Shift+Enter does.
  */
 export class NewTabSearch {
 	private readonly tabs = new Map<WorkspaceLeaf, TabSearch>();
@@ -160,12 +161,13 @@ class TabSearch {
 			return false;
 		});
 		this.scope.register([], "Enter", (evt) => this.enter(evt, "current-group"));
-		this.scope.register(["Mod"], "Enter", (evt) => this.enter(evt, "new-tab"));
-		this.scope.register(["Shift"], "Enter", (evt) => {
+		this.scope.register(["Mod"], "Enter", (evt) => {
+			if (!this.askClaudian()) return this.enter(evt, "new-tab");
 			if (evt.isComposing) return true;
 			this.ask();
 			return false;
 		});
+		this.scope.register(["Shift"], "Enter", (evt) => this.enter(evt, "new-tab"));
 		this.scope.register([], "Escape", () => {
 			if (this.input.value) {
 				this.input.value = "";
@@ -313,7 +315,7 @@ class TabSearch {
 		text.createSpan({ cls: "quick-open-name", text: "Ask Claudian" });
 		text.createSpan({ cls: "quick-open-path", text: query });
 		const aux = row.createDiv({ cls: "quick-open-aux" });
-		aux.createSpan({ cls: "quick-open-page-when", text: Platform.isMacOS ? "⇧↩" : "Shift+Enter" });
+		aux.createSpan({ cls: "quick-open-page-when", text: Platform.isMacOS ? "⌘↩" : "Ctrl+Enter" });
 		row.addEventListener("mousemove", () => this.select(0, false));
 		row.addEventListener("click", () => this.ask());
 		return row;
