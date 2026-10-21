@@ -1,4 +1,4 @@
-import { FileSystemAdapter, MarkdownView, Platform, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { FileSystemAdapter, MarkdownView, parseLinktext, Platform, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 import { ConversationFind } from "./conversation-find";
@@ -3534,7 +3534,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 
 				// Honor the platform convention for an explicit "open elsewhere" click.
 				if (event.metaKey || event.ctrlKey || event.button === 1) {
-					void this.app.workspace.openLinkText(href, "", "tab");
+					this.openInNewTab(href);
 					return;
 				}
 
@@ -3559,6 +3559,23 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * markdown leaf. Sidebar leaves are never eligible — loading a note into one would
 	 * replace Claudian itself.
 	 */
+	/**
+	 * A new tab for the link, even when its note is open already: that is what Cmd/Ctrl-click
+	 * asks for. Opened here rather than through `openLinkText`, which Tab Manager takes over
+	 * to go to the tab already showing the note — the current one, often, for a link to the
+	 * note the conversation is about. A link to a note that doesn't exist yet is left to
+	 * `openLinkText`, which creates it.
+	 */
+	private openInNewTab(href: string): void {
+		const { path, subpath } = parseLinktext(href);
+		const file = this.app.metadataCache.getFirstLinkpathDest(path, "");
+		if (!file) {
+			void this.app.workspace.openLinkText(href, "", "tab");
+			return;
+		}
+		void this.app.workspace.getLeaf("tab").openFile(file, { active: true, eState: subpath ? { subpath } : undefined });
+	}
+
 	private leafForLink(href: string): WorkspaceLeaf | null {
 		const linkpath = href.split("#")[0] ?? "";
 		const file = linkpath
