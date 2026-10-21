@@ -1,6 +1,7 @@
 import { FileSystemAdapter, MarkdownView, parseLinktext, Platform, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
+import { CommentSelection, type CommentSelectionTab } from "./comment-selection";
 import { ConversationFind } from "./conversation-find";
 import { type ClaudianStatusSource, NoteTabStatus } from "./tab-status";
 import { type PeekSelection, SelectionPeek } from "./selection-peek";
@@ -795,6 +796,29 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerDomEvent(window, "keydown", this.onEscapeCapture, {
 			capture: true,
 		});
+		// Text selected in a note comment (Note Comments) goes to Claudian as the 划词 does.
+		const comments = new CommentSelection(this.app, {
+			tabs: () =>
+				this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW).flatMap((leaf) => {
+					const manager = (leaf.view as unknown as { getTabManager?: () => ClaudianTabManager | null }).getTabManager?.();
+					const tab = manager?.getActiveTab?.();
+					return tab ? [tab as unknown as CommentSelectionTab] : [];
+				}),
+			inClaudian: (el) =>
+				this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW).some((leaf) => leaf.view.containerEl.contains(el)),
+		});
+		this.register(() => comments.destroy());
+		this.registerDomEvent(document, "selectionchange", comments.onSelectionChange);
+		this.registerDomEvent(window, "pointerdown", comments.onPointerDown, { capture: true });
+		this.registerDomEvent(window, "pointerup", comments.onPointerUp, { capture: true });
+		this.registerDomEvent(
+			window,
+			"keydown",
+			(e: KeyboardEvent) => {
+				if (!this.find.contains(e.target)) comments.onEscape(e);
+			},
+			{ capture: true },
+		);
 		// Keep Claudian's conversation in step with the open note without a manual ⌘L:
 		// switching notes brings that note's conversation back or starts a fresh one. A
 		// file-open alone isn't enough to notice the switch — when the active leaf has been

@@ -107,7 +107,8 @@ export class CommentHover {
 		if (!comment) return;
 		this.hide();
 
-		const card = mark.doc.body.createDiv({ cls: "nc-hover" });
+		// Which comment it is, for other plugins reading a selection in it (Claudian (Enhanced)).
+		const card = mark.doc.body.createDiv({ cls: "nc-hover", attr: { "data-nc-path": path, "data-nc-id": id } });
 		const body = card.createDiv({ cls: "nc-hover-body nc-panel-body markdown-rendered" });
 		card.createDiv({ cls: "nc-hover-meta", text: formatWhen(comment.updatedAt) });
 		this.card = card;

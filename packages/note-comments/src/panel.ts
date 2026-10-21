@@ -285,7 +285,10 @@ export class CommentsPanel extends ItemView {
 	}
 
 	private renderItem(file: TFile, comment: NoteComment, span: Span | null | undefined, scope: Component): void {
-		const item = this.listEl.createDiv({ cls: "nc-panel-item", attr: { "data-nc-id": comment.id } });
+		const item = this.listEl.createDiv({
+			cls: "nc-panel-item",
+			attr: { "data-nc-id": comment.id, "data-nc-path": file.path },
+		});
 		if (comment.id === this.focusedId) item.addClass("is-focused");
 		if (span === null) item.addClass("is-orphan");
 
