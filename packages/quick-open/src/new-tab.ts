@@ -1,4 +1,4 @@
-import { type App, Keymap, Platform, Scope, setIcon, type WorkspaceLeaf } from "obsidian";
+import { type App, Keymap, Notice, Platform, Scope, setIcon, type WorkspaceLeaf } from "obsidian";
 
 import type { FileHistory } from "./history";
 import { NewTabActions } from "./new-tab-actions";
@@ -10,6 +10,8 @@ const PAGE_CLASS = "quick-open-page";
 /** Rows listed before anything is typed, and at most while searching. */
 const RECENT_LIMIT = 30;
 const SEARCH_LIMIT = 60;
+/** Claudian (Enhanced), whose `ask` takes a question from here. */
+const CLAUDIAN_ENHANCED = "claudian-enhanced";
 
 /**
  * Go to File on Obsidian's empty new tab: a search box with the results under it, one card
@@ -21,6 +23,10 @@ const SEARCH_LIMIT = 60;
  * survives the list being redrawn when a file is opened elsewhere or another device's list
  * arrives. Opening a file turns the tab into that file (or goes to the tab that already has
  * it); Cmd/Ctrl+Enter, Cmd/Ctrl-click or a middle click opens it in a new tab instead.
+ *
+ * With Claudian (Enhanced) on, a query can be asked instead of looked up: an "Ask Claudian"
+ * row heads the results, chosen like any row — or straight away with Shift+Enter — and the
+ * query goes to Claudian as the empty tab's question (see askClaudian).
  */
 export class NewTabSearch {
 	private readonly tabs = new Map<WorkspaceLeaf, TabSearch>();
@@ -81,7 +87,10 @@ class TabSearch {
 	private readonly scope: Scope;
 	private readonly actions: NewTabActions | null;
 	private items: FileItem[] = [];
+	/** The rows on screen: the "Ask Claudian" row first when there is one, then the files'. */
 	private rows: HTMLElement[] = [];
+	/** Whether the list leads with the "Ask Claudian" row, which moves the files down one. */
+	private asking = false;
 	private selected = 0;
 	private scoped = false;
 	private frame: number | null = null;
@@ -132,7 +141,8 @@ class TabSearch {
 		this.actions = actionList ? new NewTabActions(app, actionList) : null;
 
 		this.input.addEventListener("input", () => {
-			this.selected = 0;
+			// The first file, even under the "Ask Claudian" row: Enter keeps opening it.
+			this.selected = this.askClaudian() && this.input.value.trim() ? 1 : 0;
 			this.update();
 		});
 
@@ -149,6 +159,11 @@ class TabSearch {
 		});
 		this.scope.register([], "Enter", (evt) => this.enter(evt, "current-group"));
 		this.scope.register(["Mod"], "Enter", (evt) => this.enter(evt, "new-tab"));
+		this.scope.register(["Shift"], "Enter", (evt) => {
+			if (evt.isComposing) return true;
+			this.ask();
+			return false;
+		});
 		this.scope.register([], "Escape", () => {
 			if (this.input.value) {
 				this.input.value = "";
@@ -190,6 +205,7 @@ class TabSearch {
 	/** Re-run the query against the current list, keeping the selection where it can. */
 	update(): void {
 		const query = this.input.value.trim();
+		const ask = query !== "" && this.askClaudian() !== null;
 		this.items = this.search
 			.suggest(query, { limit: query ? SEARCH_LIMIT : RECENT_LIMIT, filesOnly: true })
 			.filter((item: Item): item is FileItem => item.kind === "file");
@@ -197,16 +213,20 @@ class TabSearch {
 		const now = Date.now();
 		const whens = this.items.map((item) => (item.recent ? since(openedAt.get(item.file.path) ?? 0, now) : ""));
 		// The same rows as on screen: keep them, so a row being clicked isn't swapped out.
-		const drawing = JSON.stringify([query, this.items.map((item, i) => [item.file.path, item.recent, whens[i]])]);
+		const drawing = JSON.stringify([query, ask, this.items.map((item, i) => [item.file.path, item.recent, whens[i]])]);
 		if (drawing === this.drawn && this.list.childElementCount > 0) {
-			this.select(Math.min(this.selected, this.items.length - 1), false);
+			this.select(Math.min(this.selected, this.rows.length - 1), false);
 			return;
 		}
 		this.drawn = drawing;
 		this.rows = [];
 		this.list.empty();
+		this.asking = ask;
+		if (ask) this.rows.push(this.askRow(query));
 		if (this.items.length === 0) {
 			this.list.createDiv({ cls: "quick-open-page-empty", text: query ? "No matching files." : "Nothing opened yet." });
+			// Nothing to open: Enter asks.
+			this.select(0, false);
 			return;
 		}
 
@@ -229,17 +249,18 @@ class TabSearch {
 			);
 			const when = whens[index] ?? "";
 			if (when) row.querySelector(".quick-open-aux")?.prepend(createSpanIn(row, "quick-open-page-when", when));
-			row.addEventListener("mousemove", () => this.select(index, false));
+			const at = this.rows.length;
+			row.addEventListener("mousemove", () => this.select(at, false));
 			row.addEventListener("click", (evt) => {
 				if (evt.defaultPrevented) return;
-				this.choose(index, Keymap.isModEvent(evt) ? "new-tab" : "current-group");
+				this.choose(at, Keymap.isModEvent(evt) ? "new-tab" : "current-group");
 			});
 			row.addEventListener("auxclick", (evt) => {
-				if (evt.button === 1) this.choose(index, "new-tab");
+				if (evt.button === 1) this.choose(at, "new-tab");
 			});
 			this.rows.push(row);
 		});
-		this.select(Math.min(this.selected, this.items.length - 1), false);
+		this.select(Math.min(this.selected, this.rows.length - 1), false);
 	}
 
 	focus(): void {
@@ -273,8 +294,51 @@ class TabSearch {
 	}
 
 	private choose(index: number, where: OpenIn): void {
-		const item = this.items[index];
+		if (this.asking && index === 0) {
+			this.ask();
+			return;
+		}
+		const item = this.items[index - (this.asking ? 1 : 0)];
 		if (item) void openFile(this.app, item.file, where, item.line, item.column);
+	}
+
+	/** The row that asks Claudian the query, at the head of the list. */
+	private askRow(query: string): HTMLElement {
+		this.list.createDiv({ cls: "quick-open-page-section", text: "Claudian" });
+		const row = this.list.createDiv({ cls: "quick-open-page-row quick-open-item quick-open-page-ask" });
+		setIcon(row.createDiv({ cls: "quick-open-icon" }), "message-square");
+		const text = row.createDiv({ cls: "quick-open-text" });
+		text.createSpan({ cls: "quick-open-name", text: "Ask Claudian" });
+		text.createSpan({ cls: "quick-open-path", text: query });
+		const aux = row.createDiv({ cls: "quick-open-aux" });
+		aux.createSpan({ cls: "quick-open-page-when", text: Platform.isMacOS ? "⇧↩" : "Shift+Enter" });
+		row.addEventListener("mousemove", () => this.select(0, false));
+		row.addEventListener("click", () => this.ask());
+		return row;
+	}
+
+	/** Claudian (Enhanced)'s `ask`, when that plugin is on. */
+	private askClaudian(): ((text: string) => Promise<boolean>) | null {
+		const plugins = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins?.plugins;
+		const plugin = plugins?.[CLAUDIAN_ENHANCED] as { ask?: (text: string) => Promise<boolean> } | undefined;
+		return typeof plugin?.ask === "function" ? plugin.ask.bind(plugin) : null;
+	}
+
+	/** Hand the query to Claudian as this empty tab's question; the box empties once it's sent. */
+	private ask(): void {
+		const query = this.input.value.trim();
+		const ask = this.askClaudian();
+		if (!query || !ask) return;
+		void ask(query).then((sent) => {
+			if (!sent) {
+				new Notice("Claudian didn't take the question; it's still in the box.");
+				return;
+			}
+			if (this.input.value.trim() !== query) return;
+			this.input.value = "";
+			this.selected = 0;
+			this.update();
+		});
 	}
 
 	private popScope(): void {

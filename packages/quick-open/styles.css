@@ -212,6 +212,11 @@ body:not(.is-mobile) .quick-open-item:hover .quick-open-action {
 		0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
+/* The "Ask Claudian" row heading the results (new-tab.ts): marked as Claudian's, not a file. */
+.quick-open-page-ask .quick-open-icon {
+	color: var(--text-accent);
+}
+
 .quick-open-page-when {
 	margin-right: var(--size-4-1);
 	font-size: var(--font-ui-smaller);

@@ -126,6 +126,8 @@ const COPIED_MS = 1200;
 const EMPTY_TAB = "";
 /** How often session ids are looked at again outside the view's mutations (ms). */
 const SESSION_ID_POLL_MS = 2000;
+/** Longest `ask` waits for Claudian to hold the conversation it asks in (ms). */
+const ASK_SETTLE_MS = 4000;
 /** How often the note tabs' Claudian status is looked at again (ms); see NoteTabStatus. */
 const TAB_STATUS_POLL_MS = 1000;
 /** How often, and how many times, a prompt not filled in yet is looked at again (~30s). */
@@ -271,6 +273,8 @@ interface ClaudianTab {
 	controllers?: {
 		composerSelections?: { editor?: ClaudianSelectionController };
 		selectionController?: ClaudianSelectionController;
+		/** Sends what the composer holds, as Enter does. */
+		inputController?: { sendMessage?: () => Promise<void> };
 	};
 	/**
 	 * The composer; Claudian gives its CodeMirror host a `value` that reads the text in it.
@@ -908,6 +912,56 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if ((document.body.dataset.toolkitFind ?? "") === scope) return;
 		if (scope) document.body.dataset.toolkitFind = scope;
 		else delete document.body.dataset.toolkitFind;
+	}
+
+	/**
+	 * Ask Claudian `text` from an empty tab: Quick Open's new-tab search hands a query over
+	 * here (its "Ask Claudian" row). Claudian comes out holding the empty tab's own
+	 * conversation — the one asked in this tab before, or a fresh one (leaveForEmptyTab) —
+	 * and the question goes into its composer and is sent as Enter sends it. Reports whether
+	 * it was sent; not when Claudian isn't there, or never settled on that conversation.
+	 */
+	async ask(text: string): Promise<boolean> {
+		const prompt = text.trim();
+		if (!prompt) return false;
+		const gen = ++this.gen;
+		const leaf = this.getClaudianLeaf();
+		if (!leaf || !this.isLeafVisible(leaf)) this.openClaudian(gen);
+		else {
+			if (this.onEmptyTab()) this.leaveForEmptyTab();
+			this.stickyFocusInput(Date.now() + 1500, gen);
+		}
+		const tab = await this.tabForAsking(Date.now() + ASK_SETTLE_MS);
+		const input = tab?.dom?.inputEl;
+		const send = tab?.controllers?.inputController?.sendMessage;
+		if (!tab || !input || typeof send !== "function") return false;
+		input.value = prompt;
+		await send.call(tab.controllers?.inputController);
+		return true;
+	}
+
+	/**
+	 * Claudian's active tab once it holds the conversation an empty tab asks in — its own, or
+	 * a fresh draft — loaded; null if that doesn't happen by `deadline`. Swapping the
+	 * conversation in is asynchronous, as is mounting a Claudian opened just now. A reply still
+	 * running in it is no reason to wait: the question queues behind it, as one typed would.
+	 */
+	private tabForAsking(deadline: number): Promise<ClaudianTab | null> {
+		return new Promise((resolve) => {
+			const look = (): void => {
+				const tab = this.getActiveTab();
+				const wanted = this.onEmptyTab() ? this.conversationFor(EMPTY_TAB) : (tab?.conversationId ?? null);
+				const ready =
+					tab !== null &&
+					(!this.onEmptyTab() || this.lastOpenedPath === EMPTY_TAB) &&
+					(tab.conversationId ?? null) === wanted &&
+					tab.hydrationState !== "loading";
+				if (ready) resolve(tab);
+				else if (Date.now() > deadline) resolve(null);
+				else window.setTimeout(look, 50);
+			};
+			look();
+		});
 	}
 
 	/**
