@@ -212,6 +212,12 @@ body:not(.is-mobile) .quick-open-item:hover .quick-open-action {
 		0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
+/* A row of Claudian's @ or / menu that can't be chosen (composer-suggest.ts). */
+.quick-open-page-row.is-disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
 /* The "Ask Claudian" row heading the results (new-tab.ts): marked as Claudian's, not a file. */
 .quick-open-page-ask .quick-open-icon {
 	color: var(--text-accent);

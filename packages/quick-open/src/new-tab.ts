@@ -1,5 +1,6 @@
 import { type App, Keymap, Notice, Platform, Scope, setIcon, type WorkspaceLeaf } from "obsidian";
 
+import { type ActiveSuggestions, ComposerSuggest, type SuggestSource } from "./composer-suggest";
 import type { FileHistory } from "./history";
 import { NewTabActions } from "./new-tab-actions";
 import { openFile, type OpenIn } from "./open";
@@ -27,7 +28,9 @@ const CLAUDIAN_ENHANCED = "claudian-enhanced";
  * With Claudian (Enhanced) on, a query can be asked instead of looked up: an "Ask Claudian"
  * row heads the results, chosen like any row — or straight away with Cmd/Ctrl+Enter — and
  * the query goes to Claudian as the empty tab's question (see askClaudian). Without it,
- * Cmd/Ctrl+Enter opens in a new tab, as Shift+Enter does.
+ * Cmd/Ctrl+Enter opens in a new tab, as Shift+Enter does. While a question is typed, `@`
+ * and `/` offer what Claudian's composer offers for them — notes and sessions to mention,
+ * commands and skills — from Claudian's own sources (see composer-suggest.ts).
  */
 export class NewTabSearch {
 	private readonly tabs = new Map<WorkspaceLeaf, TabSearch>();
@@ -92,6 +95,11 @@ class TabSearch {
 	private rows: HTMLElement[] = [];
 	/** Whether the list leads with the "Ask Claudian" row, which moves the files down one. */
 	private asking = false;
+	/** Claudian's `@` and `/` menus while a question is typed; see composer-suggest.ts. */
+	private readonly suggest: ComposerSuggest;
+	/** The menu's rows, by the index of what they offer; null for a note that can't be chosen. */
+	private suggestRows: (HTMLElement | null)[] = [];
+	private suggestSelected = 0;
 	private selected = 0;
 	private scoped = false;
 	private frame: number | null = null;
@@ -143,7 +151,19 @@ class TabSearch {
 		const actionList = host.querySelector<HTMLElement>(".empty-state-action-list");
 		this.actions = actionList ? new NewTabActions(app, actionList) : null;
 
+		this.suggest = new ComposerSuggest(this.input, () => this.claudianSources(), () => this.update());
+		// The caret moving can enter or leave an `@` or `/` without any typing.
+		const lookUnderCaret = (): void => {
+			const was = this.suggest.active !== null;
+			if (this.suggest.refresh() || was) this.update();
+		};
+		this.input.addEventListener("click", lookUnderCaret);
+		this.input.addEventListener("keyup", (evt) => {
+			if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(evt.key)) lookUnderCaret();
+		});
 		this.input.addEventListener("input", () => {
+			this.suggestSelected = 0;
+			if (this.suggest.refresh()) return;
 			// The first file, even under the "Ask Claudian" row: Enter keeps opening it.
 			this.selected = this.askClaudian() && this.input.value.trim() ? 1 : 0;
 			this.update();
@@ -153,14 +173,26 @@ class TabSearch {
 		// is "open link in new tab" there.
 		this.scope = new Scope(app.scope);
 		this.scope.register([], "ArrowDown", () => {
-			this.select(this.selected + 1, true);
+			if (this.suggest.active) this.stepSuggestion(1);
+			else this.select(this.selected + 1, true);
 			return false;
 		});
 		this.scope.register([], "ArrowUp", () => {
-			this.select(this.selected - 1, true);
+			if (this.suggest.active) this.stepSuggestion(-1);
+			else this.select(this.selected - 1, true);
 			return false;
 		});
-		this.scope.register([], "Enter", (evt) => this.enter(evt, "current-group"));
+		this.scope.register([], "Enter", (evt) => {
+			if (!this.suggest.active) return this.enter(evt, "current-group");
+			if (evt.isComposing) return true;
+			this.suggest.choose(this.suggestSelected);
+			return false;
+		});
+		this.scope.register([], "Tab", () => {
+			if (!this.suggest.active) return true;
+			this.suggest.choose(this.suggestSelected);
+			return false;
+		});
 		this.scope.register(["Mod"], "Enter", (evt) => {
 			if (!this.askClaudian()) return this.enter(evt, "new-tab");
 			if (evt.isComposing) return true;
@@ -169,6 +201,10 @@ class TabSearch {
 		});
 		this.scope.register(["Shift"], "Enter", (evt) => this.enter(evt, "new-tab"));
 		this.scope.register([], "Escape", () => {
+			if (this.suggest.active) {
+				this.suggest.dismiss();
+				return false;
+			}
 			if (this.input.value) {
 				this.input.value = "";
 				this.selected = 0;
@@ -208,8 +244,16 @@ class TabSearch {
 
 	/** Re-run the query against the current list, keeping the selection where it can. */
 	update(): void {
+		const suggestions = this.suggest.active;
+		if (suggestions) {
+			this.drawSuggestions(suggestions);
+			return;
+		}
 		const query = this.input.value.trim();
-		const ask = query !== "" && this.askClaudian() !== null;
+		const canAsk = this.askClaudian() !== null;
+		// Claudian (Enhanced) can be turned on or off while the tab is open.
+		this.input.placeholder = canAsk ? "Search files or ask Claudian" : "Search files";
+		const ask = query !== "" && canAsk;
 		this.items = this.search
 			.suggest(query, { limit: query ? SEARCH_LIMIT : RECENT_LIMIT, filesOnly: true })
 			.filter((item: Item): item is FileItem => item.kind === "file");
@@ -275,6 +319,7 @@ class TabSearch {
 		if (this.frame !== null) this.el.win.cancelAnimationFrame(this.frame);
 		this.frame = null;
 		this.popScope();
+		this.suggest.destroy();
 		this.actions?.destroy();
 		this.el.remove();
 	}
@@ -319,6 +364,76 @@ class TabSearch {
 		row.addEventListener("mousemove", () => this.select(0, false));
 		row.addEventListener("click", () => this.ask());
 		return row;
+	}
+
+	/**
+	 * Claudian's menu for the `@` or `/` under the caret, in place of the files. Drawn afresh
+	 * each time; the files' list is redrawn once the menu goes (`drawn` is cleared for that).
+	 */
+	private drawSuggestions(active: ActiveSuggestions): void {
+		this.drawn = "";
+		this.rows = [];
+		this.suggestRows = [];
+		this.list.empty();
+		this.list.createDiv({
+			cls: "quick-open-page-section",
+			text: active.match.trigger === "@" ? "Mention in Claudian" : "Claudian commands",
+		});
+		if (active.items.length === 0) {
+			this.list.createDiv({ cls: "quick-open-page-empty", text: "Nothing to offer." });
+			return;
+		}
+		active.items.forEach((item, index) => {
+			if (item.kind === "status") {
+				this.list.createDiv({ cls: "quick-open-page-empty", text: item.label });
+				this.suggestRows.push(null);
+				return;
+			}
+			const row = this.list.createDiv({ cls: "quick-open-page-row quick-open-item" });
+			if (item.disabled) row.addClass("is-disabled");
+			setIcon(row.createDiv({ cls: "quick-open-icon" }), item.icon ?? (item.kind === "folder" ? "folder" : "file-text"));
+			const text = row.createDiv({ cls: "quick-open-text" });
+			text.createSpan({ cls: "quick-open-name", text: item.label });
+			if (item.detail) text.createSpan({ cls: "quick-open-path", text: item.detail });
+			row.addEventListener("mousemove", () => this.selectSuggestion(index, false));
+			// Focus stays in the box, where the menu's keys are.
+			row.addEventListener("mousedown", (evt) => evt.preventDefault());
+			row.addEventListener("click", () => this.suggest.choose(index));
+			this.suggestRows.push(item.disabled ? null : row);
+		});
+		const first = this.suggestRows.findIndex((row) => row !== null);
+		const keep = this.suggestRows[this.suggestSelected] ? this.suggestSelected : first;
+		if (keep >= 0) this.selectSuggestion(keep, false);
+	}
+
+	private selectSuggestion(index: number, scroll: boolean): void {
+		const row = this.suggestRows[index];
+		if (!row) return;
+		this.suggestRows[this.suggestSelected]?.removeClass("is-selected");
+		this.suggestSelected = index;
+		row.addClass("is-selected");
+		if (scroll) row.scrollIntoView({ block: "nearest" });
+	}
+
+	/** The next row that can be chosen, `by` one way or the other, wrapping round. */
+	private stepSuggestion(by: number): void {
+		const count = this.suggestRows.length;
+		for (let i = 1; i <= count; i++) {
+			const index = (((this.suggestSelected + by * i) % count) + count) % count;
+			if (this.suggestRows[index]) {
+				this.selectSuggestion(index, true);
+				return;
+			}
+		}
+	}
+
+	/** Claudian's composer sources for `@` and `/` (Claudian (Enhanced)), when it has them. */
+	private claudianSources(): SuggestSource[] | null {
+		if (Platform.isMobile) return null;
+		const plugins = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins?.plugins;
+		const plugin = plugins?.[CLAUDIAN_ENHANCED] as { composerSources?: () => unknown[] | null } | undefined;
+		const sources = typeof plugin?.composerSources === "function" ? plugin.composerSources() : null;
+		return (sources as SuggestSource[] | null) ?? null;
 	}
 
 	/** Claudian (Enhanced)'s `ask`, when that plugin is on. */
