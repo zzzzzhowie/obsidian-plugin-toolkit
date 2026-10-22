@@ -19,6 +19,7 @@ import { editorEditorField, editorInfoField, type TFile } from "obsidian";
 import { anchor, captureSelectors, type Selectors, type Span } from "./anchor";
 import { isEmbeddedOwner } from "./embedded-editor";
 import type { CommentStore, NoteComment, StoreListener } from "./store";
+import type { TableMarks } from "./table-marks";
 
 /**
  * Drawing comments in the editor, and keeping them attached while the note changes.
@@ -87,9 +88,22 @@ export class EditorHost implements StoreListener {
 	/** Set by any document change, cleared by `reportAll`; keeps the idle flush cheap. */
 	dirty = false;
 	readonly field: StateField<CommentsValue>;
+	/** Draws the comments that sit in a table, which Live Preview's table widget hides; set by the plugin. */
+	tables: TableMarks | null = null;
 
 	constructor(readonly deps: EditorHostDeps) {
 		this.field = buildField(this);
+	}
+
+	/** Every comment drawn in `state`, by id and range. */
+	spansOf(state: EditorState): Array<{ id: string } & Span> {
+		const spans: Array<{ id: string } & Span> = [];
+		const value = this.valueOf(state);
+		if (!value) return spans;
+		for (const iter = value.decos.iter(); iter.value; iter.next()) {
+			spans.push({ id: idOf(iter.value), from: iter.from, to: iter.to });
+		}
+		return spans;
 	}
 
 	extension(): Extension {
@@ -216,6 +230,8 @@ export class EditorHost implements StoreListener {
  */
 class CommentsView implements PluginValue {
 	private lastState: EditorState;
+	/** Live Preview redraws a table widget on its own (a cell edited and left); see paintTables. */
+	private readonly tableObserver: MutationObserver;
 
 	constructor(
 		readonly view: EditorView,
@@ -223,18 +239,38 @@ class CommentsView implements PluginValue {
 	) {
 		this.lastState = view.state;
 		host.editors.add(this);
+		this.tableObserver = new MutationObserver((records) => {
+			const inTable = records.some((record) => {
+				const target = record.target instanceof Element ? record.target : record.target.parentElement;
+				return target?.closest(".cm-table-widget") !== null || target?.querySelector(".cm-table-widget") != null;
+			});
+			if (inTable) this.paintTables();
+		});
+		this.tableObserver.observe(view.contentDOM, { childList: true, subtree: true });
+		this.paintTables();
 	}
 
 	update(update: ViewUpdate): void {
 		this.lastState = update.state;
+		const value = this.host.valueOf(update.state);
 		// Only an editor drawing comments has positions to keep: not every other note, nor the
 		// comment box itself (the extension runs there too).
-		if (update.docChanged && (this.host.valueOf(update.state)?.decos.size ?? 0) > 0) this.host.dirty = true;
+		if (update.docChanged && (value?.decos.size ?? 0) > 0) this.host.dirty = true;
+		const marksMoved = value?.decos !== this.host.valueOf(update.startState)?.decos;
+		if (update.docChanged || update.viewportChanged || update.geometryChanged || marksMoved) this.paintTables();
 	}
 
 	destroy(): void {
+		this.tableObserver.disconnect();
+		this.host.tables?.forget(this.view);
 		this.host.editors.delete(this);
 		this.host.report(this.lastState);
+	}
+
+	/** Draw this note's comments that sit in a table; Live Preview's table widget hides the marks. */
+	private paintTables(): void {
+		if (!this.host.valueOf(this.view.state)?.file) return;
+		this.host.tables?.schedule(this.view, () => this.host.spansOf(this.view.state));
 	}
 }
 

@@ -7,6 +7,15 @@
 	cursor: pointer;
 }
 
+/* A commented passage in a table (table-marks.ts): painted with the Highlight API, so the same
+   tint, an underline standing in for the border. Literal colours: a highlight pseudo-element
+   doesn't resolve theme variables reliably. */
+::highlight(nc-table-highlight) {
+	background-color: rgba(224, 172, 0, 0.14);
+	text-decoration: underline 2px rgba(224, 172, 0, 0.55);
+	text-underline-offset: 3px;
+}
+
 /* The passage a comment is being drafted for. Focus has moved to the draft in the panel,
    which always takes the native selection away, so this stands in for it. */
 .nc-pending {

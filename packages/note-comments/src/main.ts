@@ -13,6 +13,7 @@ import { type Span, trimSpan } from "./anchor";
 import { EditorHost } from "./editor";
 import { releaseEmbeddedEditors } from "./embedded-editor";
 import { CommentHover } from "./hover";
+import { TableMarks } from "./table-marks";
 import { COMMENTS_VIEW, CommentsPanel, type PanelHost } from "./panel";
 import { CommentStore } from "./store";
 
@@ -40,6 +41,8 @@ interface Draft {
 export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 	store!: CommentStore;
 	private host!: EditorHost;
+	/** Comments on table cells, drawn where Live Preview's table widget hides their marks. */
+	private readonly tables = new TableMarks();
 	private returnTo: ReturnTo | null = null;
 	/**
 	 * The last tab seen showing next to the panel. The fallback for putting the sidebar back
@@ -65,6 +68,8 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 		await this.store.load();
 
 		this.host = new EditorHost({ store: this.store });
+		this.host.tables = this.tables;
+		this.register(() => this.tables.destroy());
 		this.store.listener = this.host;
 		this.registerEditorExtension(this.host.extension());
 		this.registerView(COMMENTS_VIEW, (leaf) => new CommentsPanel(leaf, this));
@@ -119,7 +124,7 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 			document,
 			"mousedown",
 			(evt) => {
-				this.pressedId = evt.button === 0 ? highlightIdOf(evt.target) : undefined;
+				this.pressedId = evt.button === 0 ? (highlightIdOf(evt.target) ?? this.tableIdAt(evt)) : undefined;
 			},
 			{ capture: true },
 		);
@@ -129,8 +134,12 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 		// Reading a comment without opening the panel: a card while the pointer rests on its
 		// text. A touch screen has no hover.
 		if (!Platform.isMobile) {
-			const hover = new CommentHover(this.app, this.store, this.host);
+			const hover = new CommentHover(this.app, this.store, this.host, this.tables);
 			this.registerDomEvent(document, "mouseover", (evt) => hover.onMouseOver(evt));
+			// A comment in a table is painted, not an element, so entering it fires no mouseover.
+			this.registerDomEvent(document, "mousemove", (evt) => {
+				if (evt.target instanceof Element && evt.target.closest(".cm-table-widget")) hover.onMouseOver(evt);
+			});
 			this.registerDomEvent(document, "mousedown", (evt) => hover.onPress(evt), { capture: true });
 			this.registerDomEvent(document, "mouseup", (evt) => hover.onRelease(evt), { capture: true });
 			this.registerDomEvent(document, "wheel", (evt) => hover.onWheel(evt), { capture: true, passive: true });
@@ -260,21 +269,32 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 	 * is being written. A click on any other text in a note puts the sidebar back. Only clicks
 	 * in a note's own text count — not the panel, not a table cell, not the gutter.
 	 */
+	/** The comment painted in a table under the pointer, if any; see table-marks.ts. */
+	private tableIdAt(evt: MouseEvent): string | undefined {
+		if (!(evt.target instanceof Element) || !evt.target.closest(".cm-table-widget")) return undefined;
+		return this.tables.at(evt.clientX, evt.clientY)?.id;
+	}
+
 	private onEditorClick(evt: MouseEvent): void {
 		const pressedId = this.pressedId;
 		this.pressedId = undefined;
 		if (evt.button !== 0 || evt.defaultPrevented) return;
 		if (evt.metaKey || evt.ctrlKey || evt.altKey || evt.shiftKey) return;
 		const target = evt.target instanceof HTMLElement ? evt.target : null;
-		const content = target?.closest<HTMLElement>(".cm-content");
+		// In a table the click lands in the cell's own small editor, which carries no comments:
+		// the note's editor is the one around the table.
+		const table = target?.closest<HTMLElement>(".cm-table-widget") ?? null;
+		const content = (table ?? target)?.closest<HTMLElement>(".cm-content");
 		const editorEl = content?.closest<HTMLElement>(".cm-editor");
 		const view = editorEl ? EditorView.findFromDOM(editorEl) : null;
 		const file = view ? this.host.valueOf(view.state)?.file : null;
 		if (!view || !file) return;
 		// A drag or a double-click that selected text ends in a click too. That is selecting —
-		// often to add a comment — not pointing at anything, so it moves nothing.
-		if (!view.state.selection.main.empty) return;
-		const id = highlightIdOf(target) ?? pressedId;
+		// often to add a comment — not pointing at anything, so it moves nothing. In a table the
+		// note's selection doesn't move; the page's says whether text was selected in the cell.
+		const selecting = table ? !(target?.win.getSelection()?.isCollapsed ?? true) : !view.state.selection.main.empty;
+		if (selecting) return;
+		const id = highlightIdOf(target) ?? pressedId ?? this.tableIdAt(evt);
 		if (id && this.store.get(file.path, id)) void this.showComment(file, id);
 		else void this.hidePanel();
 	}

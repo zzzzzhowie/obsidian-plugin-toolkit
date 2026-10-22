@@ -62,7 +62,7 @@ const CONTEXT_SLACK = 16;
  * corner brackets used to set off a term, and punctuation — a tidy-up pass puts commas into
  * a run-on sentence as readily as it adds blank lines. Ignored when comparing text.
  */
-function isNoise(ch: string): boolean {
+export function isNoise(ch: string): boolean {
 	return /[\s*_~=`#>[\]()|\-+「」『』，。、；：！？,.;:!?“”‘’"'…·]/.test(ch);
 }
 

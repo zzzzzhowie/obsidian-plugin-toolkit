@@ -3,6 +3,7 @@ import { type App, Component, MarkdownRenderer } from "obsidian";
 
 import type { EditorHost } from "./editor";
 import type { CommentStore } from "./store";
+import type { MarkedPassage, TableMarks } from "./table-marks";
 import { formatWhen } from "./ui";
 
 /** Rest the pointer this long on highlighted text before its comment shows. */
@@ -38,6 +39,7 @@ export class CommentHover {
 		private readonly app: App,
 		private readonly store: CommentStore,
 		private readonly host: EditorHost,
+		private readonly tables: TableMarks,
 	) {}
 
 	onMouseOver(evt: MouseEvent): void {
@@ -49,9 +51,12 @@ export class CommentHover {
 			this.cancelHide();
 			return;
 		}
-		const mark = target?.closest<HTMLElement>(".nc-highlight[data-nc-id]") ?? null;
-		const id = mark?.dataset.ncId;
-		const path = mark ? this.fileOf(mark) : null;
+		const element = target?.closest<HTMLElement>(".nc-highlight[data-nc-id]") ?? null;
+		// In a table the comment is painted, not wrapped in an element: asked by position.
+		const inTable = !element && target?.closest(".cm-table-widget") ? this.tables.at(evt.clientX, evt.clientY) : null;
+		const mark: MarkedPassage | null = element ?? inTable?.passage ?? null;
+		const id = element?.dataset.ncId ?? inTable?.id;
+		const path = element ? this.fileOf(element) : inTable ? (this.host.valueOf(inTable.view.state)?.file?.path ?? null) : null;
 		if (!mark || !id || !path) {
 			this.cancelShow();
 			if (this.card) this.scheduleHide();
@@ -102,7 +107,7 @@ export class CommentHover {
 		this.selecting = false;
 	}
 
-	private async show(path: string, id: string, mark: HTMLElement, x: number, y: number): Promise<void> {
+	private async show(path: string, id: string, mark: MarkedPassage, x: number, y: number): Promise<void> {
 		const comment = this.store.get(path, id);
 		if (!comment) return;
 		this.hide();
@@ -124,7 +129,7 @@ export class CommentHover {
 	}
 
 	/** Under the line the pointer is on, else above it; kept inside the window. */
-	private place(card: HTMLElement, mark: HTMLElement, x: number, y: number): void {
+	private place(card: HTMLElement, mark: MarkedPassage, x: number, y: number): void {
 		const rects = Array.from(mark.getClientRects());
 		const line = rects.find((rect) => y >= rect.top && y <= rect.bottom) ?? mark.getBoundingClientRect();
 		const win = mark.win;
