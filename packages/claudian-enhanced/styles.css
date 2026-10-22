@@ -350,9 +350,9 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	opacity: 0;
 }
 
-/* Claudian brought out for a note while it still holds the conversation of the note it was
-   last shown for: hidden until the note's own is in place (matchSidebarToNote in main.ts),
-   so the old one doesn't show first and then get swapped. */
+/* Claudian brought out (⌘L) while it still holds the conversation of the note it was last
+   shown for, or a note's conversation loading into a new tab: hidden until the note's own is in
+   place (veilUntilSettled in main.ts), so the old one doesn't show first and then get swapped. */
 .claudian-enhanced-veiled .claudian-messages-wrapper {
 	opacity: 0;
 }
@@ -397,11 +397,29 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	height: 18px;
 }
 
-/* Claudian's tab strip — the numbered badges over the composer. This plugin keeps Claudian to
-   one session on screen, the note's: another tab only exists while a reply finishes in the
-   background, or until the next note switch closes it (closeExtraTabs), and coming back to its
-   note is the way to it. Claudian shows the strip whenever it has two tabs; doubled to beat its
-   own display rules regardless of stylesheet order. */
+/* Claudian hides its inactive tabs with display:none, which drops their layout: showing a long
+   conversation again laid it all out from scratch, some 0.4s for 300 messages — the lag going
+   back to a note (one Claudian tab is kept per open note, see trimTabCache). The tabs gone back
+   to most often are kept instead (scheduleKeep in main.ts) — laid out and styled, out of the flow
+   and out of sight, so showing one is a repaint. visibility, not content-visibility: that keeps
+   the layout but drops the styles, and restyling 300 messages on showing cost as much again.
+   Claudian's own visibility check is corrected to match (honestVisibility). */
+.workspace-leaf-content[data-type="claudian-view"] .claudian-tab-content-container {
+	position: relative;
+}
+
+.workspace-leaf-content[data-type="claudian-view"] .claudian-tab-content.claudian-hidden.claudian-enhanced-kept {
+	display: flex;
+	position: absolute;
+	inset: 0;
+	visibility: hidden;
+	pointer-events: none;
+}
+
+/* Claudian's tab strip — the numbered badges over the composer. This plugin keeps one Claudian
+   tab per open note and shows the note's (replaceConversationFor in main.ts): the note is the
+   way to its tab, so the strip has nothing to offer. Claudian shows it whenever it has two tabs;
+   doubled to beat its own display rules regardless of stylesheet order. */
 .claudian-tab-bar-container.claudian-tab-bar-container {
 	display: none;
 }
