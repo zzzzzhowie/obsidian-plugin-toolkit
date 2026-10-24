@@ -1,4 +1,4 @@
-import { FileSystemAdapter, MarkdownView, parseLinktext, Platform, Plugin, Scope, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { FileSystemAdapter, MarkdownView, Notice, parseLinktext, Platform, Plugin, Scope, setIcon, TextFileView, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 import { CommentSelection, type CommentSelectionTab } from "./comment-selection";
@@ -251,6 +251,8 @@ interface ClaudianSelectionController {
 	updateIndicator?: () => void;
 	/** What the next prompt goes with: the context Claudian reads off this as it sends. */
 	getContext?: () => ClaudianSelectionContext | null;
+	/** Drop the selection it carries, its highlight and its chip. */
+	clear?: () => void;
 	onUserSelectionChanged?: (() => void) | null;
 }
 
@@ -384,6 +386,195 @@ interface ScrollSpot {
 interface Restore {
 	token: number;
 	phase: "armed" | "hidden" | "holding";
+}
+
+/**
+ * Claudian's composer: an editor of its own (not a textarea) that answers to a textarea's
+ * value and caret, and takes text as typed.
+ */
+interface ClaudianComposer extends HTMLElement {
+	value?: unknown;
+	selectionStart?: number;
+	selectionEnd?: number;
+	replaceText?: (from: number, to: number, text: string) => void;
+	/** The element that takes the focus. */
+	getAccessibleTextbox?: () => HTMLElement | null;
+}
+
+/** What a diagram is drawn from: a note's lines (1-based, inclusive), or a drawing's file (0, 0). */
+interface DiagramSource {
+	path: string;
+	from: number;
+	to: number;
+}
+
+/** The bits of Excalidraw's view (ExcalidrawView) ⌥K reads. */
+interface ExcalidrawViewLike {
+	getViewSelectedElements?: () => ExcalidrawElementLike[];
+	getViewElements?: () => ExcalidrawElementLike[];
+}
+
+interface ExcalidrawElementLike {
+	id: string;
+	type?: string;
+	text?: string;
+	boundElements?: { id: string; type?: string }[] | null;
+}
+
+/** The code block around line `line` (1-based), its fences included; null outside one. */
+function fenceAround(lines: string[], line: number): { from: number; to: number } | null {
+	const FENCE = /^[\s>]*(`{3,}|~{3,})(.*)$/;
+	// The widget may sit on the opening fence or just under it.
+	let from = line;
+	while (from > 0 && !FENCE.test(lines[from - 1] ?? "")) from--;
+	const open = FENCE.exec(lines[from - 1] ?? "");
+	if (!open) return null;
+	const marks = open[1] ?? "";
+	for (let n = from + 1; n <= lines.length; n++) {
+		const close = FENCE.exec(lines[n - 1] ?? "");
+		if (close && close[1]?.[0] === marks[0] && (close[1]?.length ?? 0) >= marks.length && !close[2]?.trim()) return { from, to: n };
+	}
+	return { from, to: lines.length };
+}
+
+/** Where a drawing file's `## Text Elements` section runs, by offset. */
+function textElementsRange(content: string): { from: number; to: number } | null {
+	const from = content.search(/^## Text Elements[ \t]*$/m);
+	if (from < 0) return null;
+	const rest = content.slice(from + 1).search(/^(?:## |%%)/m);
+	return { from, to: rest < 0 ? content.length : from + 1 + rest };
+}
+
+/** The offset line `line` (1-based) starts at; past the end, the length. */
+function offsetOfLine(lines: string[], line: number): number {
+	let offset = 0;
+	for (let n = 1; n < line && n <= lines.length; n++) offset += (lines[n - 1]?.length ?? 0) + 1;
+	return offset;
+}
+
+/** The line (1-based) `offset` is on. */
+function lineAtOffset(content: string, offset: number): number {
+	return content.slice(0, offset).split("\n").length;
+}
+
+/** Lines of a note, 1-based and inclusive. */
+interface NoteLines {
+	path: string;
+	start: number;
+	end: number;
+}
+
+/**
+ * What's selected, as the composer refers to it: its lines and, a line being a whole
+ * paragraph or a table row, which part of them — the table columns, by their headers, and
+ * the text, when it's less than the whole line.
+ */
+interface NoteReference extends NoteLines {
+	columns?: string[];
+	quote?: string;
+}
+
+/** `@path#first-last` (no lines: the whole file), then the columns and the text it's about, if any. */
+function referenceText(reference: NoteReference): string {
+	const { path, start, end, columns, quote } = reference;
+	let text = `@${path}${!start ? "" : start === end ? `#${start}` : `#${start}-${end}`}`;
+	if (columns?.length) text += ` (${columns.length === 1 ? "column" : "columns"} ${columns.map((name) => `"${name}"`).join(", ")})`;
+	if (quote) {
+		const flat = quote.replace(/\s+/g, " ").trim();
+		// Long, its two ends: enough to tell where it starts and stops.
+		text += ` "${flat.length > 100 ? `${flat.slice(0, 45)} … ${flat.slice(-45)}` : flat}"`;
+	}
+	return text;
+}
+
+/**
+ * Say which part of `lines` is selected: the columns `columns` spans when the lines are rows
+ * of a table, and `selected` when it's less than one whole line. Nothing more for whole lines,
+ * or when `selected` is null (cells picked by class: their columns say it all).
+ */
+function describe(lines: NoteLines, lineText: (n: number) => string, selected: string | null, columns: [number, number] | null): NoteReference {
+	const whole = selected !== null && lines.start === lines.end ? flatten(selected) === flatten(lineText(lines.start)) : lines.start !== lines.end;
+	if (selected !== null && whole) return lines;
+	const reference: NoteReference = { ...lines };
+	const header = columns ? tableHeader(lineText, lines.start) : null;
+	if (header && columns) {
+		const names: string[] = [];
+		for (let i = columns[0]; i <= columns[1]; i++) names.push(header[i]?.replace(/[*_`]/g, "") || `#${i + 1}`);
+		reference.columns = names;
+	}
+	if (selected !== null && lines.start === lines.end) reference.quote = selected;
+	return reference;
+}
+
+/** The header cells of the table that line `row` is a row of; null when it isn't one. */
+function tableHeader(lineText: (n: number) => string, row: number): string[] | null {
+	const isRow = (n: number): boolean => /^\s*\|/.test(lineText(n));
+	if (!isRow(row)) return null;
+	let first = row;
+	while (first > 1 && isRow(first - 1)) first--;
+	return tableRowCells(lineText(first));
+}
+
+/** The column (0-based) of a table row that `offset` in its line falls in. */
+function columnAt(text: string, offset: number): number {
+	let column = 0;
+	let started = false;
+	for (let i = 0; i < offset && i < text.length; i++) {
+		const ch = text.charAt(i);
+		if (ch === "\\") {
+			i++;
+			started = true;
+		} else if (ch === "|") {
+			// The pipe a row opens with bounds it; the others part cells.
+			if (started) column++;
+			started = true;
+		} else if (!/\s/.test(ch)) started = true;
+	}
+	return column;
+}
+
+/** The columns of a rendered table a page selection runs across; null outside a table. */
+function columnsOf(selection: Selection | null): [number, number] | null {
+	const cellOf = (node: Node | null | undefined): HTMLTableCellElement | null =>
+		(node instanceof Element ? node : node?.parentElement)?.closest<HTMLTableCellElement>("td, th") ?? null;
+	const [anchor, focus] = [cellOf(selection?.anchorNode), cellOf(selection?.focusNode)];
+	if (!anchor || !focus) return null;
+	return [Math.min(anchor.cellIndex, focus.cellIndex), Math.max(anchor.cellIndex, focus.cellIndex)];
+}
+
+/** What a rendering leaves out of the source: spacing, table pipes, emphasis, list and quote marks. */
+const MARKUP = /[\s|*_`~=>\\-]/;
+
+/** Text with what a rendering leaves out of the source (MARKUP, `<br>`) left out. */
+function flatten(text: string): string {
+	let flat = "";
+	for (const ch of text.replace(/<br\s*\/?>/gi, "")) if (!MARKUP.test(ch)) flat += ch;
+	return flat;
+}
+
+/**
+ * Where text selected as rendered (a table, a callout, reading view) sits in `source`: found
+ * with what the rendering leaves out flattened out of both. Null when it isn't there.
+ */
+function locateText(source: string, text: string): { from: number; to: number } | null {
+	let flat = "";
+	const at: number[] = [];
+	for (let i = 0; i < source.length; ) {
+		const br = /^<br\s*\/?>/i.exec(source.slice(i, i + 6));
+		if (br) {
+			i += br[0].length;
+			continue;
+		}
+		if (!MARKUP.test(source.charAt(i))) {
+			flat += source.charAt(i);
+			at.push(i);
+		}
+		i++;
+	}
+	const wanted = flatten(text);
+	const found = wanted ? flat.indexOf(wanted) : -1;
+	if (found < 0) return null;
+	return { from: at[found] ?? 0, to: (at[found + wanted.length - 1] ?? 0) + 1 };
 }
 
 /** The note lines a prompt was sent with, as Claude got them. */
@@ -706,6 +897,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private previewScope: Scope | null = null;
 	/** Whether the pointer last rested over Claudian's view; see inClaudian. */
 	private pointerOverClaudian = false;
+	/** What the pointer is over: a diagram there is what ⌥K refers to when nothing is selected. */
+	private pointerTarget: Element | null = null;
 	/** Which Claudian view the pointer last rested on; see claudianInUse. */
 	private pointerClaudianLeaf: WorkspaceLeaf | null = null;
 	/** Outline and the like blanked for a Claudian in a tab; see syncNoteFollowers. */
@@ -804,6 +997,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				const target = e.target instanceof Element ? e.target : null;
 				const claudianEl = target?.closest(`.workspace-leaf-content[data-type="${CLAUDIAN_VIEW}"]`) ?? null;
 				this.pointerOverClaudian = claudianEl !== null;
+				this.pointerTarget = target;
 				if (claudianEl) {
 					this.pointerClaudianLeaf =
 						this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW).find((leaf) => leaf.view.containerEl === claudianEl) ?? null;
@@ -864,6 +1058,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerDomEvent(window, "keydown", this.onEscapeCapture, {
 			capture: true,
 		});
+		this.registerSelectionReference();
 		// Text selected in a note comment (Note Comments) goes to Claudian as the 划词 does.
 		const comments = new CommentSelection(this.app, {
 			tabs: () =>
@@ -1199,6 +1394,297 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			.getLeavesOfType(CLAUDIAN_VIEW)
 			.some((leaf) => !!focused && leaf.view.containerEl.contains(focused));
 		return holdsFocus || this.pointerOverClaudian;
+	}
+
+	/**
+	 * ⌥K (bound in the vault's hotkeys), as in Claude Code's VS Code extension: the note's
+	 * selection goes into Claudian's composer as a reference, `@path#first-last`, on a line of
+	 * its own at the caret, for what to do about it to follow. Several in one prompt review
+	 * several passages in one go; Claude reads the lines from the note.
+	 *
+	 * Diagrams too: a Mermaid diagram is its code block's lines, an Excalidraw drawing its
+	 * file — narrowed to the line a label is on when one is selected, in the note or in the
+	 * zoom; else the one in the zoom, or under the pointer. In Excalidraw's own view, the
+	 * selected elements' text, each on its line of the drawing file.
+	 */
+	private registerSelectionReference(): void {
+		this.addCommand({
+			id: "insert-selection-reference",
+			name: "Insert a reference to the selection into the composer",
+			checkCallback: (checking) => {
+				const pending = this.selectedReference();
+				if (checking) return pending !== null;
+				void pending?.then((references) => this.insertReference(references));
+				return true;
+			},
+		});
+	}
+
+	/** What ⌥K refers to (see registerSelectionReference), worked out; null for nothing. */
+	private selectedReference(): Promise<NoteReference[]> | null {
+		const selection = document.getSelection();
+		const text = selection && !selection.isCollapsed ? selection.toString().trim() : "";
+		const anchor = selection?.anchorNode;
+		const anchorEl = anchor instanceof Element ? anchor : (anchor?.parentElement ?? null);
+		// A diagram in the zoom: the text selected in it, else the whole of it.
+		const zoomed = Array.from(document.querySelectorAll<HTMLElement>("[data-zoom-path]")).find((el) => el.checkVisibility());
+		if (zoomed) return this.diagramReference(zoomed, text && anchorEl && zoomed.contains(anchorEl) ? text : null);
+		const drawing = this.selectedDrawingElements();
+		if (drawing) return drawing;
+		// A label selected in a diagram in the note.
+		if (text && anchorEl && this.diagramSourceOf(anchorEl)) return this.diagramReference(anchorEl, text);
+		const lines = this.selectedLines();
+		if (lines) return Promise.resolve([lines]);
+		// Nothing selected: the diagram under the pointer.
+		const under = this.pointerTarget?.isConnected ? this.pointerTarget : null;
+		return under && this.diagramSourceOf(under) ? this.diagramReference(under, null) : null;
+	}
+
+	/**
+	 * What a diagram shown at `element` is drawn from: the zoom says it (ZoomSource in
+	 * shared/zoom-overlay.ts); in a note, a Mermaid diagram is its code block's lines, fences
+	 * included, and an Excalidraw embed is its drawing's file (no lines).
+	 */
+	private diagramSourceOf(element: Element): DiagramSource | null {
+		if (!element.closest("[data-zoom-path], .excalidraw-embedded-img, .mermaid")) return null;
+		const zoomed = element.closest<HTMLElement>("[data-zoom-path]");
+		if (zoomed?.dataset.zoomPath) {
+			return { path: zoomed.dataset.zoomPath, from: Number(zoomed.dataset.zoomFrom ?? 0), to: Number(zoomed.dataset.zoomTo ?? 0) };
+		}
+		let view: MarkdownView | null = null;
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!view && leaf.view instanceof MarkdownView && leaf.view.containerEl.contains(element)) view = leaf.view;
+		});
+		const note = (view as MarkdownView | null)?.file;
+		if (!view || !note) return null;
+		const embed = element.closest(".excalidraw-embedded-img");
+		if (embed) {
+			const name = embed.closest("[filesource]")?.getAttribute("filesource") ?? embed.closest(".internal-embed")?.getAttribute("src");
+			if (!name) return null;
+			const file =
+				this.app.vault.getFileByPath(name) ??
+				this.app.vault.getFileByPath(`${name}.md`) ??
+				this.app.metadataCache.getFirstLinkpathDest(name.split("#")[0] ?? "", note.path);
+			return file ? { path: file.path, from: 0, to: 0 } : null;
+		}
+		const diagram = element.closest(".mermaid");
+		if (!diagram) return null;
+		let start: number | null = null;
+		// Reading view: Mermaid (Enhanced) stamps the block with its first line (0-based).
+		const stamped = diagram.closest("[data-mermaid-line]")?.getAttribute("data-mermaid-line");
+		if (stamped) start = Number(stamped) + 1;
+		const cm = this.cmOf((view as MarkdownView).leaf);
+		const block = diagram.closest(".cm-embed-block, .cm-preview-code-block");
+		if (start === null && cm && block && cm.contentDOM.contains(block)) {
+			try {
+				start = cm.state.doc.lineAt(cm.posAtDOM(block)).number;
+			} catch {
+				return null;
+			}
+		}
+		if (start === null) return null;
+		const lines = (view as MarkdownView).data.split("\n");
+		const fence = fenceAround(lines, start);
+		return fence ? { path: note.path, ...fence } : null;
+	}
+
+	/**
+	 * The reference for the diagram shown at `element`, narrowed to where `text` (a label
+	 * selected in it) is: a line of the code block, a line of the drawing's text elements.
+	 */
+	private async diagramReference(element: Element, text: string | null): Promise<NoteReference[]> {
+		const source = this.diagramSourceOf(element);
+		if (!source) return [];
+		const whole: NoteReference = { path: source.path, start: source.from, end: source.to };
+		if (!text) return [whole];
+		const file = this.app.vault.getFileByPath(source.path);
+		if (!file) return [whole];
+		const content = this.openText(source.path) ?? (await this.app.vault.cachedRead(file));
+		const lines = content.split("\n");
+		const lineText = (n: number): string => lines[n - 1] ?? "";
+		// Within the code block; in a drawing, its text elements (the rest is its scene, compressed).
+		const range = source.from
+			? { from: offsetOfLine(lines, source.from), to: offsetOfLine(lines, source.to + 1) }
+			: textElementsRange(content);
+		const found = range ? locateText(content.slice(range.from, range.to), text) : null;
+		if (!range || !found) return [{ ...whole, quote: text }];
+		const start = lineAtOffset(content, range.from + found.from);
+		const end = lineAtOffset(content, range.from + found.to);
+		return [describe({ path: source.path, start, end }, lineText, text, null)];
+	}
+
+	/**
+	 * The elements selected in the active Excalidraw view, each with text as the line of the
+	 * drawing file it is kept on (`text ^id`, under `## Text Elements`); a shape by the text
+	 * bound to it. None with text: the drawing. Null outside Excalidraw's view.
+	 */
+	private selectedDrawingElements(): Promise<NoteReference[]> | null {
+		const view = this.app.workspace.getActiveViewOfType(TextFileView) as (TextFileView & ExcalidrawViewLike) | null;
+		if (!view?.file || view.getViewType() !== "excalidraw") return null;
+		const file = view.file;
+		const selected = view.getViewSelectedElements?.() ?? [];
+		const all = new Map((view.getViewElements?.() ?? []).map((element) => [element.id, element]));
+		const texts = new Map<string, string>();
+		for (const element of selected) {
+			if (element.type === "text" && element.text) texts.set(element.id, element.text);
+			for (const bound of element.boundElements ?? []) {
+				const label = bound.type === "text" ? all.get(bound.id)?.text : undefined;
+				if (label) texts.set(bound.id, label);
+			}
+		}
+		return this.app.vault.cachedRead(file).then((content) => {
+			const lines = content.split("\n");
+			const references: NoteReference[] = [];
+			for (const [id, text] of texts) {
+				const line = lines.findIndex((l) => l.endsWith(` ^${id}`)) + 1;
+				// Not saved there yet: the drawing, with the text to find.
+				references.push(line ? { path: file.path, start: line, end: line, quote: text } : { path: file.path, start: 0, end: 0, quote: text });
+			}
+			return references.length > 0 ? references : [{ path: file.path, start: 0, end: 0 }];
+		});
+	}
+
+	/** An open note's text as it is in its editor, which may be ahead of the file. */
+	private openText(path: string): string | null {
+		let text: string | null = null;
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (text === null && leaf.view instanceof MarkdownView && leaf.view.file?.path === path) text = leaf.view.data;
+		});
+		return text;
+	}
+
+	/**
+	 * What's selected in the active note, as a reference: the editor's selection; else text
+	 * selected where the editor doesn't hold it — a table cell's own editor, cells of a rendered
+	 * table, a callout, reading view — found among the lines it came from.
+	 */
+	private selectedLines(): NoteReference | null {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!view?.file) return null;
+		const path = view.file.path;
+		const cm = view.getMode() === "source" ? this.cmOf(view.leaf) : null;
+		const selection = view.containerEl.ownerDocument.getSelection();
+		if (!cm) {
+			const text = selection?.toString().trim();
+			if (!text || !selection?.anchorNode || !view.containerEl.contains(selection.anchorNode)) return null;
+			const found = locateText(view.data, text);
+			if (!found) return null;
+			const lines = view.data.split("\n");
+			const lineAt = (offset: number): number => view.data.slice(0, offset).split("\n").length;
+			const at = { path, start: lineAt(found.from), end: lineAt(found.to) };
+			return describe(at, (n) => lines[n - 1] ?? "", text, columnsOf(selection));
+		}
+		const doc = cm.state.doc;
+		const lineText = (n: number): string => doc.line(n).text;
+		const cell = this.cellEditorSelection(cm);
+		if (cell) return describe({ path, start: cell.line, end: cell.line }, lineText, cell.text, columnsOf(selection));
+		const main = cm.state.selection.main;
+		const selected = doc.sliceString(main.from, main.to);
+		if (selected.trim()) {
+			// Blank lines at either end are no part of the passage.
+			const from = main.from + (selected.length - selected.trimStart().length);
+			const to = main.to - (selected.length - selected.trimEnd().length);
+			const [first, last] = [doc.lineAt(from), doc.lineAt(to)];
+			const columns: [number, number] = [columnAt(first.text, from - first.from), columnAt(last.text, to - last.from)];
+			return describe({ path, start: first.number, end: last.number }, lineText, doc.sliceString(from, to), columns);
+		}
+		const cells = this.tableCellSelection();
+		if (cells?.startLine) {
+			// Cells picked out by class, rows and columns: the columns say which, no text needed.
+			const end = Math.min(cells.startLine + Math.max(0, cells.lineCount - 1), doc.lines);
+			return describe({ path, start: cells.startLine, end }, lineText, null, this.selectedCellColumns(cm));
+		}
+		const block = this.selectionInRenderedBlock();
+		if (!block?.startLine || !block.selectedText.trim()) return null;
+		const first = doc.line(Math.min(block.startLine, doc.lines));
+		const last = doc.line(Math.min(block.startLine + Math.max(0, block.lineCount - 1), doc.lines));
+		// Narrowed to the lines the text is on, where it can be found among them.
+		const found = locateText(doc.sliceString(first.from, last.to), block.selectedText);
+		const at = found
+			? { path, start: doc.lineAt(first.from + found.from).number, end: doc.lineAt(first.from + found.to).number }
+			: { path, start: first.number, end: last.number };
+		return describe(at, lineText, block.selectedText.trim(), columnsOf(selection));
+	}
+
+	/**
+	 * Text selected in the Live Preview table cell whose own editor — the one nested in the
+	 * table widget while a cell is edited — has focus, and the line of its row.
+	 */
+	private cellEditorSelection(cm: EditorView): { line: number; text: string } | null {
+		const anchor = cm.dom.ownerDocument.getSelection()?.anchorNode;
+		const element = anchor instanceof Element ? anchor : anchor?.parentElement;
+		const inner = element?.closest<HTMLElement>(".cm-table-widget .cm-editor");
+		const table = inner?.closest<HTMLElement>(".cm-table-widget");
+		const cell = inner?.closest<HTMLTableCellElement>("td, th");
+		if (!inner || !table || !cell || !cm.contentDOM.contains(table)) return null;
+		const nested = EditorView.findFromDOM(inner);
+		const main = nested?.state.selection.main;
+		const text = main ? nested?.state.sliceDoc(main.from, main.to).trim() : "";
+		if (!nested?.hasFocus || !text) return null;
+		let pos: number;
+		try {
+			pos = cm.posAtDOM(table);
+		} catch {
+			return null;
+		}
+		// Row 0 is the header; the delimiter line under it isn't a row of the table.
+		const row = (cell.parentElement as HTMLTableRowElement).rowIndex;
+		return { line: Math.min(cm.state.doc.lineAt(pos).number + (row === 0 ? 0 : row + 1), cm.state.doc.lines), text };
+	}
+
+	/**
+	 * The columns of the cells selected by class in a Live Preview table (see
+	 * tableCellSelection); null for whole rows, which need no columns named.
+	 */
+	private selectedCellColumns(cm: EditorView): [number, number] | null {
+		const table = cm.contentDOM.querySelector<HTMLElement>(".cm-table-widget.has-selection:not(.is-selected)");
+		const columns = Array.from(table?.querySelectorAll<HTMLTableCellElement>("th.is-selected, td.is-selected") ?? []).map(
+			(cell) => cell.cellIndex,
+		);
+		if (columns.length === 0) return null;
+		const [from, to] = [Math.min(...columns), Math.max(...columns)];
+		const width = table?.querySelector("tr")?.cells.length ?? 0;
+		return from === 0 && to >= width - 1 ? null : [from, to];
+	}
+
+	/** Put the references into Claudian's composer, at its caret, and go type there. */
+	private async insertReference(selected: NoteReference[]): Promise<void> {
+		if (selected.length === 0) return;
+		const reference = selected.map(referenceText).join(" ");
+		// The selection is let go of: the reference stands for it, and Claudian would carry it
+		// into the prompt as well.
+		const cm = this.cmOf(this.getNoteLeaf());
+		for (const view of [cm, cm && this.focusedCellEditor(cm)]) {
+			const main = view?.state.selection.main;
+			if (view && main && !main.empty) view.dispatch({ selection: { anchor: main.head } });
+		}
+		const gen = ++this.gen;
+		const leaf = this.getClaudianLeaf();
+		if (!leaf || !this.isLeafVisible(leaf)) this.openClaudian(gen);
+		const tab = leaf && this.isLeafVisible(leaf) ? this.getActiveTab() : await this.tabForAsking(Date.now() + ASK_SETTLE_MS);
+		const input = tab?.dom?.inputEl as ClaudianComposer | undefined;
+		if (typeof input?.value !== "string" || typeof input.replaceText !== "function") {
+			new Notice("Claudian isn't open.");
+			return;
+		}
+		const value = input.value;
+		const start = input.selectionStart ?? value.length;
+		const end = input.selectionEnd ?? start;
+		const head = value.slice(0, start).replace(/[ \t]+$/, "");
+		// On a line of its own after what's written: each passage gets its own say.
+		const text = `${head.trim() && !head.endsWith("\n") ? "\n" : ""}${reference}${/^\s/.test(value.slice(end)) ? "" : " "}`;
+		// As typed: Claudian's composer takes it as input, its caret after it.
+		input.replaceText(head.length, end, text);
+		(input.getAccessibleTextbox?.() ?? input).focus();
+		this.getSelectionController()?.clear?.();
+	}
+
+	/** The editor of the Live Preview table cell being edited in `cm`, if it has focus. */
+	private focusedCellEditor(cm: EditorView): EditorView | null {
+		const active = cm.dom.ownerDocument.activeElement;
+		const inner = active?.closest<HTMLElement>(".cm-table-widget .cm-editor");
+		const nested = inner && cm.contentDOM.contains(inner) ? EditorView.findFromDOM(inner) : null;
+		return nested?.hasFocus ? nested : null;
 	}
 
 	private onEscapeCapture = (e: KeyboardEvent): void => {
