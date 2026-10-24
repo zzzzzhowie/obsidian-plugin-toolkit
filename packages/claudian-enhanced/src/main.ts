@@ -998,6 +998,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			window.setInterval(() => {
 				this.syncSessionIds();
 				this.noticeNewSessions();
+				// The sidebar's draft for a chat in front is swapped in without an event of its own.
+				this.unlinkTabChats();
 			}, SESSION_ID_POLL_MS),
 		);
 		// Note tabs show how their conversations are doing. A turn starting, waiting or ending
@@ -1029,7 +1031,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		}
 		this.pinnedPrompt?.style.removeProperty("transform");
 		// Composers of background tabs sit outside the view, so their labels go tab by tab.
-		for (const tab of this.getTabManager()?.getAllTabs?.() ?? []) {
+		for (const tab of this.allClaudianTabs()) {
 			tab.dom?.infoRowEl?.querySelector(`:scope > .${SESSION_ID_CLS}`)?.remove();
 		}
 		// Leave Claudian's view as it draws itself: what we added goes, what we marked is unmarked.
@@ -1091,6 +1093,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.unlinkTabChats();
 		const before = tab.state?.messages?.length ?? 0;
 		input.value = prompt;
+		// The next question is typed there: the composer holds focus, as the sidebar's does
+		// after ⌘L, rather than the chat's root that Claudian focuses after rendering.
+		this.stickyFocusInput(Date.now() + 1500, ++this.gen, leaf);
 		await send.call(tab.controllers?.inputController);
 		// Sent means in the conversation, not just handed over.
 		return (tab.state?.messages?.length ?? 0) > before;
@@ -1401,13 +1406,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * active element. Comparing for equality would see focus as lost on every tick and
 	 * keep yanking it back for the whole window, fighting whatever is being typed.
 	 */
-	private stickyFocusInput(deadline: number, gen: number): void {
+	private stickyFocusInput(deadline: number, gen: number, leaf?: WorkspaceLeaf): void {
 		const settleMs = 150;
 		let heldSince = 0;
 
 		const tick = (): void => {
 			if (gen !== this.gen) return; // superseded by a newer ⌘L
-			const input = this.visibleInput();
+			// The sidebar's composer, or that of a Claudian in a tab of its own.
+			const input = leaf ? this.visibleIn<HTMLElement>(leaf, CLAUDIAN_INPUT) : this.visibleInput();
 			if (input) {
 				if (input.contains(document.activeElement)) {
 					if (!heldSince) heldSince = Date.now();
@@ -1596,10 +1602,16 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.followNoteInDraft(path);
 	}
 
-	/** The tab open in the main area when it is an empty one — "New tab", no file in it. */
+	/**
+	 * The tab open in the main area when it holds no note: an empty one — "New tab", no file in
+	 * it — or a Claudian chat of its own (askInTab), which an empty tab becomes when asked in.
+	 * The sidebar's Claudian treats both alike, showing that tab's draft rather than the last
+	 * note's conversation, which Obsidian's active file still names.
+	 */
 	private emptyTab(): WorkspaceLeaf | null {
 		const recent = this.app.workspace.getMostRecentLeaf();
-		if (recent?.view.getViewType() !== "empty" || this.sidebarOf(recent) !== null) return null;
+		const type = recent?.view.getViewType();
+		if ((type !== "empty" && type !== CLAUDIAN_VIEW) || !recent || this.sidebarOf(recent) !== null) return null;
 		return recent;
 	}
 
@@ -1633,6 +1645,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			this.rememberConversation(previous);
 		}
 		this.replaceConversationFor(EMPTY_TAB);
+		this.unlinkTabChats();
 	}
 
 	/**
@@ -1768,7 +1781,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (root === leftSplit || root === rightSplit) return;
 			const file = leaf.getViewState().state?.file;
 			if (typeof file === "string") keys.add(file);
-			else if (leaf.view.getViewType() === "empty") {
+			else if (leaf.view.getViewType() === "empty" || leaf.view.getViewType() === CLAUDIAN_VIEW) {
 				keys.add(`${EMPTY_TAB}:${(leaf as unknown as { id?: string }).id ?? ""}`);
 			}
 		});
@@ -2460,6 +2473,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return view?.getTabManager?.() ?? null;
 	}
 
+	/** Every conversation tab of every Claudian view: the sidebar's and the chats in tabs of their own. */
+	private allClaudianTabs(): ClaudianTab[] {
+		return this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW).flatMap((leaf) => {
+			const view = leaf.view as unknown as { getTabManager?: () => ClaudianTabManager | null };
+			return view.getTabManager?.()?.getAllTabs?.() ?? [];
+		});
+	}
+
 	/** Claudian's active conversation-tab state, or null if absent / internals renamed. */
 	private getActiveTabState(): ClaudianTabState | null {
 		return this.getActiveTab()?.state ?? null;
@@ -2847,7 +2868,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * changes: the view observer calls this on every mutation, its own write included.
 	 */
 	private syncSessionIds(): void {
-		for (const tab of this.getTabManager()?.getAllTabs?.() ?? []) {
+		for (const tab of this.allClaudianTabs()) {
 			const row = tab.dom?.infoRowEl;
 			if (!(row instanceof HTMLElement)) continue;
 			const id = this.sessionIdOf(tab);
@@ -4074,6 +4095,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				if (linked?.getSnapshot?.().mode === "auto-draft") linked.selectExplicit?.(null);
 			}
 		}
+		// The sidebar's draft too, while such a chat is in front: it is that tab's (emptyTab), and
+		// a tab with no note links none — but Obsidian's active file is still the last note, so
+		// Claudian's auto-draft took that one. Back at a note, followNoteInDraft follows it again.
+		if (this.emptyTab()?.view.getViewType() !== CLAUDIAN_VIEW) return;
+		const linked = this.getActiveTab()?.ui?.linkedContentController;
+		const snapshot = linked?.getSnapshot?.();
+		if (snapshot?.mode === "auto-draft" && snapshot.path) linked?.selectExplicit?.(null);
 	}
 
 	/**
