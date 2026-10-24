@@ -4,6 +4,10 @@ import {
 	EditorView,
 	ViewPlugin,
 } from '@codemirror/view';
+import { editorInfoField } from 'obsidian';
+import { imageAt, injectCaptionButton } from './caption-button';
+import { captionOf } from './source';
+import { captionApp, followCaptionLink, setCaptionContent } from './caption-content';
 
 // ============================================================
 // 设置接口与默认值
@@ -131,6 +135,19 @@ export function parseCaption(
 }
 
 /**
+ * The link an embedded image was embedded by (`pic.png`, `Drawing.excalidraw`), for telling
+ * an alt that merely repeats the file's name from a caption. The <img>'s own src is no good
+ * for that where it's a resource or data url — an Excalidraw drawing's always is, and its
+ * file name showed as its caption. Not an image inside an embedded note: that embed's link
+ * is the note's.
+ */
+export function embedSourceOf(img: HTMLImageElement): string | null {
+	const embed = img.closest<HTMLElement>('.internal-embed');
+	if (!embed || embed.matches('.markdown-embed') || img.closest('.markdown-embed-content')) return null;
+	return embed.getAttribute('src');
+}
+
+/**
  * 让 caption 的宽度与图片一致。
  * caption 是块级元素（CSS 默认 width:100%），当它所在的容器比图片宽
  * （如表格单元格 .table-cell-wrapper 是 100% 单元格宽，而图片只有 300px）时，
@@ -178,6 +195,17 @@ class ImageCaptionLPPlugin implements PluginValue {
 		// 使用 MutationObserver 监听 DOM 树的增减变化，确保在滚动或折叠动作后即时发现新图片。
 		this.observer = new MutationObserver(() => this.scheduleScan());
 		this.observer.observe(view.dom, OBSERVE);
+		view.dom.addEventListener('click', this.onClick, true);
+	}
+
+	/** A link in a caption: the image's widget would otherwise take the click. */
+	private readonly onClick = (evt: MouseEvent): void => {
+		const app = captionApp();
+		if (app) followCaptionLink(app, evt, this.sourcePath());
+	};
+
+	private sourcePath(): string {
+		return this.view.state.field(editorInfoField, false)?.file?.path ?? '';
 	}
 
 	update(update: ViewUpdate) {
@@ -189,6 +217,7 @@ class ImageCaptionLPPlugin implements PluginValue {
 		// 严防内存泄露：销毁时断开监听
 		if (this.frame !== null) cancelAnimationFrame(this.frame);
 		this.observer.disconnect();
+		this.view.dom.removeEventListener('click', this.onClick, true);
 	}
 
 	/**
@@ -219,8 +248,14 @@ class ImageCaptionLPPlugin implements PluginValue {
 	private scanAndInject(dom: HTMLElement) {
 		const settings = this.getSettings();
 		const imgs = dom.querySelectorAll('img');
+		const app = captionApp();
+		const sourcePath = this.sourcePath();
 
 		imgs.forEach((img: HTMLImageElement) => {
+			// An embedded note's images are rendered as reading view renders them, and captioned
+			// there, from that note's markdown (see the plugin's post-processor); this note's
+			// markdown, which is all this view can read, isn't theirs.
+			if (img.closest('.markdown-embed')) return;
 			// 获取相关的容器
 			const wrapper = img.closest('.image-wrapper');
 			// 表格单元格内的图片不能把外层 .cm-embed-block（整张 .cm-table-widget）
@@ -234,9 +269,16 @@ class ImageCaptionLPPlugin implements PluginValue {
 			// 1. 解析当前的 alt 和 src 元数据并计算最新的说明文字
 			const altText = img.getAttribute('alt');
 			const resolvedAlt = altText || (embedParent ? embedParent.getAttribute('alt') : null);
-			const resolvedSrc = img.getAttribute('src') || (embedParent ? embedParent.getAttribute('src') : null);
+			const resolvedSrc = embedSourceOf(img) || img.getAttribute('src') || (embedParent ? embedParent.getAttribute('src') : null);
 
-			const captionText = parseCaption(resolvedAlt, settings, resolvedSrc);
+			// A markdown image's caption with a link in it is in its title, which Live Preview's
+			// <img> doesn't carry: read from the markdown (see withCaption).
+			const embed = inTableCell ? null : img.closest<HTMLElement>('.image-embed');
+			const image = embed ? imageAt(this.view, embed) : null;
+			const captionText = image?.kind === 'markdown' && image.title?.trim()
+				? captionOf(image)
+				: parseCaption(resolvedAlt, settings, resolvedSrc);
+			if (app && embed) injectCaptionButton(app, this.view, embed);
 
 			// 2. 检查 DOM 树中是否真正存在属于该图片的 caption 元素
 			// 优先使用 embedParent 级别检查，覆盖 wrapper + embedParent 同时存在的场景
@@ -260,10 +302,8 @@ class ImageCaptionLPPlugin implements PluginValue {
 			// 3. 反应式数据流处理
 			if (existingCaption) {
 				if (captionText) {
-					// 文本变化时，实时更新文本内容
-					if (existingCaption.textContent !== captionText) {
-						existingCaption.setText(captionText);
-					}
+					// 文本变化时，实时更新内容 —— 带链接的渲染成 markdown
+					setCaptionContent(existingCaption, captionText, sourcePath);
 					// 响应式更新样式类
 					this.applyStyleClasses(existingCaption, settings);
 					syncCaptionWidth(img, existingCaption);
@@ -289,7 +329,7 @@ class ImageCaptionLPPlugin implements PluginValue {
 				// 严格使用 activeDocument，防止多开 Popout 报错
 				const captionEl = activeDocument.createElement('div');
 				captionEl.className = 'image-caption';
-				captionEl.setText(captionText);
+				setCaptionContent(captionEl, captionText, sourcePath);
 				this.applyStyleClasses(captionEl, settings);
 
 				if (wrapper) {

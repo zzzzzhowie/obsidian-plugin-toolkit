@@ -18,6 +18,14 @@ The caption is derived from the image alt text / wiki alias, with the Obsidian r
 
 Only a **trailing** `|<size>` (e.g. `500`, `500x300`) is removed, so captions that legitimately contain `|` are preserved.
 
+## Editing a caption, and links in it
+
+Images and Excalidraw drawings (`![[Drawing.excalidraw|caption|600]]`, the caption in its alias) alike; Mermaid (Enhanced)'s diagram captions use the same button, dialog and rendering, from `shared/caption.ts`.
+
+In Live Preview an image's action buttons (Zoom in, Edit this block) gain a **caption button** that edits its caption in a small dialog; empty removes it.
+
+A caption is the image's alt or alias, as Obsidian's own is, and a link goes in it as markdown — `![[HSA Portal](https://account.example.com)|500x490](img)` shows the image with "HSA Portal" under it, linked there, in both Live Preview and Reading Mode. That's CommonMark (an image's alt may hold a link) and Reading Mode parses it; Live Preview doesn't — it takes the inner link for the image — so there this plugin draws such an image itself, with Obsidian's look, and its Edit button shows the markdown as written. A `[[note]]` in a caption is written `[note](<note>)`, since its `]]` would end a wiki embed. A bare url works too (`HSA Portal https://…` links the words), as do `**bold**`, `*italic*` and `` `code` ``.
+
 ## Settings
 
 - **Show image file name as caption** — fall back to the file name when there's no alt/alias.

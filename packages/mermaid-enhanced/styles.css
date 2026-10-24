@@ -314,3 +314,15 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+
+/* The redrawn block's code, while the copy stands in: out of the flow and unseen, but not
+   display:none — Obsidian draws a block's diagram only once its code is on screen. */
+.cm-preview-code-block:has(> .mermaid-enhanced-hold) {
+	position: relative;
+}
+.mermaid-enhanced-held-code {
+	position: absolute !important;
+	inset: 0 0 auto 0;
+	opacity: 0;
+	pointer-events: none;
+}

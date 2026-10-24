@@ -5,11 +5,8 @@ import {
 	editorLivePreviewField,
 	loadMermaid,
 	MarkdownView,
-	Modal,
 	Notice,
 	Plugin,
-	setIcon,
-	setTooltip,
 	Platform,
 } from "obsidian";
 import {
@@ -17,6 +14,7 @@ import {
 	MermaidEnhancedSettings,
 	MermaidEnhancedSettingTab,
 } from "./settings";
+import { CaptionModal, createCaptionButton, followCaptionLink, renderCaption } from "../../../shared/caption";
 import { type Gallery, ZoomOverlay, type ZoomSource, type ZoomTarget } from "../../../shared/zoom-overlay";
 
 /** Attribute stamped on a reading-view block naming the note line its diagram starts on. */
@@ -34,6 +32,15 @@ const CAPTION_ATTR = "data-mermaid-caption";
 
 /** Class on the caption injected below a diagram. */
 const CAPTION_CLS = "mermaid-caption";
+
+/** Class on the copy of a diagram shown while its block is redrawn; see holdDiagram. */
+const HOLD_CLS = "mermaid-enhanced-hold";
+/** A drawn diagram, not the copy standing in for one. */
+const DIAGRAM_SVG = `.mermaid:not(.${HOLD_CLS}) svg`;
+/** Class taking a redrawn block's code out of sight while the copy stands in (styles.css). */
+const HELD_CODE_CLS = "mermaid-enhanced-held-code";
+/** How long a redrawn block may show the copy before its own code is shown again. */
+const HOLD_MS = 4000;
 
 /** Class on the button that edits a diagram's caption. */
 const CAPTION_BTN_CLS = "mermaid-caption-btn";
@@ -80,7 +87,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		// desktop, plain tap on mobile. The overlay itself is shared with Excalidraw
 		// Enhanced; only the options below are ours.
 		new ZoomOverlay(this, {
-			target: ".mermaid svg",
+			target: DIAGRAM_SVG,
 			cssPrefix: "mermaid-zoom",
 			// Node and edge labels stay text in the zoom, to select and copy.
 			selectableText: "foreignObject, text",
@@ -112,6 +119,25 @@ export default class MermaidEnhancedPlugin extends Plugin {
 				const target = event.target instanceof Element ? event.target : null;
 				const button = target?.closest(".edit-block-button");
 				if (isDiagramBlock(button?.closest(".cm-embed-block"))) this.editPressedAt = Date.now();
+			},
+			{ capture: true },
+		);
+		// A link in a diagram's caption, followed here: in Live Preview the caption is in the
+		// block's widget, where a press would open the code and nothing follows the link.
+		this.registerDomEvent(
+			document,
+			"click",
+			(event: MouseEvent) => {
+				const caption = event.target instanceof Element ? event.target.closest<HTMLElement>(`.${CAPTION_CLS}`) : null;
+				if (caption) followCaptionLink(this.app, event, this.sourcePathOf(caption), `.${CAPTION_CLS}`);
+			},
+			{ capture: true },
+		);
+		this.registerDomEvent(
+			document,
+			"mousedown",
+			(event: MouseEvent) => {
+				if (event.target instanceof Element && event.target.closest(`.${CAPTION_CLS} a`)) event.stopPropagation();
 			},
 			{ capture: true },
 		);
@@ -428,7 +454,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 
 	/** (Re)apply the fit constraint to every rendered Mermaid diagram. */
 	processAll() {
-		const svgs = document.querySelectorAll<SVGSVGElement>(".mermaid svg");
+		const svgs = document.querySelectorAll<SVGSVGElement>(DIAGRAM_SVG);
 		// Captions don't depend on the fit toggle: turning off "fit tall diagrams"
 		// shouldn't take away text the note itself asked for.
 		svgs.forEach((svg) => {
@@ -725,10 +751,13 @@ export default class MermaidEnhancedPlugin extends Plugin {
 
 		// Editing the block's source means Obsidian cannot reuse the rendered widget
 		// (`eq: e.lang === this.lang && e.code === this.code`), so it tears the block down
-		// and re-renders Mermaid asynchronously. That single re-render is visible and
-		// can't be avoided while the directive lives in the block. Masking it was worse:
-		// each cover-up (pinned height, floating snapshot, hidden source) is its own
-		// appear/disappear, so they stacked into several jumps instead of the one.
+		// and draws it anew: first as code, `<pre><code class="language-mermaid">`, then as
+		// a diagram once Mermaid renders — a flash of the source on every release. The
+		// diagram as it stands, at the size just chosen, takes the code's place in the new
+		// block until the new diagram is in (see holdDiagram). Floating covers and pinned
+		// heights were tried before and each was a jump of its own; this one is in the
+		// block's own flow, the same size as what comes after it.
+		const held = this.snapshotDiagram(block);
 
 		// The edit moves the (unseen) cursor and CodeMirror scrolls it into view,
 		// jerking the page to the top. Capture the scroll and restore it — now and
@@ -756,6 +785,68 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const restore = () => editor.scrollTo(scroll.left, scroll.top);
 		restore();
 		requestAnimationFrame(restore);
+		if (held) this.holdDiagram(view, stray ? fence - 1 : fence, held);
+	}
+
+	/** The diagram a block shows, and its caption, copied to stand in while it's redrawn. */
+	private snapshotDiagram(block: HTMLElement): HTMLElement[] | null {
+		const diagram = block.querySelector<HTMLElement>(`.mermaid:not(.${HOLD_CLS})`);
+		if (!diagram?.querySelector("svg")) return null;
+		const copy = diagram.cloneNode(true) as HTMLElement;
+		// Still `.mermaid`, as the theme's rules for a diagram are — a dark theme draws one
+		// inverted (`.theme-dark .mermaid > svg`), and a copy without it flashed white. This
+		// plugin's own passes and the zoom leave it out (DIAGRAM_SVG).
+		copy.addClass(HOLD_CLS);
+		const parts = [copy];
+		const caption = diagram.nextElementSibling;
+		if (caption?.classList.contains(CAPTION_CLS)) parts.push(caption.cloneNode(true) as HTMLElement);
+		return parts;
+	}
+
+	/**
+	 * Show the copied diagram in the redrawn block until Mermaid has drawn the new one: the
+	 * block's code hidden, the copy where the diagram goes. The new block comes with the edit
+	 * or a frame later, found by its source; it's let go once its diagram is in, or after
+	 * HOLD_MS should Mermaid never get there (a syntax error), its code shown again.
+	 */
+	private holdDiagram(view: MarkdownView, fence: number, parts: HTMLElement[]): void {
+		const editor = view.editor;
+		const lines: string[] = [];
+		for (let i = fence + 1; i <= editor.lastLine() && !/^\s*`{3,}\s*$/.test(editor.getLine(i)); i++) {
+			lines.push(editor.getLine(i));
+		}
+		const source = lines.join("\n").trim();
+		const root = view.contentEl;
+		let pre: HTMLElement | null = null;
+		let watcher: MutationObserver | null = null;
+		let timer = 0;
+		const release = (): void => {
+			watcher?.disconnect();
+			window.clearTimeout(timer);
+			parts.forEach((part) => part.remove());
+			pre?.removeClass(HELD_CODE_CLS);
+		};
+		const attach = (): boolean => {
+			const code = Array.from(
+				root.querySelectorAll<HTMLElement>(".cm-preview-code-block pre > code.language-mermaid")
+			).find((el) => (el.textContent ?? "").trim() === source);
+			const block = code?.closest<HTMLElement>(".cm-preview-code-block");
+			pre = code?.parentElement ?? null;
+			if (!block || !pre) return false;
+			pre.addClass(HELD_CODE_CLS);
+			pre.after(...parts);
+			watcher?.disconnect();
+			watcher = new MutationObserver(() => {
+				if (!block.isConnected || block.querySelector(DIAGRAM_SVG)) release();
+			});
+			watcher.observe(block, { childList: true, subtree: true });
+			return true;
+		};
+		timer = window.setTimeout(release, HOLD_MS);
+		if (attach()) return;
+		// Not drawn yet: catch the block as it comes in.
+		watcher = new MutationObserver(() => void attach());
+		watcher.observe(root, { childList: true, subtree: true });
 	}
 
 	/**
@@ -803,11 +894,20 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			existing?.remove();
 			return;
 		}
-		if (existing) {
-			if (existing.textContent !== text) existing.setText(text);
+		// Rendered as every figure's caption is (shared/caption.ts): links, emphasis, code.
+		const context = { app: this.app, component: this, sourcePath: this.sourcePathOf(diagram) };
+		if (existing instanceof HTMLElement) {
+			renderCaption(existing, text, context);
 			return;
 		}
-		diagram.after(createDiv({ cls: CAPTION_CLS, text }));
+		const caption = createDiv({ cls: CAPTION_CLS });
+		renderCaption(caption, text, context);
+		diagram.after(caption);
+	}
+
+	/** The note a diagram is in, which its caption's links are relative to. */
+	private sourcePathOf(el: HTMLElement): string {
+		return this.findMarkdownView(el)?.file?.path ?? this.app.workspace.getActiveFile()?.path ?? "";
 	}
 
 	/**
@@ -830,16 +930,18 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		if (!block || block.querySelector(`.${CAPTION_BTN_CLS}`)) return;
 
 		const actions = block.querySelector<HTMLElement>(".embed-actions");
-		const btn = createDiv({
-			cls: actions
-				? `embed-action ${CAPTION_BTN_CLS}`
-				: `clickable-icon ${CAPTION_BTN_CLS}`,
+		// The button and dialog every figure's caption has (shared/caption.ts); its presses
+		// are kept out of the editor, which would put the cursor into the block and swap the
+		// diagram for its source.
+		const btn = createCaptionButton(block.doc, CAPTION_BTN_CLS, () => {
+			new CaptionModal(this.app, "Diagram caption", this.resolveCaption(svg) ?? "", (text) =>
+				this.persistCaption(block, text)
+			).open();
 		});
-		setIcon(btn, "captions");
-		setTooltip(btn, "Edit caption");
 		if (actions) {
 			actions.prepend(btn);
 		} else {
+			btn.classList.replace("embed-action", "clickable-icon");
 			block.appendChild(btn);
 			this.positionControl(
 				btn,
@@ -847,17 +949,6 @@ export default class MermaidEnhancedPlugin extends Plugin {
 				block.querySelector<HTMLElement>(".edit-block-button")
 			);
 		}
-
-		// Keep the press out of the editor, which would otherwise put the cursor into
-		// the block and swap the diagram for its source.
-		btn.addEventListener("pointerdown", (e) => e.stopPropagation());
-		btn.addEventListener("click", (e) => {
-			e.preventDefault();
-			e.stopPropagation();
-			new CaptionModal(this.app, this.resolveCaption(svg) ?? "", (text) =>
-				this.persistCaption(block, text)
-			).open();
-		});
 	}
 
 	/**
@@ -1052,50 +1143,6 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	}
 }
 
-/**
- * A one-field dialog for a diagram's caption. Enter saves; an empty field removes the
- * caption. Enter is ignored mid-composition, or confirming a pinyin candidate would
- * save half-typed text.
- */
-class CaptionModal extends Modal {
-	constructor(
-		app: App,
-		private readonly initial: string,
-		private readonly onSubmit: (text: string) => void
-	) {
-		super(app);
-	}
-
-	onOpen() {
-		this.titleEl.setText("Diagram caption");
-		const input = this.contentEl.createEl("input", {
-			type: "text",
-			cls: "mermaid-caption-input",
-			attr: { placeholder: "Leave empty to remove the caption" },
-		});
-		input.value = this.initial;
-		const submit = () => {
-			this.onSubmit(input.value);
-			this.close();
-		};
-		input.addEventListener("keydown", (e) => {
-			if (e.key === "Enter" && !e.isComposing) {
-				e.preventDefault();
-				submit();
-			}
-		});
-		const actions = this.contentEl.createDiv({ cls: "modal-button-container" });
-		actions
-			.createEl("button", { text: "Save", cls: "mod-cta" })
-			.addEventListener("click", submit);
-		input.focus();
-		input.select();
-	}
-
-	onClose() {
-		this.contentEl.empty();
-	}
-}
 
 /**
  * The SVG an <img> shows, as an element of the page, or null when it isn't one. Claudian

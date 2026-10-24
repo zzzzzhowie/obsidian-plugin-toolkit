@@ -1,12 +1,16 @@
-import { App, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, type MarkdownPostProcessorContext, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import {
 	imageCaptionExtension,
 	ImageCaptionSettings,
 	DEFAULT_SETTINGS,
+	embedSourceOf,
 	parseCaption,
 	setLiveSettings,
 	syncCaptionWidth,
 } from './extension';
+import { setCaptionContent, setRenderContext } from './caption-content';
+import { nestedImageExtension } from './nested';
+import { captionOf, type ImageSource, readImages, sameTarget } from './source';
 
 // ============================================================
 // 插件主入口类
@@ -19,35 +23,43 @@ export default class CaptionEnhancedPlugin extends Plugin {
 	settings: ImageCaptionSettings;
 	/** Image embeds still waiting for their <img>; each is let go once it arrives, on unload, or after EMBED_WAIT_MS. */
 	private readonly embedWatchers = new Set<MutationObserver>();
+	/** Captions of markdown images with a title, by the element showing each (its embed, else the <img>); see lookUpTitles. */
+	private readonly titles = new WeakMap<Element, string>();
 
 	async onload() {
 		await this.loadSettings();
+		// Captions with a link in them are rendered as markdown, under this plugin's lifetime.
+		setRenderContext({ app: this.app, component: this });
 
 		// 1. 注册 Live Preview 模式编辑器扩展
-		this.registerEditorExtension(imageCaptionExtension);
+		this.registerEditorExtension([imageCaptionExtension, nestedImageExtension]);
 
 		// 2. 注册 Reading Mode (阅读模式) Markdown 渲染后处理器
-		this.registerMarkdownPostProcessor((el) => {
-			// A. 处理 Wiki embed 异步渲染图片 — image embeds only: a note, PDF or audio embed never
-			// gets an <img> of its own, and a watcher on one would never let go.
-			const embeds = el.matches('.internal-embed.image-embed')
+		this.registerMarkdownPostProcessor((el, ctx) => {
+			// A. 处理 embed 异步渲染图片 — every embed, not just an image one: an embed is
+			// `image-embed` only once its file has loaded, which is after this runs. The image is
+			// the embed's own <img>, never one inside an embedded note; an embed that turns out
+			// to be a note, PDF or audio is let go as soon as it shows which.
+			const embeds = el.matches('.internal-embed')
 				? [el]
-				: Array.from(el.querySelectorAll<HTMLElement>('.internal-embed.image-embed'));
+				: Array.from(el.querySelectorAll<HTMLElement>('.internal-embed'));
 
 			embeds.forEach((embedEl) => {
-				const img = embedEl.querySelector('img');
+				const img = ownImage(embedEl);
 				if (img) {
-					this.injectReadingCaption(img, embedEl);
-				} else {
-					// 一次性监听 Wiki 嵌入容器内的 img 异步塞入动作，防范内存泄露
+					this.injectReadingCaption(img, embedEl, ctx.sourcePath);
+				} else if (!isOtherEmbed(embedEl)) {
+					// 一次性监听 embed 容器内的 img 异步塞入动作，防范内存泄露
 					const observer = new MutationObserver(() => {
-						const loadedImg = embedEl.querySelector('img');
+						const loadedImg = ownImage(embedEl);
 						if (loadedImg) {
-							this.injectReadingCaption(loadedImg, embedEl);
+							this.injectReadingCaption(loadedImg, embedEl, ctx.sourcePath);
+							this.letGo(observer);
+						} else if (isOtherEmbed(embedEl)) {
 							this.letGo(observer);
 						}
 					});
-					observer.observe(embedEl, { childList: true, subtree: true });
+					observer.observe(embedEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
 					this.embedWatchers.add(observer);
 					window.setTimeout(() => this.letGo(observer), EMBED_WAIT_MS);
 				}
@@ -58,15 +70,57 @@ export default class CaptionEnhancedPlugin extends Plugin {
 			imgs.forEach((img: HTMLImageElement) => {
 				// 自动排除已经包含在 Wiki embed 内部的图片，防止重复注入 — an image embed's own; an
 				// image inside a transcluded note is an ordinary image of that note.
-				if (img.closest('.internal-embed.image-embed')) {
+				const embed = img.closest<HTMLElement>('.internal-embed');
+				if (embed && ownImage(embed) === img) {
 					return;
 				}
-				this.injectReadingCaption(img, null);
+				this.injectReadingCaption(img, null, ctx.sourcePath);
 			});
+
+			void this.lookUpTitles(el, ctx);
 		});
 
 		// 3. 注册设置控制台面板
 		this.addSettingTab(new CaptionEnhancedSettingTab(this.app, this));
+	}
+
+	/**
+	 * A markdown image's title, where a caption with a link in it is written (see withCaption).
+	 * The rendered <img> doesn't carry it, so it's read from the markdown: the section's when
+	 * Obsidian says which lines it came from, else the note's. The page's images and the
+	 * markdown's are paired in order, each to the next one with the same target.
+	 */
+	private async lookUpTitles(el: HTMLElement, ctx: MarkdownPostProcessorContext): Promise<void> {
+		// An embed processed on its own, once loaded, was paired with the section it's in.
+		if (el.matches('.internal-embed')) return;
+		// Any embed, not just an image one: an embed is `image-embed` only once its file has
+		// loaded, after this runs. A note's embed pairs with its own `![[note]]`.
+		const slots = Array.from(el.querySelectorAll<HTMLElement>('.internal-embed, img')).filter(
+			(slot) => !(slot instanceof HTMLImageElement && slot.closest('.internal-embed')),
+		);
+		if (slots.length === 0) return;
+		const info = ctx.getSectionInfo(el);
+		let text: string | null = null;
+		if (info) {
+			text = info.text.split('\n').slice(info.lineStart, info.lineEnd + 1).join('\n');
+		} else {
+			const file = this.app.vault.getFileByPath(ctx.sourcePath);
+			if (file) text = await this.app.vault.cachedRead(file);
+		}
+		if (!text) return;
+		const images = readImages(text);
+		const used = new Set<ImageSource>();
+		for (const slot of slots) {
+			const target = slot.getAttribute('src') ?? '';
+			const image = images.find((candidate) => !used.has(candidate) && sameTarget(candidate.target, target));
+			if (!image) continue;
+			used.add(image);
+			// Only a markdown image with a title differs from what the page says (its alt).
+			if (image.kind !== 'markdown' || !image.title?.trim()) continue;
+			this.titles.set(slot, captionOf(image));
+			const img = slot instanceof HTMLImageElement ? slot : slot.querySelector('img');
+			if (img) this.injectReadingCaption(img, slot instanceof HTMLImageElement ? null : slot, ctx.sourcePath);
+		}
 	}
 
 	private letGo(observer: MutationObserver): void {
@@ -77,15 +131,17 @@ export default class CaptionEnhancedPlugin extends Plugin {
 	/**
 	 * 抽象的阅读模式 Caption 注入核心方法
 	 */
-	injectReadingCaption(img: HTMLImageElement, embedParent: HTMLElement | null) {
+	injectReadingCaption(img: HTMLImageElement, embedParent: HTMLElement | null, sourcePath: string) {
 		const wrapper = img.closest('.image-wrapper');
 
 		// 1. 解析当前的 alt 和 src 元数据并计算最新的说明文字
 		const altText = img.getAttribute('alt');
 		const resolvedAlt = altText || (embedParent ? embedParent.getAttribute('alt') : null);
-		const resolvedSrc = img.getAttribute('src') || (embedParent ? embedParent.getAttribute('src') : null);
+		const resolvedSrc = embedSourceOf(img) || img.getAttribute('src') || (embedParent ? embedParent.getAttribute('src') : null);
 
-		const captionText = parseCaption(resolvedAlt, this.settings, resolvedSrc);
+		// A markdown image's title is its caption when there is one — where a caption with a
+		// link in it is written (see withCaption).
+		const captionText = this.titles.get(embedParent ?? img) || parseCaption(resolvedAlt, this.settings, resolvedSrc);
 
 		// 2. 精准检查 DOM 树中是否真正存在属于该图片的 caption 元素
 		let existingCaption: HTMLElement | null = null;
@@ -106,10 +162,8 @@ export default class CaptionEnhancedPlugin extends Plugin {
 		// 3. 反应式数据流处理
 		if (existingCaption) {
 			if (captionText) {
-				// 文本变化时，实时更新文本内容
-				if (existingCaption.textContent !== captionText) {
-					existingCaption.setText(captionText);
-				}
+				// 文本变化时，实时更新内容 —— 带链接的渲染成 markdown
+				setCaptionContent(existingCaption, captionText, sourcePath);
 				// 响应式更新样式类
 				existingCaption.className = 'image-caption';
 				existingCaption.classList.add(`align-${this.settings.captionAlign}`);
@@ -137,7 +191,7 @@ export default class CaptionEnhancedPlugin extends Plugin {
 			// 严格使用 activeDocument，防止多开 Popout 报错
 			const captionEl = activeDocument.createElement('div');
 			captionEl.className = 'image-caption';
-			captionEl.setText(captionText);
+			setCaptionContent(captionEl, captionText, sourcePath);
 
 			// 应用设置样式类
 			captionEl.classList.add(`align-${this.settings.captionAlign}`);
@@ -167,6 +221,7 @@ export default class CaptionEnhancedPlugin extends Plugin {
 	}
 
 	onunload() {
+		setRenderContext(null);
 		for (const observer of this.embedWatchers) observer.disconnect();
 		this.embedWatchers.clear();
 		// 彻底清除页面上残留的所有 caption 节点及 has-caption 样式类
@@ -191,6 +246,18 @@ export default class CaptionEnhancedPlugin extends Plugin {
 	refreshWorkspace() {
 		this.app.workspace.updateOptions();
 	}
+}
+
+/** An embed's own image: its <img>, not one in a note it embeds. */
+function ownImage(embed: HTMLElement): HTMLImageElement | null {
+	if (!embed.matches('.internal-embed')) return null;
+	// An Excalidraw drawing's sits one level down, in its `.excalidraw-svg`.
+	return embed.querySelector<HTMLImageElement>(':scope > img, :scope > .image-wrapper > img, :scope > .excalidraw-svg > img');
+}
+
+/** An embed shown as something other than an image: a note, a PDF, audio, video. */
+function isOtherEmbed(embed: HTMLElement): boolean {
+	return embed.matches('.markdown-embed, .pdf-embed, .media-embed:not(.image-embed), .file-embed');
 }
 
 // ============================================================

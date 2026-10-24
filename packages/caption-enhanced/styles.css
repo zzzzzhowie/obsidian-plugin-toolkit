@@ -98,3 +98,30 @@
   inset: 4px 4px auto auto;
   margin: 0;
 }
+
+/* ==========================================================================
+   说明里的链接（富文本说明）与编辑说明按钮
+   ========================================================================== */
+
+/* 说明本身是 muted 的；链接保留主题的链接色，看得出能点 */
+.image-caption a {
+	font-style: inherit;
+}
+
+.image-caption-input {
+	width: 100%;
+}
+
+.image-caption-hint {
+	margin-top: 6px;
+}
+
+
+/* 说明里带链接的图片正在编辑时（nested.ts）：Live Preview 把里面的链接当成图片地址画出一张
+   错图，藏掉，源码后面显示的是插件画的那张 */
+.caption-nested-editing .image-embed:not(.caption-nested-image) {
+	display: none;
+}
+.caption-nested-editing-view .cm-image-reveal-tooltip {
+	display: none;
+}
