@@ -428,6 +428,29 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
    selection from the bubble once sent, so this names it under the prompt's text. Muted and
    small — it's a reference, not part of the question. Hovered, it shows the selected text in
    the peek card (selection-peek.ts); clicked, it goes to the lines. */
+/* A reference ⌥K put in a prompt (linkReferences in main.ts), drawn as a link like the
+   note a prompt mentions; a click opens the note at its lines. */
+.claudian-enhanced-reference {
+	color: var(--link-color);
+	text-decoration-line: var(--link-decoration);
+	text-decoration-thickness: var(--link-decoration-thickness);
+	cursor: pointer;
+}
+
+.claudian-enhanced-reference:hover {
+	color: var(--link-color-hover);
+	text-decoration-line: var(--link-decoration-hover);
+}
+
+/* In a reply's change list, as its heading links: the colour says link, no underline needed. */
+.claudian-message p:has(> [class*="claudian-enhanced-change-"]) + ul .claudian-enhanced-reference {
+	text-decoration-line: none;
+}
+
+.claudian-message p:has(> [class*="claudian-enhanced-change-"]) + ul .claudian-enhanced-reference:hover {
+	text-decoration-line: underline;
+}
+
 .claudian-enhanced-selection-tag {
 	display: flex;
 	align-items: center;

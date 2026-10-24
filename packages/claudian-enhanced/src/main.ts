@@ -116,6 +116,18 @@ const NEW_TAB_COMMAND = "workspace:new-tab";
 const REMEMBERED_NOTES = 5;
 /** The tag under a prompt naming the lines it was sent with; see tagSentSelections. */
 const SELECTION_TAG_CLS = "claudian-enhanced-selection-tag";
+/**
+ * A reference to note lines — put in a prompt by ⌥K, or in a reply's change list (the
+ * system prompt asks for one per change) — shown as a link to its lines; see linkReferences.
+ */
+const REFERENCE_CLS = "claudian-enhanced-reference";
+/** Where references are looked for: a prompt's text, a reply's text. */
+const REFERENCE_TEXT = `${CLAUDIAN_USER_MESSAGE} ${CLAUDIAN_PROMPT_TEXT}, .claudian-message-assistant .claudian-text-block`;
+/**
+ * A reference as insertReference writes it: `@path`, its lines (`#12` or `#12-14`), then
+ * which columns and what text, if it says.
+ */
+const REFERENCE = /@([^\s@][^@\n]*?\.(?:md|canvas|excalidraw))(?:#(\d+)(?:-(\d+))?)?(?: \((?:column|columns) [^)\n]*\))?(?: "([^"\n]*)")?/g;
 /** The conversation's session id at the end of the row under the composer; see syncSessionIds. */
 const SESSION_ID_CLS = "claudian-enhanced-session-id";
 /** How long a copied session id says so before showing the id again (ms). */
@@ -844,6 +856,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private pinnedFrame: number | null = null;
 	/** rAF handle for the next fold pass; see scheduleFold. */
 	private foldFrame: number | null = null;
+	/** rAF handle for linking a streaming reply's references; see scheduleReplyLinks. */
+	private replyLinkFrame: number | null = null;
 	/** Prompts the reader expanded by hand, which a later pass must not fold back up. */
 	private expandedPrompts = new WeakSet<HTMLElement>();
 	/** Re-runs the fold pass when the panel resizes, since width changes how text wraps. */
@@ -1245,7 +1259,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.dropKept();
 		for (const [presentation, original] of this.visibilityChecks) presentation.isVisible = original;
 		this.visibilityChecks.clear();
-		for (const frame of [this.pinnedFrame, this.foldFrame, this.tagFrame]) {
+		for (const frame of [this.pinnedFrame, this.foldFrame, this.tagFrame, this.replyLinkFrame]) {
 			if (frame !== null) cancelAnimationFrame(frame);
 		}
 		this.pinnedPrompt?.style.removeProperty("transform");
@@ -1257,6 +1271,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const view = this.getClaudianLeaf()?.view.containerEl;
 		if (!view) return;
 		view.querySelectorAll(`.${FOLD_TOGGLE_CLS}, .${JUMP_BTN_CLS}, .${SELECTION_TAG_CLS}`).forEach((el) => el.remove());
+		view.querySelectorAll<HTMLElement>(`.${REFERENCE_CLS}`).forEach((el) => el.replaceWith(el.dataset.source ?? ""));
 		const marks = [PINNED_CLS, BURIED_CLS, FOLDABLE_CLS, FOLDED_CLS, VEILED_CLS, RESTORING_CLS];
 		for (const el of [view, ...Array.from(view.querySelectorAll<HTMLElement>(marks.map((cls) => `.${cls}`).join(", ")))]) {
 			el.removeClasses(marks);
@@ -3518,6 +3533,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			} else if (this.tagsPending && streamed) {
 				this.scheduleSelectionTags();
 			}
+			if (streamed) this.scheduleReplyLinks(streamed);
 			this.returnToSpot(true);
 			// Both scroll "the list this landed in" — there's one per conversation tab. Not a
 			// conversation being put back, though: settleScroll positions that, its re-rendered
@@ -3719,12 +3735,134 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Show each reference to note lines in `root` — one ⌥K put in a prompt (insertReference),
+	 * one a reply's change list ends a bullet with — as a link to its lines, as Claudian shows
+	 * a mentioned note: `@Notes/a.md#12-14` reads `a L12–14`, and a click opens the note there
+	 * (revealReference). Only paths the vault has; anything else stays text. A reply that is
+	 * still streaming is drawn afresh with each piece, links gone; the next pass puts them back.
+	 */
+	private linkReferences(root: HTMLElement): void {
+		const blocks = root.matches(".claudian-message-assistant") ? root.querySelectorAll<HTMLElement>(".claudian-text-block") : root.querySelectorAll<HTMLElement>(REFERENCE_TEXT);
+		for (const block of Array.from(blocks)) {
+			if (!block.textContent?.includes("@")) continue;
+			const walker = block.ownerDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+			const nodes: Text[] = [];
+			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+				if (node instanceof Text && node.data.includes("@") && !node.parentElement?.closest(`.${REFERENCE_CLS}, a, code`)) nodes.push(node);
+			}
+			for (const node of nodes) this.linkReferencesIn(node);
+		}
+	}
+
+	/**
+	 * Each reference reads as the section its lines are in — the deepest heading above them,
+	 * else the note's name — and the lines: `排期 L88`. In a list item, a reference to the same
+	 * section as the one before it (a reply's change list giving several spots in a section)
+	 * reads as its lines alone.
+	 */
+	private linkReferencesIn(node: Text): void {
+		const text = node.data;
+		const parts: (string | HTMLElement)[] = [];
+		const item = node.parentElement?.closest("li") ?? null;
+		const before = item
+			? Array.from(item.querySelectorAll<HTMLElement>(`.${REFERENCE_CLS}`))
+					.filter((el) => el.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)
+					.pop()
+			: undefined;
+		let previous = before?.dataset.section ?? null;
+		let last = 0;
+		for (const match of text.matchAll(REFERENCE)) {
+			const [, path = "", start, end, quote] = match;
+			const file = this.app.vault.getFileByPath(path);
+			if (!file) continue;
+			const source = `@${path}${start ? `#${start}${end ? `-${end}` : ""}` : ""}`;
+			const at = match.index;
+			const section = `${path}#${this.sectionAt(file, Number(start ?? 0))}`;
+			const name = section.slice(path.length + 1);
+			const lines = start ? `L${start}${end ? `–${end}` : ""}` : "";
+			const link = node.ownerDocument.createElement("span");
+			link.className = REFERENCE_CLS;
+			link.setText(item && section === previous && lines ? lines : [name, lines].filter(Boolean).join(" "));
+			link.dataset.section = section;
+			previous = section;
+			link.setAttribute("role", "link");
+			link.setAttribute("aria-label", source.slice(1));
+			link.dataset.source = source;
+			link.addEventListener("click", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				void this.revealReference(path, Number(start ?? 0), Number(end ?? start ?? 0), quote);
+			});
+			parts.push(text.slice(last, at), link);
+			last = at + source.length;
+		}
+		if (last === 0) return;
+		parts.push(text.slice(last));
+		node.replaceWith(...parts);
+	}
+
+	/** The deepest heading above line `line` (1-based) of `file`, else the note's own name. */
+	private sectionAt(file: TFile, line: number): string {
+		let section: string | null = null;
+		for (const heading of this.app.metadataCache.getFileCache(file)?.headings ?? []) {
+			if (heading.position.start.line + 1 > line) break;
+			section = heading.heading;
+		}
+		return section ?? file.basename.replace(/\.excalidraw$/, "");
+	}
+
+	/**
+	 * Open the note a reference names at its first line — or, when the reference quotes text
+	 * that's no longer on its lines (the note has moved since), the line that text is on now.
+	 * A drawing or a reference without lines just opens.
+	 */
+	private async revealReference(path: string, start: number, end: number, quote: string | undefined): Promise<void> {
+		const file = this.app.vault.getFileByPath(path);
+		if (!file) return;
+		let existing: WorkspaceLeaf | null = null;
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!existing && (leaf.view as { file?: TFile | null }).file?.path === path && this.sidebarOf(leaf) === null) existing = leaf;
+		});
+		const leaf: WorkspaceLeaf = existing ?? this.app.workspace.getLeaf("tab");
+		if (!existing) await leaf.openFile(file);
+		await this.app.workspace.revealLeaf(leaf);
+		this.app.workspace.setActiveLeaf(leaf, { focus: true });
+		const view = leaf.view;
+		if (!start || !(view instanceof MarkdownView)) return;
+		const lines = view.data.split("\n");
+		let line = Math.min(start, lines.length);
+		// Only its start, should it be shortened: the part before the ellipsis is its own text.
+		const quoted = quote?.split(" … ")[0];
+		if (quoted && !flatten(lines.slice(start - 1, end).join("\n")).includes(flatten(quoted))) {
+			const found = locateText(view.data, quoted);
+			if (found) line = view.data.slice(0, found.from).split("\n").length;
+		}
+		view.setEphemeralState({ line: line - 1 });
+		const cm = this.cmOf(leaf);
+		if (cm && view.getMode() === "source") {
+			const pos = cm.state.doc.line(Math.min(line, cm.state.doc.lines)).from;
+			cm.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+		}
+	}
+
+	/** Link the references in the latest reply of `list` on the next frame, once however many pieces stream in. */
+	private scheduleReplyLinks(list: HTMLElement): void {
+		if (this.replyLinkFrame !== null) return;
+		this.replyLinkFrame = requestAnimationFrame(() => {
+			this.replyLinkFrame = null;
+			const reply = Array.from(list.querySelectorAll<HTMLElement>(".claudian-message-assistant")).pop();
+			if (reply) this.linkReferences(reply);
+		});
+	}
+
 	/** Run a fold pass on the next frame, coalescing a burst of mutations into one. */
 	private scheduleFold(container: HTMLElement): void {
 		if (this.foldFrame !== null) return;
 		this.foldFrame = requestAnimationFrame(() => {
 			this.foldFrame = null;
 			this.foldLongPrompts(container);
+			this.linkReferences(container);
 		});
 	}
 
@@ -4399,7 +4537,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				if (
 					target.closest(CLAUDIAN_USER_ACTIONS) ??
 					target.closest(CLAUDIAN_LINK) ??
-					target.closest(`button, .${FOLD_TOGGLE_CLS}, .${SELECTION_TAG_CLS}`)
+					target.closest(`button, .${FOLD_TOGGLE_CLS}, .${SELECTION_TAG_CLS}, .${REFERENCE_CLS}`)
 				) {
 					return;
 				}
