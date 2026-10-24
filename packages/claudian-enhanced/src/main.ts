@@ -302,7 +302,7 @@ interface ClaudianTab {
 	ui?: {
 		linkedContentController?: ClaudianLinkedContent;
 		/** The composer's `/` and `@` menus; their sources are what composerSources hands out. */
-		composerDropdown?: { slashSource?: unknown; mentionSource?: unknown };
+		composerDropdown?: { slashSource?: unknown; mentionSource?: unknown; controller?: { view?: ClaudianMenuView } };
 	};
 	/**
 	 * The editor 划词 controller: `composerSelections.editor` since Claudian 2.3.16, which
@@ -467,6 +467,12 @@ function offsetOfLine(lines: string[], line: number): number {
 /** The line (1-based) `offset` is on. */
 function lineAtOffset(content: string, offset: number): number {
 	return content.slice(0, offset).split("\n").length;
+}
+
+/** The box Claudian's `@` and `/` menus are drawn in; see quietEmptyMenus. */
+interface ClaudianMenuView {
+	render?: (items: readonly { state?: string }[], selected: number) => void;
+	hide?: () => void;
 }
 
 /** Lines of a note, 1-based and inclusive. */
@@ -860,6 +866,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private replyLinkFrame: number | null = null;
 	/** Prompts the reader expanded by hand, which a later pass must not fold back up. */
 	private expandedPrompts = new WeakSet<HTMLElement>();
+	/** Each menu box quietEmptyMenus took over, and its own render, put back on unload. */
+	private quietedMenus = new WeakMap<ClaudianMenuView, NonNullable<ClaudianMenuView["render"]>>();
 	/** Prompts the reader collapsed by hand: folded wherever they are, not only while pinned. */
 	private collapsedPrompts = new WeakSet<HTMLElement>();
 	/** Re-runs the fold pass when the panel resizes, since width changes how text wraps. */
@@ -1234,6 +1242,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerInterval(
 			window.setInterval(() => {
 				this.syncSessionIds();
+				this.quietEmptyMenus();
 				this.noticeNewSessions();
 				// The sidebar's draft for a chat in front is swapped in without an event of its own.
 				this.unlinkTabChats();
@@ -1270,6 +1279,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// Composers of background tabs sit outside the view, so their labels go tab by tab.
 		for (const tab of this.allClaudianTabs()) {
 			tab.dom?.infoRowEl?.querySelector(`:scope > .${SESSION_ID_CLS}`)?.remove();
+			const menu = tab.ui?.composerDropdown?.controller?.view;
+			const render = menu && this.quietedMenus.get(menu);
+			if (menu && render) menu.render = render;
 		}
 		// Leave Claudian's view as it draws itself: what we added goes, what we marked is unmarked.
 		const view = this.getClaudianLeaf()?.view.containerEl;
@@ -3420,6 +3432,30 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		}
 	}
 
+	/**
+	 * Claudian's `@` and `/` menus say "No matches" when nothing matches what's typed: a box
+	 * in the way of the text that offers nothing. It closes instead — closed, not just out of
+	 * sight, so the arrow keys it would take go back to the composer (Enter and Tab already
+	 * do) — and opens again once there is something to offer. The "Loading…" it shows while
+	 * it looks again stays closed too, so typing on past the last match doesn't flash it.
+	 */
+	private quietEmptyMenus(): void {
+		for (const tab of this.allClaudianTabs()) {
+			const view = tab.ui?.composerDropdown?.controller?.view;
+			const render = view?.render;
+			const hide = view?.hide;
+			if (!view || typeof render !== "function" || typeof hide !== "function" || this.quietedMenus.has(view)) continue;
+			let quiet = false;
+			view.render = (items, selected) => {
+				const state = items.length === 1 ? items[0]?.state : undefined;
+				quiet = state === "empty" || (quiet && state === "loading");
+				if (quiet) hide.call(view);
+				else render.call(view, items, selected);
+			};
+			this.quietedMenus.set(view, render);
+		}
+	}
+
 	private copySessionId(label: HTMLElement): void {
 		const id = label.dataset.sessionId;
 		if (!id) return;
@@ -3555,6 +3591,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			}
 			if (queued) this.handleQueueChange();
 			this.syncSessionIds();
+			this.quietEmptyMenus();
 			this.noticeNewSessions();
 		});
 		breakCellLines(container);
@@ -3579,6 +3616,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.scheduleFold(container);
 		this.scheduleSelectionTags();
 		this.syncSessionIds();
+		this.quietEmptyMenus();
 	}
 
 	/**
