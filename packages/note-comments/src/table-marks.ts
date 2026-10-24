@@ -100,8 +100,7 @@ export class TableMarks {
 	private paint(view: EditorView, spans: Array<{ id: string; from: number; to: number }>): void {
 		const painted: Painted[] = [];
 		for (const span of spans) {
-			const range = rangeInTable(view, span.from, span.to);
-			if (range) painted.push({ id: span.id, range });
+			for (const range of rangesInTable(view, span.from, span.to)) painted.push({ id: span.id, range });
 		}
 		const before = this.painted.get(view);
 		if (painted.length === 0 && !before) return;
@@ -156,6 +155,51 @@ function rangeInTable(view: EditorView, from: number, to: number): Range | null 
 	const cell = tr?.cells[column];
 	if (!cell) return null;
 	return rangeOfText(cell, doc.sliceString(from, Math.min(to, line.to)));
+}
+
+/**
+ * Every cell `[from, to)` covers, drawn: a passage that runs across cells or rows — a whole row,
+ * the whole table selected — is cut at the pipes into one piece per cell, each found in its own
+ * cell (the alignment row is drawn as nothing and gives none). A passage within one cell gives
+ * one Range, as rangeInTable does; one outside any table, none.
+ */
+function rangesInTable(view: EditorView, from: number, to: number): Range[] {
+	const doc = view.state.doc;
+	const ranges: Range[] = [];
+	for (let pos = from; pos < to; ) {
+		const line = doc.lineAt(pos);
+		const end = Math.min(to, line.to);
+		if (isRow(line.text)) {
+			for (const cell of cellsOf(line.text)) {
+				let start = Math.max(line.from + cell.from, pos);
+				let stop = Math.min(line.from + cell.to, end);
+				while (start < stop && /\s/.test(doc.sliceString(start, start + 1))) start++;
+				while (stop > start && /\s/.test(doc.sliceString(stop - 1, stop))) stop--;
+				if (start >= stop) continue;
+				const range = rangeInTable(view, start, stop);
+				if (range) ranges.push(range);
+			}
+		}
+		pos = line.to + 1;
+	}
+	return ranges;
+}
+
+/** The text of each cell in a table row, by offsets within the line (between its pipes). */
+function cellsOf(text: string): Array<{ from: number; to: number }> {
+	const cells: Array<{ from: number; to: number }> = [];
+	let start: number | null = null;
+	for (let i = 0; i < text.length; i++) {
+		if (text.charAt(i) === "\\") {
+			i++;
+			continue;
+		}
+		if (text.charAt(i) !== "|") continue;
+		if (start !== null) cells.push({ from: start, to: i });
+		start = i + 1;
+	}
+	if (start !== null && start < text.length && text.slice(start).trim()) cells.push({ from: start, to: text.length });
+	return cells;
 }
 
 /** The cell `offset` falls in: unescaped pipes before it, less the leading one. */
