@@ -428,10 +428,9 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 		if (!view || !value?.file) return null;
 		const { ranges, main } = view.state.selection;
 		if (ranges.length !== 1 || main.empty || main.to - main.from > MAX_QUOTE) return null;
-		const text = view.state.sliceDoc(main.from, main.to);
-		const trimmed = trimSpan(text, 0, text.length);
-		if (!trimmed) return null;
-		const span = { from: main.from + trimmed.from, to: main.from + trimmed.to };
+		// The whole note, to tell whether the selection starts at a line's markup.
+		const span = trimSpan(view.state.doc.toString(), main.from, main.to);
+		if (!span) return null;
 		// The Properties UI rewrites the whole frontmatter block on any change, so a comment
 		// there would be orphaned by the next edit to any property.
 		const frontmatter = this.app.metadataCache.getFileCache(value.file)?.frontmatterPosition;

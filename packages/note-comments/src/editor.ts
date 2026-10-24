@@ -16,7 +16,7 @@ import {
 } from "@codemirror/view";
 import { editorEditorField, editorInfoField, type TFile } from "obsidian";
 
-import { anchor, captureSelectors, type Selectors, type Span } from "./anchor";
+import { anchor as findSpan, captureSelectors, type Selectors, type Span, trimSpan } from "./anchor";
 import { isEmbeddedOwner } from "./embedded-editor";
 import type { CommentStore, NoteComment, StoreListener } from "./store";
 import type { TableMarks } from "./table-marks";
@@ -64,6 +64,16 @@ export const setPendingEffect = StateEffect.define<Pending | null>();
 const NONE: ReadonlySet<string> = new Set();
 const INERT: CommentsValue = { file: null, decos: Decoration.none, lost: NONE, pending: null };
 const PENDING_MARK = Decoration.mark({ class: "nc-pending" });
+
+/**
+ * Where a comment is drawn in `doc`: found as anchor.ts finds it, then narrowed as a new
+ * selection is (trimSpan). A comment saved before trimSpan knew line markup — or one that grew
+ * over the lines Enter put inside it — comes back to its own words.
+ */
+function anchor(doc: string, selectors: Selectors): Span | null {
+	const span = findSpan(doc, selectors);
+	return span ? (trimSpan(doc, span.from, span.to) ?? span) : null;
+}
 
 function markFor(id: string): Decoration {
 	return Decoration.mark({ class: "nc-highlight", id, attributes: { "data-nc-id": id } });
@@ -294,7 +304,7 @@ function buildField(host: EditorHost): StateField<CommentsValue> {
 			const file = value.file;
 			if (!file) return value;
 
-			let decos = tr.docChanged ? value.decos.map(tr.changes) : value.decos;
+			let decos = tr.docChanged ? cutAtTypedBreaks(value.decos.map(tr.changes), tr) : value.decos;
 			let lost = value.lost;
 			let pending = value.pending;
 			if (pending && tr.docChanged) {
@@ -405,6 +415,30 @@ function reanchor(
 		else if (!hasId(decos, id)) missing.push(id);
 	}
 	return { decos: add.length ? decos.update({ add, sort: true }) : decos, missing };
+}
+
+/**
+ * A comment ends where Enter is pressed inside it: the new line is new text, not more of the
+ * passage, so the comment keeps what came before the break. Mapped as it is, a mark simply
+ * spans the inserted break, and a task split mid-comment carried the highlight onto the new
+ * item, checkbox and all. Typed line breaks only — text pasted into a comment is left to mapping.
+ */
+function cutAtTypedBreaks(decos: DecorationSet, tr: Transaction): DecorationSet {
+	if (!tr.docChanged || !tr.isUserEvent("input") || tr.isUserEvent("input.paste")) return decos;
+	const breaks: number[] = [];
+	tr.changes.iterChanges((_fromA, _toA, fromB, _toB, inserted) => {
+		const at = inserted.toString().indexOf("\n");
+		if (at >= 0) breaks.push(fromB + at);
+	});
+	if (breaks.length === 0) return decos;
+	const cut: Range<Decoration>[] = [];
+	let changed = false;
+	for (const iter = decos.iter(); iter.value; iter.next()) {
+		const at = breaks.find((pos) => pos > iter.from && pos < iter.to);
+		if (at !== undefined) changed = true;
+		cut.push(iter.value.range(iter.from, at ?? iter.to));
+	}
+	return changed ? Decoration.set(cut, true) : decos;
 }
 
 function idsOf(decos: DecorationSet): Set<string> {

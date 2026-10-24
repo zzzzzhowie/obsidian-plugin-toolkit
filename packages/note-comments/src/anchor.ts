@@ -116,14 +116,38 @@ export function captureSelectors(doc: string, from: number, to: number): Selecto
 }
 
 /**
+ * The markup a line can open with — quote markers, a list marker, a task box, a heading's
+ * hashes — each followed by a space or the end of the text.
+ */
+const LINE_MARKUP = /^[ \t]*(?:>[ \t]*)*(?:(?:[-*+]|\d+[.)])(?:[ \t]+|$))?(?:\[[^\]\n]?\](?:[ \t]+|$))?(?:#{1,6}(?:[ \t]+|$))?/;
+
+/**
  * Narrow a selection to what the user meant to comment on. A triple-click takes the trailing
  * newline with it and a drag often catches a space at either end; neither is part of the
- * phrase, and a quote that starts or ends in whitespace re-anchors worse. Returns null when
- * nothing but whitespace was selected.
+ * phrase, and a quote that starts or ends in whitespace re-anchors worse. Nor is the markup of
+ * a line the selection only runs into: Live Preview draws a list marker or a task box as a
+ * bullet or a checkbox, and a drag to the end of an item stops at the next item's text — past
+ * its `- [ ] `. Ending there, the comment took in the next line's checkbox, and Enter at the
+ * end of its item put the new line inside it. Returns null when nothing else was selected.
  */
 export function trimSpan(doc: string, from: number, to: number): Span | null {
-	while (from < to && /\s/.test(doc.charAt(from))) from++;
-	while (to > from && /\s/.test(doc.charAt(to - 1))) to--;
+	for (;;) {
+		const was = { from, to };
+		while (from < to && /\s/.test(doc.charAt(from))) from++;
+		while (to > from && /\s/.test(doc.charAt(to - 1))) to--;
+		// Into the next line only as far as its markup: it ends at the line break.
+		const lastBreak = doc.lastIndexOf("\n", to - 1);
+		if (lastBreak >= from) {
+			const tail = doc.slice(lastBreak + 1, to);
+			if (LINE_MARKUP.exec(tail)?.[0].length === tail.length) to = lastBreak;
+		}
+		// From a line's start through its markup: it starts at the text.
+		if (from === 0 || doc.charAt(from - 1) === "\n") {
+			const lead = LINE_MARKUP.exec(doc.slice(from, to))?.[0].length ?? 0;
+			if (lead > 0 && lead < to - from) from += lead;
+		}
+		if (from === was.from && to === was.to) break;
+	}
 	return from < to ? { from, to } : null;
 }
 
