@@ -2071,6 +2071,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		for (const conversation of list.call(view.plugin) ?? []) {
 			if (!conversation.id || conversation.linkedContentPath !== notePath) continue;
 			if (conversation.isArchived || conversation.messageCount === 0) continue;
+			if (this.predatesNote(conversation, notePath)) continue;
 			const at = conversation.lastActivityAt ?? conversation.createdAt ?? 0;
 			if (at <= clearedAt) continue;
 			if (!best || at > best.at) best = { id: conversation.id, at };
@@ -2151,7 +2152,19 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private conversationBelongsTo(id: string, notePath: string): boolean {
 		const conversation = this.conversationSummaries()?.find((summary) => summary.id === id);
 		if (!conversation) return true;
-		return (conversation.linkedContentPath ?? null) === notePath;
+		return (conversation.linkedContentPath ?? null) === notePath && !this.predatesNote(conversation, notePath);
+	}
+
+	/**
+	 * Whether the conversation was last had before the note now at `notePath` existed: it was
+	 * an earlier note's at that path, one deleted or moved away, whose name a new note took
+	 * again — a new draft is "Draft 1" as often as the last one was. A rename keeps the
+	 * note's creation time, so its own conversations stay newer than it.
+	 */
+	private predatesNote(conversation: ClaudianConversationSummary, notePath: string): boolean {
+		const created = this.app.vault.getFileByPath(notePath)?.stat.ctime;
+		const at = conversation.lastActivityAt ?? conversation.createdAt;
+		return typeof created === "number" && typeof at === "number" && at < created;
 	}
 
 	/**
