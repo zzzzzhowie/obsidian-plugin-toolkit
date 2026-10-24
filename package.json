@@ -61,7 +61,7 @@
     "author": "yeyan1996",
     "license": "MIT",
     "devDependencies": {
-        "obsidian": "^1.13.1"
+        "obsidian": "^1.14.4"
     },
     "engines": {
         "node": ">=16",

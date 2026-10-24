@@ -6,3 +6,11 @@ packages:
 # script would download the Electron binary, which nothing here runs.
 allowBuilds:
   electron: false
+
+# Packages ask for `obsidian: latest`, whose types peer on exact CodeMirror versions; each
+# package's own `@codemirror/*: ^6` otherwise resolved differently, giving several copies of
+# obsidian's types that don't match each other (shared/ code wouldn't type-check). Pinned to
+# what obsidian peers on.
+overrides:
+  "@codemirror/state": "6.7.6"
+  "@codemirror/view": "6.43.13"
