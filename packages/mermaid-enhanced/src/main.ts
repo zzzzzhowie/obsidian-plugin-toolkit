@@ -17,7 +17,7 @@ import {
 	MermaidEnhancedSettings,
 	MermaidEnhancedSettingTab,
 } from "./settings";
-import { type Gallery, ZoomOverlay, type ZoomTarget } from "../../../shared/zoom-overlay";
+import { type Gallery, ZoomOverlay, type ZoomSource, type ZoomTarget } from "../../../shared/zoom-overlay";
 
 /** Attribute stamped on a reading-view block naming the note line its diagram starts on. */
 const LINE_ATTR = "data-mermaid-line";
@@ -86,6 +86,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			selectableText: "foreignObject, text",
 			// Every diagram in the note, to page through from the one clicked.
 			gallery: (target) => this.diagramsAround(target),
+			sourceOf: (target) => this.sourceOf(target),
 		}).register();
 		// Claudian's replies draw their diagrams themselves, as an <img> of the SVG. The same
 		// zoom, on the SVG put back inline so its labels are text, paging through every
@@ -298,12 +299,9 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	 * is taken as it is; the others are drawn by Obsidian's own Mermaid when first shown.
 	 */
 	private async diagramsAround(target: ZoomTarget): Promise<Gallery | null> {
-		let view: MarkdownView | null = null;
-		this.app.workspace.iterateAllLeaves((leaf) => {
-			if (!view && leaf.view instanceof MarkdownView && leaf.view.containerEl.contains(target)) view = leaf.view;
-		});
-		const found = view as MarkdownView | null;
+		const found = this.noteViewOf(target);
 		if (!found) return null;
+		const path = found.file?.path;
 		const blocks = mermaidSources(found.getViewData());
 		if (blocks.length < 2) return null;
 		const line = this.lineOf(target);
@@ -318,8 +316,27 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			items: pages.map((block, i) => ({
 				label: block.caption ?? `Diagram ${i + 1}`,
 				element: () => (block === clicked ? Promise.resolve(target) : renderDiagram(block.code)),
+				...(path ? { source: { path, from: block.start + 1, to: block.end + 1 } } : {}),
 			})),
 		};
+	}
+
+	/** The note view a diagram on the page is in. */
+	private noteViewOf(target: ZoomTarget): MarkdownView | null {
+		let view: MarkdownView | null = null;
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!view && leaf.view instanceof MarkdownView && leaf.view.containerEl.contains(target)) view = leaf.view;
+		});
+		return view;
+	}
+
+	/** The note lines a diagram on the page is drawn from, its fences included, for the zoom to say. */
+	private sourceOf(target: ZoomTarget): ZoomSource | null {
+		const view = this.noteViewOf(target);
+		const line = this.lineOf(target);
+		if (!view?.file || line === null) return null;
+		const block = mermaidSources(view.getViewData()).find((b) => b.start <= line && line <= b.end);
+		return block ? { path: view.file.path, from: block.start + 1, to: block.end + 1 } : null;
 	}
 
 	/** The note line (0-based) a diagram on the page starts on: from the editor in Live Preview, the post-processor's stamp in reading view. */

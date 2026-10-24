@@ -40,6 +40,7 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			inline: inlineSvgOf,
 			// Every drawing in the note, to page through from the one clicked.
 			gallery: gallery.around,
+			sourceOf: gallery.sourceOf,
 		}).register();
 		// Images in Claudian's replies get the same zoom, as Mermaid (Enhanced) gives its
 		// diagrams there, paging through every image of the conversation.

@@ -7,10 +7,24 @@ import { Platform, Plugin, setIcon } from "obsidian";
  */
 export type ZoomTarget = SVGElement | HTMLImageElement;
 
+/**
+ * What a drawing in the zoom is drawn from: a note's lines (1-based, inclusive) for a Mermaid
+ * diagram, a drawing's file for an Excalidraw one. Stamped on the zoom's container
+ * (`data-zoom-path`, `-from`, `-to`), so another plugin can tell what is on show — Claudian
+ * (Enhanced)'s ⌥K refers Claude to it.
+ */
+export interface ZoomSource {
+	path: string;
+	from?: number;
+	to?: number;
+}
+
 /** A drawing the zoom can page to; see {@link ZoomOverlayOptions.gallery}. */
 export interface GalleryItem {
 	/** Its name under the thumbnail: a diagram's caption, say. */
 	label: string;
+	/** What it's drawn from, when that can be told. */
+	source?: ZoomSource;
 	/** The drawing, made when first needed (the one clicked is already on the page); null if it can't be. */
 	element: () => Promise<ZoomTarget | null>;
 }
@@ -52,6 +66,8 @@ export interface ZoomOverlayOptions {
 	 * Null, or a failure, shows the element itself.
 	 */
 	inline?: (target: ZoomTarget) => Promise<ZoomTarget | null>;
+	/** What the clicked drawing is drawn from (see ZoomSource); a gallery's others say it themselves. */
+	sourceOf?: (target: ZoomTarget) => ZoomSource | null;
 	/**
 	 * Selector for the views a target has to be in; a note's (Markdown leaves) by default.
 	 * Another view's drawings are zoomed by a second overlay that names it.
@@ -315,7 +331,7 @@ export class ZoomOverlay {
 		// drawings paged to from here, which never were in the note to pick it up.
 		const filter = getComputedStyle(target).filter;
 		this.drawingFilter = filter && filter !== "none" ? filter : "";
-		this.mountDrawing(shown);
+		this.mountDrawing(shown, this.options.sourceOf?.(target) ?? null);
 		this.createToolbar();
 		this.overlay.style.display = "flex";
 		this.fitToRoom();
@@ -323,12 +339,17 @@ export class ZoomOverlay {
 	}
 
 	/** Put a clone of `target` on show, replacing the one there, at the fit-to-screen scale. */
-	private mountDrawing(target: ZoomTarget): void {
+	private mountDrawing(target: ZoomTarget, source: ZoomSource | null): void {
 		if (!this.overlay) return;
 		this.translateX = 0;
 		this.translateY = 0;
 		this.overlay.querySelector(`:scope > .${this.options.cssPrefix}-container`)?.remove();
 		const container = createDiv(`${this.options.cssPrefix}-container`);
+		if (source) {
+			container.dataset.zoomPath = source.path;
+			if (source.from) container.dataset.zoomFrom = String(source.from);
+			if (source.to) container.dataset.zoomTo = String(source.to);
+		}
 		if (this.title) this.title.after(container);
 		else this.overlay.prepend(container);
 
@@ -481,7 +502,7 @@ export class ZoomOverlay {
 		return this.galleryDrawing(index).then((drawing) => {
 			if (token !== this.galleryToken || !drawing || this.gallery !== gallery) return;
 			gallery.index = index;
-			this.mountDrawing(drawing);
+			this.mountDrawing(drawing, gallery.items[index]?.source ?? null);
 			this.fitToRoom();
 			this.markCurrent();
 		});

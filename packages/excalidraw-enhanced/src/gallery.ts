@@ -1,5 +1,5 @@
 import { type App, MarkdownView, type TFile } from "obsidian";
-import type { Gallery, ZoomTarget } from "../../../shared/zoom-overlay";
+import type { Gallery, ZoomSource, ZoomTarget } from "../../../shared/zoom-overlay";
 
 /** The part of Excalidraw's automation API used here. */
 interface ExcalidrawAutomate {
@@ -57,8 +57,16 @@ export class DrawingGallery {
 			items: drawings.map((drawing, i) => ({
 				label: labelOf(drawing, lines),
 				element: () => (i === index ? Promise.resolve(target) : this.draw(drawing.file)),
+				source: { path: drawing.file.path },
 			})),
 		});
+	};
+
+	/** The drawing file a drawing on the page shows, for the zoom to say. */
+	readonly sourceOf = (target: ZoomTarget): ZoomSource | null => {
+		const note = this.viewOf(target)?.file;
+		const file = note ? this.drawingOf(target, note) : null;
+		return file ? { path: file.path } : null;
 	};
 
 	/** The note view a drawing on the page is in. */
