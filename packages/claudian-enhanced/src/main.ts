@@ -522,6 +522,30 @@ function breakCellLines(root: Node): void {
 	}
 }
 
+/** A change-list group label, its icon optional: the systemPrompt ends an edit reply with these. */
+const CHANGE_LABEL = /^(?:(?:➕|➖|✏️?)\s*)?(Added|Removed|Changed)$/;
+
+/**
+ * Colour the Added / Removed / Changed labels of a reply's change list by kind. They're plain
+ * bold, which the theme paints one colour, and Claudian escapes raw HTML, so the reply can't
+ * colour them itself. Only a bold that is a paragraph of its own: the same word in prose stays.
+ */
+function tagChangeLabels(root: Node): void {
+	const el = root instanceof HTMLElement ? root : root.parentElement;
+	if (!el) return;
+	const labels = Array.from(el.querySelectorAll<HTMLElement>("p > strong"));
+	const own = el.closest<HTMLElement>("p > strong");
+	if (own) labels.push(own);
+	for (const label of labels) {
+		if (!label.closest(".claudian-message")) continue;
+		const kind = CHANGE_LABEL.exec(label.textContent?.trim() ?? "")?.[1]?.toLowerCase();
+		const alone = label.parentElement?.textContent?.trim() === label.textContent?.trim();
+		for (const k of ["added", "removed", "changed"]) {
+			label.classList.toggle(`${OWN_CLS_PREFIX}change-${k}`, alone && kind === k);
+		}
+	}
+}
+
 /**
  * Text from a table cell, spelled one way. A line break in a cell is `<br>` in the note, and
  * that is how Claudian carries it; the cell's own editor holds a real one.
@@ -2991,7 +3015,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				// of Claudian's; read as streaming, every scroll would answer itself.
 				if (record.type === "attributes" && onlyOwnClassesChanged(record)) continue;
 				this.hideIfRebuilding(record);
-				for (const node of Array.from(record.addedNodes)) breakCellLines(node);
+				for (const node of Array.from(record.addedNodes)) {
+					breakCellLines(node);
+					tagChangeLabels(node);
+				}
 				const added = this.addedUserMessage(record);
 				submitted ??= added;
 				streamed ??= this.messagesListOf(record.target);
@@ -3025,6 +3052,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			this.noticeNewSessions();
 		});
 		breakCellLines(container);
+		tagChangeLabels(container);
 		this.scheduleDedupe();
 		this.submitScrollObserver.observe(container, {
 			childList: true,

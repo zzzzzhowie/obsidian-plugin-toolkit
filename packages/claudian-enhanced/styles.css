@@ -666,3 +666,40 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 		transform: rotate(360deg);
 	}
 }
+
+/* Change-list group labels at the end of an edit reply, coloured by kind. */
+.claudian-enhanced-change-added {
+	color: var(--color-green);
+}
+
+.claudian-enhanced-change-removed {
+	color: var(--color-red);
+}
+
+.claudian-enhanced-change-changed {
+	color: var(--color-blue);
+}
+
+/* The list is a footer to the reply, not a section of it: small labels, groups close together. */
+.claudian-message p:has(> [class*="claudian-enhanced-change-"]) {
+	margin: 0.75em 0 0.1em;
+	font-size: var(--font-ui-small);
+	line-height: 1.4;
+}
+
+.claudian-message p:has(> [class*="claudian-enhanced-change-"]) + ul {
+	margin: 0 0 0.25em;
+}
+
+.claudian-message p:has(> [class*="claudian-enhanced-change-"]) + ul > li {
+	margin: 0.1em 0;
+}
+
+/* Its links are headings to jump to, one per bullet: the colour says link, no underline needed. */
+.claudian-message p:has(> [class*="claudian-enhanced-change-"]) + ul a.internal-link {
+	text-decoration: none;
+}
+
+.claudian-message p:has(> [class*="claudian-enhanced-change-"]) + ul a.internal-link:hover {
+	text-decoration: underline;
+}
