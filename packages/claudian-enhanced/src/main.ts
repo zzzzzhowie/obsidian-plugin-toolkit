@@ -860,6 +860,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private replyLinkFrame: number | null = null;
 	/** Prompts the reader expanded by hand, which a later pass must not fold back up. */
 	private expandedPrompts = new WeakSet<HTMLElement>();
+	/** Prompts the reader collapsed by hand: folded wherever they are, not only while pinned. */
+	private collapsedPrompts = new WeakSet<HTMLElement>();
 	/** Re-runs the fold pass when the panel resizes, since width changes how text wraps. */
 	private foldResizeObserver: ResizeObserver | null = null;
 	/**
@@ -922,7 +924,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		scroller: () => this.visibleIn<HTMLElement>(this.claudianInUse(), CLAUDIAN_MESSAGES),
 		unfold: (prompt) => {
 			this.expandedPrompts.add(prompt);
+			this.collapsedPrompts.delete(prompt);
 			prompt.removeClass(FOLDED_CLS);
+			this.releaseSlot(prompt);
 			this.syncFoldToggle(prompt, false);
 		},
 		refocus: () =>
@@ -3716,6 +3720,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			pinned?.addClass(PINNED_CLS);
 			this.pinnedPrompt = pinned;
 			this.pinnedPush = 0;
+			// Only the pinned prompt folds (foldLongPrompts); the observer leaves our own class
+			// writes alone, so it's told here.
+			this.scheduleFold(this.getClaudianLeaf()?.view.containerEl ?? scroller);
 			// Everything before the pinned prompt is stuck underneath it. Hiding rather than
 			// unsticking keeps this free of jitter: visibility takes the buried prompts out of
 			// sight without touching layout, so nothing below them moves and the pinned one
@@ -3867,13 +3874,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * Fold prompts too long to be a readable header down to FOLD_LINES, with a toggle.
+	 * Fold the pinned prompt down to FOLD_LINES when it's too long to be a readable header,
+	 * with a toggle; the others, read where they are, stay whole unless collapsed by hand.
 	 *
 	 * A pinned prompt is only useful as a header: a long one — a pasted diagram, a file's
-	 * worth of context — covered the whole panel while its reply scrolled underneath. It is
-	 * folded wherever it is, not only while pinned, because a sticky element's box is its
-	 * slot in the list: shrinking it at the moment it pins would pull the reply being read
-	 * up by however much was cut, every time the pin changed hands.
+	 * worth of context — covered the whole panel while its reply scrolled underneath. A
+	 * sticky element's box is its slot in the list, though, so folding it as it pins would
+	 * pull the reply being read up by however much was cut: what's cut is kept as a bottom
+	 * margin while it's pinned (keepSlot), and given back as it unpins.
 	 *
 	 * Reads before writes, and writes only on change — the same discipline as
 	 * markPinnedPrompt, for the same reasons: interleaving forces a reflow per prompt, and
@@ -3882,7 +3890,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private foldLongPrompts(container: HTMLElement): void {
 		if (!container.isConnected) return;
-		const measured: Array<{ prompt: HTMLElement; long: boolean }> = [];
+		const measured: Array<{ prompt: HTMLElement; long: boolean; height: number }> = [];
 		for (const prompt of Array.from(
 			container.querySelectorAll<HTMLElement>(CLAUDIAN_USER_MESSAGE),
 		)) {
@@ -3895,12 +3903,18 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5 || 20;
 			// scrollHeight is the full content even while folded, so this is stable.
 			const long = text.scrollHeight > line * (FOLD_LINES + FOLD_SLACK_LINES);
-			measured.push({ prompt, long });
+			measured.push({ prompt, long, height: prompt.getBoundingClientRect().height });
 		}
-		for (const { prompt, long } of measured) {
-			const folded = long && !this.expandedPrompts.has(prompt);
+		for (const { prompt, long, height } of measured) {
+			const pinned = prompt === this.pinnedPrompt;
+			const byHand = this.collapsedPrompts.has(prompt);
+			const folded = long && !this.expandedPrompts.has(prompt) && (pinned || byHand);
+			const was = prompt.hasClass(FOLDED_CLS);
 			if (prompt.hasClass(FOLDABLE_CLS) !== long) prompt.toggleClass(FOLDABLE_CLS, long);
-			if (prompt.hasClass(FOLDED_CLS) !== folded) prompt.toggleClass(FOLDED_CLS, folded);
+			if (was !== folded) prompt.toggleClass(FOLDED_CLS, folded);
+			// Folded for being pinned, not by hand: its slot in the list is kept.
+			if (folded && !byHand && !was) this.keepSlot(prompt, height);
+			else if (!folded || byHand) this.releaseSlot(prompt);
 			if (long) this.syncFoldToggle(prompt, folded);
 			else prompt.querySelector(`.${FOLD_TOGGLE_CLS}`)?.remove();
 		}
@@ -3924,10 +3938,16 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				event.preventDefault();
 				event.stopPropagation();
 				const collapse = !prompt.hasClass(FOLDED_CLS);
-				if (collapse) this.expandedPrompts.delete(prompt);
-				else this.expandedPrompts.add(prompt);
-				prompt.toggleClass(FOLDED_CLS, collapse);
-				this.syncFoldToggle(prompt, collapse);
+				if (collapse) {
+					this.expandedPrompts.delete(prompt);
+					// The pinned one folds anyway, its slot kept; another stays folded by hand.
+					if (prompt !== this.pinnedPrompt) this.collapsedPrompts.add(prompt);
+				} else {
+					this.expandedPrompts.add(prompt);
+					this.collapsedPrompts.delete(prompt);
+				}
+				const container = this.getClaudianLeaf()?.view.containerEl;
+				if (container) this.foldLongPrompts(container);
 			};
 			toggle = bubble.createDiv({ cls: FOLD_TOGGLE_CLS, attr: { role: "button", tabindex: "0" } });
 			toggle.addEventListener("click", flip);
@@ -3940,6 +3960,26 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		toggle.dataset.state = state;
 		setIcon(toggle, folded ? "chevron-down" : "chevron-up");
 		toggle.setAttribute("aria-label", folded ? "Expand prompt" : "Collapse prompt");
+	}
+
+	/**
+	 * Keep a prompt folded for being pinned taking the room it took unfolded (`unfolded`
+	 * high), by a bottom margin of the difference, so nothing under it moves. One forced
+	 * layout, and only as a prompt pins.
+	 */
+	private keepSlot(prompt: HTMLElement, unfolded: number): void {
+		const base = parseFloat(getComputedStyle(prompt).marginBottom) || 0;
+		const cut = unfolded - prompt.getBoundingClientRect().height;
+		if (cut < 0.5) return;
+		prompt.dataset.foldSlot = "kept";
+		prompt.setCssProps({ "margin-bottom": `${base + cut}px` });
+	}
+
+	/** Give back the room keepSlot kept, as the prompt unfolds. */
+	private releaseSlot(prompt: HTMLElement): void {
+		if (prompt.dataset.foldSlot === undefined) return;
+		delete prompt.dataset.foldSlot;
+		prompt.style.removeProperty("margin-bottom");
 	}
 
 	/** Pin a list to the bottom, marking the move as ours. */
