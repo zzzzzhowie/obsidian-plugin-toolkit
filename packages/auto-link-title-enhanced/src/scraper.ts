@@ -1,7 +1,29 @@
-import { requestUrl } from "obsidian";
+import { requestUrl, type RequestUrlResponse } from "obsidian";
 
 // Cap the scraper request so an unreachable host can't hang the paste forever.
 const SCRAPE_TIMEOUT_MS = 15000;
+
+/**
+ * A page's html, decoded in the charset it says it's in. requestUrl's `text` is always read as
+ * UTF-8, and a page in another — a Discuz forum's GBK, as 1point3acres serves to someone logged
+ * in — came out as mojibake. The response header's charset, else the page's own `<meta>`, else
+ * UTF-8.
+ */
+function htmlOf(response: RequestUrlResponse): string {
+  try {
+    const bytes = response.arrayBuffer;
+    const fromHeader = /charset=["']?([\w-]+)/i.exec(response.headers["content-type"] ?? "")?.[1];
+    // ASCII is all a <meta> needs to be read by; windows-1252 maps every byte to something.
+    const head = new TextDecoder("windows-1252").decode(bytes.slice(0, 4096));
+    const fromMeta = /<meta[^>]+charset=["']?([\w-]+)/i.exec(head)?.[1];
+    const charset = (fromHeader || fromMeta || "utf-8").toLowerCase();
+    if (charset === "utf-8" || charset === "utf8") return response.text;
+    return new TextDecoder(charset).decode(bytes);
+  } catch {
+    // A charset TextDecoder doesn't know.
+    return response.text;
+  }
+}
 
 function blank(text: string | null | undefined): boolean {
   return text === undefined || text === null || text === "";
@@ -30,7 +52,7 @@ async function scrape(
 
     const contentType = response.headers["content-type"] ?? "";
     if (!contentType.includes("text/html")) return getUrlFinalSegment(url);
-    const html = response.text;
+    const html = htmlOf(response);
 
     const larkTitle = larkDocTitle(url, html);
     if (larkTitle) return larkTitle;
@@ -133,8 +155,9 @@ export async function fetchPageContext(
     const contentType = response.headers["content-type"] ?? "";
     if (!contentType.includes("text/html")) return null;
 
-    const larkTitle = larkDocTitle(url, response.text);
-    const doc = new DOMParser().parseFromString(response.text, "text/html");
+    const html = htmlOf(response);
+    const larkTitle = larkDocTitle(url, html);
+    const doc = new DOMParser().parseFromString(html, "text/html");
     doc.querySelectorAll("script, style, noscript").forEach((el) => el.remove());
 
     const meta = (selector: string): string =>

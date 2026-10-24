@@ -36,6 +36,9 @@ export class EditorExtensions {
     let linksInLine = lineText.matchAll(MARKDOWN_LINK_IN_LINE_REGEX);
 
     for (let match of linksInLine) {
+      // An image's `[alt](url)` is no link to retitle: a url pasted into its alt goes there,
+      // as a link in the caption, rather than over the image.
+      if (lineText[(match.index ?? 0) - 1] === "!") continue;
       if (this.cursorWithinBoundaries(cursor, match)) {
         const index = match.index ?? 0;
         return {
