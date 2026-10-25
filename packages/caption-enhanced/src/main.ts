@@ -4,6 +4,7 @@ import {
 	ImageCaptionSettings,
 	DEFAULT_SETTINGS,
 	embedSourceOf,
+	FIGURES,
 	parseCaption,
 	setLiveSettings,
 	syncCaptionWidth,
@@ -66,8 +67,8 @@ export default class CaptionEnhancedPlugin extends Plugin {
 			});
 
 			// B. 处理普通的 Markdown 本地与外链图床图片
-			const imgs = el.querySelectorAll('img');
-			imgs.forEach((img: HTMLImageElement) => {
+			const imgs = el.querySelectorAll<HTMLElement>(FIGURES);
+			imgs.forEach((img: HTMLElement) => {
 				// 自动排除已经包含在 Wiki embed 内部的图片，防止重复注入 — an image embed's own; an
 				// image inside a transcluded note is an ordinary image of that note.
 				const embed = img.closest<HTMLElement>('.internal-embed');
@@ -95,8 +96,8 @@ export default class CaptionEnhancedPlugin extends Plugin {
 		if (el.matches('.internal-embed')) return;
 		// Any embed, not just an image one: an embed is `image-embed` only once its file has
 		// loaded, after this runs. A note's embed pairs with its own `![[note]]`.
-		const slots = Array.from(el.querySelectorAll<HTMLElement>('.internal-embed, img')).filter(
-			(slot) => !(slot instanceof HTMLImageElement && slot.closest('.internal-embed')),
+		const slots = Array.from(el.querySelectorAll<HTMLElement>(`.internal-embed, ${FIGURES}`)).filter(
+			(slot) => !(slot.matches(FIGURES) && slot.closest('.internal-embed')),
 		);
 		if (slots.length === 0) return;
 		const info = ctx.getSectionInfo(el);
@@ -118,8 +119,8 @@ export default class CaptionEnhancedPlugin extends Plugin {
 			// Only a markdown image with a title differs from what the page says (its alt).
 			if (image.kind !== 'markdown' || !image.title?.trim()) continue;
 			this.titles.set(slot, captionOf(image));
-			const img = slot instanceof HTMLImageElement ? slot : slot.querySelector('img');
-			if (img) this.injectReadingCaption(img, slot instanceof HTMLImageElement ? null : slot, ctx.sourcePath);
+			const figure = slot.matches(FIGURES) ? slot : ownImage(slot);
+			if (figure) this.injectReadingCaption(figure, slot.matches(FIGURES) ? null : slot, ctx.sourcePath);
 		}
 	}
 
@@ -131,7 +132,7 @@ export default class CaptionEnhancedPlugin extends Plugin {
 	/**
 	 * 抽象的阅读模式 Caption 注入核心方法
 	 */
-	injectReadingCaption(img: HTMLImageElement, embedParent: HTMLElement | null, sourcePath: string) {
+	injectReadingCaption(img: HTMLElement, embedParent: HTMLElement | null, sourcePath: string) {
 		const wrapper = img.closest('.image-wrapper');
 
 		// 1. 解析当前的 alt 和 src 元数据并计算最新的说明文字
@@ -249,10 +250,11 @@ export default class CaptionEnhancedPlugin extends Plugin {
 }
 
 /** An embed's own image: its <img>, not one in a note it embeds. */
-function ownImage(embed: HTMLElement): HTMLImageElement | null {
+function ownImage(embed: HTMLElement): HTMLElement | null {
 	if (!embed.matches('.internal-embed')) return null;
-	// An Excalidraw drawing's sits one level down, in its `.excalidraw-svg`.
-	return embed.querySelector<HTMLImageElement>(':scope > img, :scope > .image-wrapper > img, :scope > .excalidraw-svg > img');
+	// An Excalidraw drawing's sits further down, in its own wrappers: an <img> or, shown as
+	// SVG, a div holding the <svg> — either one carrying `excalidraw-embedded-img`.
+	return embed.querySelector<HTMLElement>(':scope > img, :scope > .image-wrapper > img, .excalidraw-embedded-img');
 }
 
 /** An embed shown as something other than an image: a note, a PDF, audio, video. */

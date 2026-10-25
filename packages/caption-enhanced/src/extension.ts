@@ -135,13 +135,20 @@ export function parseCaption(
 }
 
 /**
+ * What a caption goes under: an image, or an Excalidraw drawing shown as SVG — that plugin's
+ * "native SVG" preview puts the drawing in a `div.excalidraw-embedded-img` holding an <svg>,
+ * where its "SVG image" preview had an <img> with that class.
+ */
+export const FIGURES = 'img, div.excalidraw-embedded-img';
+
+/**
  * The link an embedded image was embedded by (`pic.png`, `Drawing.excalidraw`), for telling
  * an alt that merely repeats the file's name from a caption. The <img>'s own src is no good
  * for that where it's a resource or data url — an Excalidraw drawing's always is, and its
  * file name showed as its caption. Not an image inside an embedded note: that embed's link
  * is the note's.
  */
-export function embedSourceOf(img: HTMLImageElement): string | null {
+export function embedSourceOf(img: HTMLElement): string | null {
 	const embed = img.closest<HTMLElement>('.internal-embed');
 	if (!embed || embed.matches('.markdown-embed') || img.closest('.markdown-embed-content')) return null;
 	return embed.getAttribute('src');
@@ -155,7 +162,7 @@ export function embedSourceOf(img: HTMLImageElement): string | null {
  * 把 caption 显式设成图片的渲染宽度即可复刻 figure/figcaption 语义：
  * 对齐相对图片，超长文本也在图片宽度内换行。
  */
-export function syncCaptionWidth(img: HTMLImageElement, captionEl: HTMLElement): void {
+export function syncCaptionWidth(img: HTMLElement, captionEl: HTMLElement): void {
 	const sync = () => {
 		// 取整消除亚像素抖动；仅在宽度真正变化时写入。
 		// caption 注入后 :has() 会把容器翻成 flex-column，图片渲染宽度随之微调，
@@ -169,7 +176,7 @@ export function syncCaptionWidth(img: HTMLImageElement, captionEl: HTMLElement):
 	};
 	sync();
 	// 外链图片首次渲染时可能尚未加载完、渲染宽度为 0，加载完成后再同步一次
-	if (!img.complete) {
+	if (img instanceof HTMLImageElement && !img.complete) {
 		img.addEventListener('load', sync, { once: true });
 	}
 }
@@ -247,11 +254,11 @@ class ImageCaptionLPPlugin implements PluginValue {
 
 	private scanAndInject(dom: HTMLElement) {
 		const settings = this.getSettings();
-		const imgs = dom.querySelectorAll('img');
+		const imgs = dom.querySelectorAll<HTMLElement>(FIGURES);
 		const app = captionApp();
 		const sourcePath = this.sourcePath();
 
-		imgs.forEach((img: HTMLImageElement) => {
+		imgs.forEach((img: HTMLElement) => {
 			// An embedded note's images are rendered as reading view renders them, and captioned
 			// there, from that note's markdown (see the plugin's post-processor); this note's
 			// markdown, which is all this view can read, isn't theirs.
