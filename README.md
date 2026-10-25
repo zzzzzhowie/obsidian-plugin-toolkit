@@ -1,222 +1,361 @@
 # Obsidian Plugin Toolkit
 
-A monorepo for Obsidian plugins managed with pnpm workspace.
+A pnpm monorepo of Obsidian plugins: forks that fix what bothered me in community plugins ("(Enhanced)"), and plugins of my own that make Obsidian behave more like VS Code.
 
-## Project Structure
-
-```
-obsidian-plugin-toolkit/
-├── build-tools/                  # Shared build tools
-│   ├── esbuild.config.mjs        # Unified esbuild configuration
-│   ├── version-bump.mjs          # Version bump script (every package's `version` script)
-│   └── tsconfig.base.json        # TypeScript base configuration
-├── shared/                       # Runtime code bundled into more than one plugin
-├── scripts/sync-vaults.mjs       # Copies the built plugins (and shared settings) to every vault
-├── .githooks/pre-push            # Runs the vault sync before every push
-├── packages/
-│   ├── auto-link-title-enhanced/   # @obsidian-plugin-toolkit/auto-link-title-enhanced
-│   ├── blockier-enhanced/          # @obsidian-plugin-toolkit/blockier-enhanced
-│   ├── caption-enhanced/           # @obsidian-plugin-toolkit/caption-enhanced
-│   ├── claudian-enhanced/          # @obsidian-plugin-toolkit/claudian-enhanced
-│   ├── copy-path/                  # @obsidian-plugin-toolkit/copy-path
-│   ├── drafts/                     # @obsidian-plugin-toolkit/drafts
-│   ├── excalidraw-enhanced/        # @obsidian-plugin-toolkit/excalidraw-enhanced
-│   ├── file-explorer-enhancements/ # @obsidian-plugin-toolkit/file-explorer-enhancements
-│   ├── hide-ui-elements/           # @obsidian-plugin-toolkit/hide-ui-elements
-│   ├── image-auto-upload-enhanced/ # @obsidian-plugin-toolkit/image-auto-upload-enhanced
-│   ├── line-numbers/               # @obsidian-plugin-toolkit/line-numbers
-│   ├── mermaid-enhanced/           # @obsidian-plugin-toolkit/mermaid-enhanced
-│   ├── nav-history/                # @obsidian-plugin-toolkit/nav-history
-│   ├── note-comments/              # @obsidian-plugin-toolkit/note-comments
-│   ├── paste-enhanced/             # @obsidian-plugin-toolkit/paste-enhanced
-│   ├── quick-open/                 # @obsidian-plugin-toolkit/quick-open
-│   ├── sidebar-guard/              # @obsidian-plugin-toolkit/sidebar-guard
-│   ├── sticky-find/                # @obsidian-plugin-toolkit/sticky-find
-│   ├── sticky-table-header/        # @obsidian-plugin-toolkit/sticky-table-header
-│   ├── tab-manager/                # @obsidian-plugin-toolkit/tab-manager
-│   └── vault-backup/               # @obsidian-plugin-toolkit/vault-backup
-├── package.json
-├── pnpm-workspace.yaml
-└── README.md
+```mermaid
+flowchart LR
+    subgraph repo["obsidian-plugin-toolkit"]
+        P["packages/*/src"]
+        S["shared/<br/>zoom overlay, captions,<br/>tab lookup, DOM find"]
+        B["build-tools/<br/>esbuild + tsconfig"]
+    end
+    P --> E["esbuild<br/>(per package)"]
+    S --> E
+    B --> E
+    E --> D["packages/*/dist"]
+    D -->|"pnpm build:name"| V1["default vault<br/>.obsidian/plugins/id"]
+    V1 -->|"pnpm sync<br/>(pre-push hook)"| V2["other vaults"]
 ```
 
-## Installation
+## Plugins at a glance
 
-```bash
-pnpm install
+| Area | Plugin | What it's for |
+|---|---|---|
+| Writing | [Paste (Enhanced)](#paste-enhanced) | Paste HTML as Markdown, code as-is in code blocks |
+| | [Auto Link Title (Enhanced)](#auto-link-title-enhanced) | A pasted URL becomes `[title](url)` |
+| | [Image Auto Upload (Enhanced)](#image-auto-upload-enhanced) | Pasted images go to an image host via PicGo |
+| | [Blockier (Enhanced)](#blockier-enhanced) | Block selection, callout and code-fence suggestions, code block indentation |
+| | [Drafts](#drafts) | VS Code's untitled files |
+| | [Note Comments](#note-comments) | Comments on selected text, kept out of the Markdown |
+| | [Sticky Find](#sticky-find) | Find in a note without breaking rendered tables |
+| | [Line Numbers](#line-numbers) | Line numbers on every line |
+| Figures | [Caption (Enhanced)](#caption-enhanced) | Captions under images, Mermaid and Excalidraw |
+| | [Mermaid (Enhanced)](#mermaid-enhanced) | Diagrams that fit the screen, zoom overlay |
+| | [Excalidraw (Enhanced)](#excalidraw-enhanced) | Drawings that behave like Mermaid diagrams |
+| | [Sticky Table Header](#sticky-table-header) | Table headers stay pinned while scrolling |
+| Navigation | [Quick Open](#quick-open) | `Cmd+P` Go to File |
+| | [Nav History](#nav-history) | Global Go Back / Go Forward |
+| | [Tab Manager](#tab-manager) | A link to an open note goes to its tab |
+| | [Sidebar Guard](#sidebar-guard) | `Cmd+W` never closes a sidebar panel |
+| | [File Explorer (Enhanced)](#file-explorer-enhanced) | Pins, folder notes, hidden files |
+| | [Hide UI Elements](#hide-ui-elements) | Hide sidebar tabs and status bar items |
+| | [Copy Path](#copy-path) | Copy a note's absolute path |
+| AI | [Claudian (Enhanced)](#claudian-enhanced) | Claude Code in the sidebar, a conversation per note |
+| Vault | [Vault Backup](#vault-backup) | Scheduled git commit + push, from one machine only |
+
+Every package lives in `packages/<name>/`. Shared runtime code lives in `shared/`, which esbuild bundles into each plugin that uses it.
+
+```mermaid
+flowchart LR
+    ZO["shared/zoom-overlay.ts"] --> ME["Mermaid (Enhanced)"]
+    ZO --> EX["Excalidraw (Enhanced)"]
+    CA["shared/caption.ts"] --> CE["Caption (Enhanced)"]
+    CA --> ME
+    CA --> ZO
+    OT["shared/open-tab.ts"] --> TM["Tab Manager"]
+    OT --> FE["File Explorer (Enhanced)"]
+    DF["shared/dom-find.ts"] --> SF["Sticky Find"]
+    DF --> CL["Claudian (Enhanced)"]
 ```
+
+## Writing
+
+### Paste (Enhanced)
+
+```mermaid
+flowchart LR
+    C["Cmd+V"] --> Q{"Where's the cursor?"}
+    Q -->|"in a code block"| A["Pasted as-is<br/>indentation kept"]
+    Q -->|"in text, HTML on clipboard"| B["HTML → Markdown<br/>(tables, task lists…)"]
+    Q -->|"copied from Obsidian,<br/>or another plugin handled it"| O["Left to Obsidian /<br/>that plugin"]
+```
+
+Pastes according to the cursor's context. Rich HTML from a browser or document becomes clean GitHub-flavored Markdown. Inside a code block, text keeps its exact indentation and line breaks. Text copied out of a note goes back through Obsidian's own paste, so embeds, wikilinks and callouts survive. A paste another plugin already handled, such as an image upload or a link title, isn't processed twice. The patch version bumps itself on every build.
+
+### Auto Link Title (Enhanced)
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant P as Auto Link Title
+    participant W as Web page
+    participant L as LLM
+    You->>P: paste https://…
+    P->>W: fetch (Chrome's cookies for intranet sites)
+    W-->>P: HTML
+    alt LLM configured
+        P->>L: page content
+        L-->>P: title
+    else no LLM, or it fails
+        P->>P: use the page's own title
+    end
+    P-->>You: [title](https://…)
+```
+
+A pasted link becomes `[title](url)`. By default an OpenAI-compatible LLM writes the title from the page, falling back to the page's own `<title>`. Intranet pages are fetched with Chrome's cookies for that site, and pages that aren't UTF-8 decode correctly. A URL pasted into an image's alt text is left alone.
+
+### Image Auto Upload (Enhanced)
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant P as Image Auto Upload
+    participant G as PicGo
+    participant H as Image host
+    You->>P: paste or drop an image
+    P->>G: upload
+    G->>H: upload
+    H-->>G: URL
+    G-->>P: URL
+    P-->>You: ![](https://…) in the note
+```
+
+Uploads images from the clipboard through PicGo and writes the hosted link into the note.
+
+### Blockier (Enhanced)
+
+```mermaid
+mindmap
+  root((Blockier))
+    Code blocks
+      Language suggestions on an opening fence
+      Enter keeps and deepens the indent
+      Cmd+A selects just the block
+      Long lines scroll, not wrap
+    Callouts
+      Callout type suggestions
+    Checkboxes
+      Checkbox variant suggestions
+    Paragraphs
+      Block type replaced by prefix
+```
+
+Block editing utilities, forked from Blockier:
+
+- **Select block**: `Cmd/Ctrl+A` inside a code block selects just that block, and pressing it again selects the whole note.
+- **Code fence suggestions**: typing an opening fence (```` ```py ````) suggests the language. Exact matches come first, then prefix, then fuzzy, each ordered by how often the vault's code blocks use it, aliases (`ts`, `js`, `py`, `sh`, `yml`…) included. Enter, Tab or a click writes it and puts the cursor inside the block, with an optional per-language template. ```` ``` ```` + Enter still makes a plain block.
+- **Code block indentation**: Enter keeps the line's indent. It goes a level deeper after an opening bracket, or after a colon ending a Python or YAML line, and between a pair of brackets the closer moves to its own line. The indent unit is the block's own (a tab, or its fewest leading spaces).
+- **Callout and checkbox suggestions**, and block-type replacement by prefix.
+- Rendered code blocks scroll sideways instead of wrapping (a setting, on by default).
+
+### Drafts
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Draft: Cmd+N
+    Draft --> Saved: Cmd+S
+    Draft --> Asking: close, has text
+    Draft --> Discarded: close, blank
+    Asking --> Saved: Save
+    Asking --> Discarded: Don't save
+    Asking --> Draft: Cancel
+    Draft: Draft in hidden _drafts/
+    Asking: Save / Don't save / Cancel
+    Saved: Note in the vault, name and folder picked
+    Discarded --> [*]
+```
+
+VS Code's untitled files. "New draft" opens a blank note that isn't anywhere in the vault yet, so jotting something down no longer leaves an `Untitled.md` behind.
+
+- `Cmd/Ctrl+S` in a draft asks for a name (its first line, to start with) and a folder, and moves it there with its links and attachments.
+- Closing a draft with text in it asks Save / Don't save / Cancel. A blank one is just discarded, and one left behind any other way is reopened with "Open draft…".
+- Drafts are real notes in a hidden `_drafts/` folder, so every editor plugin works in them. The folder is hidden from the file explorer, search and graph, and left out of Vault Backup.
+- On mobile a draft's header has a save button instead of `Cmd/Ctrl+S`.
+
+### Note Comments
+
+![Two commented passages highlighted in the note, their comments in the Comments panel](docs/images/note-comments.png)
+
+Comment on selected text without touching the Markdown. Commented passages are highlighted, and hovering shows the comment in a small card. Clicking one opens the Comments panel, where comments are written in a full Obsidian editor, so images, Mermaid and paste handlers work there too. A comment is found again by its quoted text and surrounding context, ignoring whitespace, Markdown markup and punctuation, so reformatting a note doesn't lose it. One whose words were rewritten stays in the panel, marked as not found. Selecting a comment's text also sends it to Claudian.
+
+### Sticky Find
+
+![Find bar searching "bucket", matches highlighted inside a rendered table](docs/images/sticky-find.png)
+
+Find in the current note without collapsing rendered tables. The built-in find moves the editor selection into the match, which forces Live Preview to fall back to Markdown source; this one highlights matches without moving the selection.
+
+### Line Numbers
+
+![Line numbers on every line, code block included](docs/images/line-numbers.png)
+
+Whole-document line numbers in the editor gutter, with an option to float them in the left margin.
+
+## Figures
+
+### Caption (Enhanced)
+
+<img src="docs/images/caption.png" width="640" alt="An image with a caption under it, the caption holding a link">
+
+Captions under images, Mermaid diagrams and Excalidraw drawings, in Live Preview and Reading view. The caption is the image's alt text in plain Markdown, so links and emphasis in it render. Live Preview can't parse a link inside an alt, so this plugin draws those images itself. A caption button among an image's actions edits it; the same caption UI (`shared/caption.ts`) is used by Mermaid (Enhanced) and the zoom overlay. An image's edit button stays pinned to its top-right corner after resizing.
+
+### Mermaid (Enhanced)
+
+![A diagram fitted to the note, its caption under it and its actions (size slider, caption, edit) on hover](docs/images/mermaid.png)
+
+![The zoom overlay: the caption as title, ←/→ and thumbnails for every diagram of the note](docs/images/mermaid-zoom.png)
+
+- Tall diagrams fit one screen, with a per-diagram size slider saved as `%% fit: … %%`, and are never wider than the note.
+- Captions as `%% caption: … %%`, edited and rendered like image captions.
+- In Live Preview a diagram stays a diagram: the cursor stays out of it unless you press its edit button or type in it. Its action group looks like an image's.
+- `Cmd/Ctrl`-click opens a zoomable, pannable overlay that pages through every diagram of the note (thumbnails, ←/→; ones with a syntax error are skipped), with selectable labels and the caption as its title.
+
+### Excalidraw (Enhanced)
+
+![An embedded Excalidraw drawing with its caption, and the caption and edit buttons on hover](docs/images/excalidraw.png)
+
+- Embedded drawings render at their own size in the note, with a height cap.
+- Clicking one opens the same zoom overlay as Mermaid. While zooming, a bitmap stands in for a heavy SVG and the vector comes back once you stop, so large hand-drawn drawings zoom smoothly.
+- An edit button (like Mermaid's) opens the drawing in a new tab. Single clicks, double clicks and right-clicks no longer open the drawing by accident; right-click shows a menu for the drawing.
+- Typing ```` ```excalidraw ```` makes a new drawing and embeds it.
+- Images in Claudian's replies zoom too.
+
+### Sticky Table Header
+
+![A table scrolled half out of view, its header row still pinned at the top](docs/images/sticky-table-header.png)
+
+Keeps table headers pinned while scrolling, in Reading view and Live Preview, without breaking cell drag-selection.
+
+## Navigation
+
+### Quick Open
+
+<img src="docs/images/quick-open.png" width="720" alt="Go to File listing recently opened notes">
+
+VS Code's Go to File on `Cmd/Ctrl+P` (the command palette moves to `Cmd/Ctrl+Shift+P`).
+
+- With nothing typed it lists recently opened files. Typing fuzzy-matches file names (or whole paths once the query has a `/`) and notes' `aliases`, recent matches first.
+- `name:42` opens at a line, `:42` goes to a line in the current note, `@` lists its headings.
+- Enter opens in the tab the file already has, or a new tab, never over the note you're in. `Cmd/Ctrl+Enter` always opens a new tab. Holding `Cmd/Ctrl` and pressing `P` again moves down the list; letting go opens the selection.
+- The recent list syncs between devices through `data.json`, merged entry by entry, so one device never overwrites another's.
+- An empty new tab becomes the same search inline. On mobile it takes over the navbar's search button.
+
+### Nav History
+
+```mermaid
+flowchart LR
+    A["Note A, line 10"] --> B["Note B (other tab)"] --> C["Note C"]
+    C -->|"Ctrl+-"| B
+    B -->|"Ctrl+-"| A2["Note A, line 10<br/>(tab reopened if closed)"]
+```
+
+VS Code style global Go Back / Go Forward (`Ctrl+-` / `Ctrl+Shift+-`). Obsidian's own history is per tab; this keeps one stack for the whole workspace, restores the exact cursor position, and reopens a tab that was closed rather than taking over the one you're looking at.
+
+### Tab Manager
+
+```mermaid
+flowchart LR
+    L["Click a link to Note B"] --> Q{"Note B already<br/>open in a tab?"}
+    Q -->|yes| G["Go to that tab<br/>(#heading carried over)"]
+    Q -->|no| O["Open as usual"]
+    N["Close a tab you just opened"] --> BK["Back to the tab<br/>you opened it from"]
+```
+
+Following a link to a note that's already open goes to its tab instead of opening it again, as the Chrome extension of the same name does for web pages. That applies to a plain click, `Cmd/Ctrl`-click and middle click alike. A link's `#heading` or `#^block` is carried over to the tab it lands on. Closing a tab you just opened goes back to the tab you opened it from. File Explorer (Enhanced) applies the same rule to the file tree through `shared/open-tab.ts`.
+
+### Sidebar Guard
+
+```mermaid
+flowchart LR
+    W["Cmd+W / next tab<br/>while a sidebar panel is active"] --> M["Acts on the main<br/>area's tabs instead"]
+    S["Active note changes<br/>(or empty tab)"] --> F["Outline, Properties…<br/>follow it (or clear)"]
+```
+
+- `Cmd/Ctrl+W` never closes a sidebar panel (Claudian, Outline, Graph…). With a panel active it closes your tab in the main area instead, as in VS Code. A note opened in a sidebar still closes as usual.
+- "Go to next/previous tab" likewise cycles the main area's tabs while a panel is active.
+- It wraps the commands rather than the keys, so it follows whatever hotkeys they have.
+- Panels that show the active note (Outline, Properties, local graph…) are kept on it, and clear over an empty tab or a main-area Claudian chat.
+
+### File Explorer (Enhanced)
+
+<img src="docs/images/file-explorer.png" width="300" alt="File tree with a pinned section, folder notes and file counts">
+
+Pinned items, folder notes, file counts and hiding files or folders (right-click, wildcard patterns, a toggle-visibility command). An open folder note highlights its folder, and "Reveal current file in navigation" (`Cmd/Ctrl+Shift+E`) flashes the folder. "Reveal in Finder" shows the row last clicked in the tree. `Cmd/Ctrl+B` in the tree toggles the left sidebar.
+
+### Hide UI Elements
+
+```mermaid
+mindmap
+  root((Hide UI Elements))
+    Sidebar tabs
+      Tags
+      Bookmarks
+      Backlinks
+      Outgoing links
+      Properties
+    Status bar
+      Sync status
+      Character count
+      Editor mode
+    Vault name
+```
+
+Toggles the visibility of sidebar tabs (Tags, Bookmarks, Backlinks, Outgoing links, Properties…) and status bar items. Also sizes the modal close button under the Primary theme.
+
+### Copy Path
+
+```mermaid
+flowchart LR
+    K["Cmd+Opt+C"] --> Q{"Cursor under<br/>a heading?"}
+    Q -->|yes| A["/abs/path/note.md#Heading"]
+    Q -->|no| B["/abs/path/note.md"]
+```
+
+Copies the absolute path of the current file, optionally with the current heading as an anchor.
+
+## AI
+
+### Claudian (Enhanced)
+
+![A code block selected in the note, its reference @path#45-60 in Claudian's composer](docs/images/claudian.png)
+
+[Claudian](https://github.com/YishenTu/claudian), tuned for notes.
+
+- `Cmd/Ctrl+L` toggles the chat, focusing its input and keeping the editor selection highlighted.
+- Each note keeps its own conversation: switching notes brings back that note's conversation and reading position. A reply still running carries on in its own tab. A chat opened in the main area isn't bound to any note.
+- `Option/Alt+K` puts a reference to the selection into the composer (`@path#lines`), as Claude Code's VS Code extension does. Selections from rendered tables, Mermaid diagrams, Excalidraw drawings and comments count. References in prompts and replies are links that open the note at those lines.
+- Every prompt is tagged with the note lines it was sent with. The current prompt stays pinned while its reply scrolls, and streaming follows the bottom until you scroll up.
+- `Cmd/Ctrl+N` starts a new session when you're in Claudian, else a new draft. `Cmd/Ctrl+F` finds in the conversation.
+
+## Vault
+
+### Vault Backup
+
+```mermaid
+flowchart LR
+    T["Timer"] --> M{"This machine<br/>opted in?<br/>(localStorage)"}
+    M -->|no| X["Skip"]
+    M -->|yes| I["Drop paths on the<br/>ignore list from git"]
+    I --> A["git add + commit<br/>(only if dirty)"] --> P["git push<br/>(only if ahead)"]
+```
+
+Commits and pushes the vault with git on a schedule. Backup only runs on machines you explicitly opt in (the switch lives in Obsidian's per-machine localStorage, not the iCloud-synced `data.json`), so a vault shared across several computers is only ever written by one of them. An ignore list keeps noisy files out: plugin build output, Claudian sessions, drafts, and the `data.json` of plugins that only store state (Recent Files, Quick Open, Claudian (Enhanced)). Failures show in the status bar, a notice and the settings page.
 
 ## Development
 
-Run all plugins in development mode:
-
 ```bash
-pnpm dev
-```
-
-Run a specific plugin in development mode:
-
-```bash
-pnpm dev:auto-link-title-enhanced   # Auto Link Title (Enhanced)
-pnpm dev:blockier-enhanced          # Blockier (Enhanced)
-pnpm dev:caption-enhanced           # Caption (Enhanced)
-pnpm dev:claudian-enhanced          # Claudian (Enhanced)
-pnpm dev:copy-path                  # Copy Path
-pnpm dev:drafts                     # Drafts
-pnpm dev:excalidraw-enhanced        # Excalidraw (Enhanced)
-pnpm dev:file-explorer-enhancements # File Explorer (Enhanced)
-pnpm dev:hide-ui-elements           # Hide UI Elements
-pnpm dev:image-auto-upload-enhanced # Image Auto Upload (Enhanced)
-pnpm dev:line-numbers               # Line Numbers
-pnpm dev:mermaid-enhanced           # Mermaid (Enhanced)
-pnpm dev:nav-history                # Nav History
-pnpm dev:note-comments              # Note Comments
-pnpm dev:paste-enhanced             # Paste (Enhanced)
-pnpm dev:quick-open                 # Quick Open
-pnpm dev:sidebar-guard              # Sidebar Guard
-pnpm dev:sticky-find                # Sticky Find
-pnpm dev:sticky-table-header        # Sticky Table Header
-pnpm dev:tab-manager                # Tab Manager
-pnpm dev:vault-backup               # Vault Backup
-```
-
-Or use filter:
-
-```bash
-pnpm --filter @obsidian-plugin-toolkit/file-explorer-enhancements dev
-pnpm --filter @obsidian-plugin-toolkit/copy-path dev
-pnpm --filter @obsidian-plugin-toolkit/paste-enhanced dev
-```
-
-## Build
-
-Build all plugins:
-
-```bash
-pnpm build
-```
-
-Build a specific plugin:
-
-```bash
-pnpm build:auto-link-title-enhanced
-pnpm build:blockier-enhanced
-pnpm build:caption-enhanced
-pnpm build:claudian-enhanced
-pnpm build:copy-path
-pnpm build:drafts
-pnpm build:excalidraw-enhanced
-pnpm build:file-explorer-enhancements
-pnpm build:hide-ui-elements
-pnpm build:image-auto-upload-enhanced
-pnpm build:line-numbers
-pnpm build:mermaid-enhanced
-pnpm build:nav-history
-pnpm build:note-comments
-pnpm build:paste-enhanced
-pnpm build:quick-open
-pnpm build:sidebar-guard
-pnpm build:sticky-find
-pnpm build:sticky-table-header
-pnpm build:tab-manager
-pnpm build:vault-backup
-```
-
-## Lint
-
-Run lint for all plugins:
-
-```bash
+pnpm install
+pnpm dev                    # watch mode for every package, symlinked into the vault
+pnpm dev:<name>             # one package, e.g. pnpm dev:caption-enhanced
+pnpm build                  # type-check + production build of every package
+pnpm build:<name>           # one package, copied into OBSIDIAN_PLUGINS_DIR
 pnpm lint
 ```
 
-## Sync to other vaults
+`<name>` is the package directory under `packages/`. Set `OBSIDIAN_PLUGINS_DIR` in `.env` (see `.env.example`) to the vault's `.obsidian/plugins`.
 
-`pnpm build:<name>` copies a plugin into the vault set by `OBSIDIAN_PLUGINS_DIR` in `.env`. `pnpm sync` (`node scripts/sync-vaults.mjs [vault…]`) then mirrors every built plugin into the other vaults — matched by manifest `id`, each vault's own `data.json` kept — along with CSS snippets (prefer a plugin's `styles.css`: a snippet is one more file to keep in step), the shared app / appearance / hotkey / core-plugin settings, and Claudian's system prompt (only the prompt — model, permission mode and the rest stay per vault; Claudian (Enhanced) carries a prompt changed on disk into the running Claudian). The `.githooks/pre-push` hook runs it on every push (skip with `git push --no-verify`), so build before pushing.
+### Sync to other vaults
 
-## Plugin IDs, folders and versions
+`pnpm build:<name>` copies a plugin into the vault set by `OBSIDIAN_PLUGINS_DIR`. `pnpm sync` (`node scripts/sync-vaults.mjs [vault…]`) then mirrors every built plugin into the other vaults, matched by manifest `id`, with each vault's own `data.json` kept. It also copies CSS snippets, the shared app / appearance / hotkey / core-plugin settings, and Claudian's system prompt (only the prompt; model, permission mode and the rest stay per vault). The `.githooks/pre-push` hook runs it on every push (skip with `git push --no-verify`), so build before pushing.
 
-- A package builds into `packages/<name>/dist/`, which is copied into the vault folder named after its manifest `id` — the name comes from `manifest.json`, so it can't drift.
-- Obsidian's plugin updater knows a plugin by its `id` alone and offers the community store's release of the same id as an update — installing it replaces ours. So some ids carry a prefix (`yeyan-drafts`, `yeyan-quick-open`, `yeyan-sidebar-guard`, `yeyan-tab-manager`), and the ids the store also has but we keep are versioned `100.0.0`, so no store release is ever newer: `copy-path`, `note-comments`, `vault-backup`. Check a new plugin's id against [community-plugins.json](https://github.com/obsidianmd/obsidian-releases/blob/master/community-plugins.json) before choosing it.
+### Plugin IDs, folders and versions
 
-## Plugins
+- A package builds into `packages/<name>/dist/`, which is copied into the vault folder named after its manifest `id`. The name comes from `manifest.json`, so it can't drift.
+- Obsidian's plugin updater knows a plugin by its `id` alone and offers the community store's release of the same id as an update, which would replace ours. So some ids carry a prefix (`yeyan-drafts`, `yeyan-quick-open`, `yeyan-sidebar-guard`, `yeyan-tab-manager`), and the ids the store also has but we keep are versioned `100.0.0`, so no store release is ever newer: `copy-path`, `note-comments`, `vault-backup`. Check a new plugin's id against [community-plugins.json](https://github.com/obsidianmd/obsidian-releases/blob/master/community-plugins.json) before choosing it.
 
-### @obsidian-plugin-toolkit/file-explorer-enhancements
-Enhanced file explorer with pinned items, folder notes, file count display, and file/folder hiding (right-click to hide, wildcard patterns, toggle-visibility command). An open folder note highlights its folder, and "Reveal current file in navigation" (`Cmd/Ctrl+Shift+E`) focuses and flashes the folder rather than the note's hidden row. "Reveal in Finder" shows the row last clicked in the tree, folder included; with no file open it opens the vault's own folder. `Cmd/Ctrl+B` in the tree toggles the left sidebar.
+### Shared configuration
 
-### @obsidian-plugin-toolkit/copy-path
-Copy absolute path of current file with optional header anchor (cmd+option+C).
-
-### @obsidian-plugin-toolkit/paste-enhanced
-Enhanced paste functionality that automatically detects code blocks and pastes content accordingly.
-
-### @obsidian-plugin-toolkit/hide-ui-elements
-Toggle visibility of sidebar tabs and status bar items. Also sizes the modal close button under the Primary theme.
-
-### @obsidian-plugin-toolkit/image-auto-upload-enhanced
-Upload images from your clipboard via PicGo.
-
-### @obsidian-plugin-toolkit/mermaid-enhanced
-Enhance Mermaid diagrams: fit tall diagrams to one screen (with a per-diagram size slider, saved as `%% fit: … %%`), never wider than the note so nothing scrolls sideways, and captions (`%% caption: … %%`) — edited and rendered as image captions are (`shared/caption.ts`): the same button and dialog, links and emphasis. In Live Preview a diagram stays a diagram — the cursor is kept out of it unless you press its edit button or type in it. `Cmd/Ctrl`-click opens a zoomable, pannable overlay that pages through every diagram of the note (thumbnails, ←/→; ones with a syntax error are skipped), with selectable labels.
-
-### @obsidian-plugin-toolkit/line-numbers
-Show whole-document line numbers in the editor gutter — every line, not just fenced code blocks.
-
-### @obsidian-plugin-toolkit/nav-history
-VS Code style global Go Back / Go Forward (`Ctrl+-` / `Ctrl+Shift+-`). Unlike Obsidian's built-in per-tab `app:go-back`, this keeps one navigation stack for the whole workspace, restores the exact cursor position you left, and reopens a tab that was closed rather than taking over the one you are looking at.
-
-### @obsidian-plugin-toolkit/note-comments
-Select text and comment on it (`Cmd/Ctrl+Option/Alt+M`, or the editor menu). Commented passages are highlighted; resting the pointer on one shows its comment in a small read-only card, and clicking one opens a Comments panel in the right sidebar that lists the note's comments, and clicking elsewhere puts the previous tab back. Comments are written and edited in that panel, in a full Obsidian editor — images, mermaid and paste handlers such as the image uploader work there too (Enter saves, Shift+Enter is a new line). They are stored in the plugin's data file, so the Markdown is never touched: a comment is found again by its quoted text and surrounding context, not by a marker — with formatting (whitespace, Markdown markup, punctuation) ignored, so reformatting a note doesn't lose its comments — and one whose words were actually rewritten stays in the panel, marked as not found. Editor-only (Live Preview and source); text inside rendered tables, callouts and embeds can't carry a comment yet.
-
-### @obsidian-plugin-toolkit/quick-open
-VS Code's Go to File on `Cmd/Ctrl+P` (the command palette moves to `Cmd/Ctrl+Shift+P`, as in VS Code). With nothing typed it lists recently opened files, most recent first; typing fuzzy-matches file names (or whole paths once the query has a `/`) and notes' `aliases` — an alias match shows as its own row, the alias with the note it stands for, as in Obsidian's switcher — recently opened matches first, then the rest of the vault. `name:42` opens at a line, `:42` goes to a line in the current note, `@` lists its headings. Enter opens — in the tab the file already has in the current group, or a new tab, never over the note you're in — and `Cmd/Ctrl+Enter` always opens a new tab (Obsidian's meaning rather than VS Code's; a row button opens to the side). Pressing `P` again with `Cmd/Ctrl` held moves down the list, and letting go opens the selection. The recent list is shared between devices through the plugin's data.json: each device records when it last opened each file and copies are merged entry by entry (later time wins, removals included), so one device never overwrites another's list the way Obsidian's own recent list in workspace.json does. It starts from Obsidian's and the Recent Files plugin's lists, and vault-backup leaves it out of backups. An empty new tab becomes the same search inline — a search box (focused when the tab is switched to) over the recent files, one card per file; Enter or a click opens the file there, Cmd/Ctrl+Enter or Cmd/Ctrl-click in a new tab. On mobile it takes over the search button in the middle of the navbar; on a phone a file opens in the tab that already has it, else in the current tab, and there is no opening to the side.
-
-### @obsidian-plugin-toolkit/sidebar-guard
-`Cmd/Ctrl+W` never closes a sidebar panel. Obsidian's "Close current tab" closes whichever tab is active, and a panel (Claudian, Outline, Backlinks…) is a tab like any other — click into one, press the key meaning the note, and the panel goes, then the next one, until the sidebar is empty. With a panel active the key now closes your tab in the main area instead, as in VS Code. A note opened in a sidebar still closes as usual, and a panel is still closed from its tab's menu. "Go to next tab" and "Go to previous tab" (`Ctrl+Tab`, `Cmd+Shift+]` / `[`, or whatever they're bound to) likewise go round the main area's tabs while a panel is active, instead of flicking through the sidebar's panels. It wraps the commands rather than the keys, so it follows whatever hotkeys they have. And the panels that show the active note (Outline, Backlinks, Properties…) are kept on it: a panel that was out of sight comes back showing the active note — none, over an empty tab — rather than whichever it had when last shown.
-
-### @obsidian-plugin-toolkit/drafts
-VS Code's untitled files. "New draft" (`Cmd/Ctrl+N` through Claudian (Enhanced), and the first button on an empty tab) opens a blank note that isn't anywhere in the vault yet, so jotting something down no longer leaves an `Untitled.md` behind. `Cmd/Ctrl+S` in a draft asks for a name — its first line, to start with — and a folder, and moves it there, links and attachments included; in any other note it saves as usual. Closing a draft with text in it asks Save / Don't save / Cancel (Enter saves, `Cmd+D` doesn't); a blank one is just discarded, and one left behind any other way is kept and reopened with "Open draft…". Drafts are real notes in a hidden `_drafts/` folder, so every editor plugin works in them; the folder is hidden from the file explorer, added to Excluded files (search, graph) and left out of vault-backup's backups. An unsaved draft's tab carries a pencil icon. On mobile, with no `Cmd/Ctrl+S`, a draft's header has a save button instead.
-
-### @obsidian-plugin-toolkit/tab-manager
-Following a link to a note that is already open goes to its tab instead of opening it again, as the Chrome extension of the same name does for web pages. A plain click counts as much as `Cmd/Ctrl`-click or a middle click: a plain click would load the note over the one you're reading, the others would stack a duplicate tab, and going to the existing tab is what either was after. It takes over `workspace.openLinkText`, which every link goes through (editor and reading view clicks, a link's "Open link" / "Open in new tab", the graph), before any tab is made, and carries a link's `#heading` or `#^block` over to the tab it lands on. A split or a new window, a link to the note it's written in, a link to a note that doesn't exist yet, and a note open only in a sidebar or another window are left to Obsidian. File Explorer (Enhanced) applies the same rule to clicks in the file tree, through the same lookup in `shared/open-tab.ts`.
-
-### @obsidian-plugin-toolkit/auto-link-title-enhanced
-Auto-titles pasted links. Enhanced fork: generates the title with an OpenAI-compatible LLM by default, falling back to a requestUrl scraper with per-URL custom request headers (for intranet pages needing an injected cookie/token).
-
-### @obsidian-plugin-toolkit/blockier-enhanced
-Extra block editing utilities: callout/checkbox suggestions, block selection (`Cmd/Ctrl+A`) and replacement. Enhanced fork, adding code block language suggestions: typing an opening fence (```` ```py ````) suggests the language — exact, then prefix, then fuzzy matches, each ordered by how often the vault's code blocks use it, aliases (`ts`, `js`, `py`, `sh`, `yml`…) included. Enter, Tab or a click writes it and puts the cursor inside the block, closing it if needed, with an optional per-language template. Nothing is suggested for a closing fence or before the first letter, so ```` ``` ```` + Enter still makes a plain block. A setting (on by default) keeps rendered code blocks from wrapping.
-
-### @obsidian-plugin-toolkit/caption-enhanced
-Show elegant captions under images and Excalidraw drawings in both Live Preview and Reading Mode — with links and emphasis rendered, and a caption button among an image's actions in Live Preview to edit it (the caption UI is `shared/caption.ts`, shared with Mermaid (Enhanced)) — and pin an image's edit button to its top-right corner in Live Preview (it drifted once the image was resized).
-
-### @obsidian-plugin-toolkit/claudian-enhanced
-Claudian, tuned for notes. One hotkey toggles the chat (`Cmd/Ctrl+L`), focusing its input and keeping the editor selection highlighted. Each note keeps its own conversation: switching notes puts the note's conversation back (or starts a fresh one linked to it), reading position included, and a reply still running carries on in its own tab. `Option/Alt+K` puts a reference to the selection into the composer, as Claude Code's VS Code extension does — `@path#lines`, with the table columns or the text when it's part of a line; a Mermaid diagram's or an Excalidraw drawing's too — and references in prompts and replies show as links that open the note at those lines. Selections from rendered tables and blocks reach Claudian; a hover card on the "N lines selected" chip shows what goes with the prompt, and every prompt is tagged with the note lines it was sent with (click to go there). `Cmd/Ctrl+N` starts a new session when you're in Claudian (cursor or pointer), else a new draft. Also: the current prompt stays pinned while its reply scrolls, folded when long, streaming follows the bottom until you scroll up, with a jump-to-latest button.
-
-### @obsidian-plugin-toolkit/excalidraw-enhanced
-Enhance embedded Excalidraw drawings: render them at their own size in the note (with a height cap) and click to open a zoomable, pannable overlay.
-
-### @obsidian-plugin-toolkit/sticky-find
-Find in the current file without collapsing rendered tables. Replaces the built-in find, which moves the editor selection into the match and forces Live Preview to fall back to Markdown source.
-
-### @obsidian-plugin-toolkit/sticky-table-header
-Keep table headers pinned while scrolling, in Reading view and Live Preview, without breaking cell drag-selection.
-
-### @obsidian-plugin-toolkit/vault-backup
-Periodically commits and pushes the vault with git. Backup only runs on machines you explicitly opt in, so a vault shared across several computers is only ever written by one of them.
-
-## Tech Stack
-
-- **Package Manager**: pnpm workspace
-- **TypeScript**: 5.8.3
-- **Build Tool**: esbuild 0.25.5
-- **Linting**: ESLint + TypeScript ESLint
-
-## Shared Configuration
-
-This project uses shared build tools to unify configuration:
-
-- **esbuild Configuration**: All projects use the unified configuration function from `build-tools/esbuild.config.mjs`
-- **TypeScript Configuration**: All projects extend `build-tools/tsconfig.base.json` base configuration
-- **Version Bump Script**: All projects share `build-tools/version-bump.mjs` (`pnpm version patch` in a package). Paste (Enhanced) also bumps its patch version on every build.
-
-This ensures all plugins maintain consistent build configuration for easier maintenance and updates.
+- **esbuild**: every package calls `createBuildContext()` from `build-tools/esbuild.config.mjs` with a few lines of its own.
+- **TypeScript**: every package extends `build-tools/tsconfig.base.json` (strict).
+- **Versions**: `pnpm version patch` in a package runs `build-tools/version-bump.mjs`.
+- **Stack**: pnpm workspace, TypeScript 5.8, esbuild 0.25, ESLint 9 with `typescript-eslint` and `eslint-plugin-obsidianmd`.
