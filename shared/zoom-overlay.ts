@@ -1,6 +1,9 @@
 import { Platform, Plugin, setIcon } from "obsidian";
 import { captionPlainText, followCaptionLink, renderCaption } from "./caption";
 
+/** How long a wheel or touch gesture rests before the drawing is drawn again at its size. */
+const SETTLE_MS = 150;
+
 /**
  * What a click can open in the overlay: a Mermaid diagram's `<svg>`, or an embedded
  * Excalidraw drawing, which is an `<svg>` or an `<img>` depending on that plugin's
@@ -67,6 +70,12 @@ export interface ZoomOverlayOptions {
 	 * Null, or a failure, shows the element itself.
 	 */
 	inline?: (target: ZoomTarget) => Promise<ZoomTarget | null>;
+	/**
+	 * While a zoom is under way, show the drawing as a picture of itself rather than as SVG
+	 * (see zooming). For drawings whose SVG is costly to draw — an Excalidraw drawing's
+	 * hand-drawn strokes — which stuttered at every step of a pinch.
+	 */
+	rasterWhileZooming?: boolean;
 	/** What the clicked drawing is drawn from (see ZoomSource); a gallery's others say it themselves. */
 	sourceOf?: (target: ZoomTarget) => ZoomSource | null;
 	/**
@@ -126,6 +135,14 @@ export class ZoomOverlay {
 	private panned = false;
 	/** A transform waiting for the next frame; see scheduleTransform. */
 	private transformFrame: number | null = null;
+	/** When the drawing's own layer is let go of after a wheel or touch gesture; see moving. */
+	private settleTimer: number | null = null;
+	/** The drawing as a picture, shown in its place while zooming; see zooming. */
+	private standIn: StandIn | null = null;
+	/** A detail for the stand-in waiting to be made; see scheduleDetail. */
+	private detailTimer: number | null = null;
+	/** The stand-in fading out as the SVG comes back; see showVector. */
+	private fadeTimer: number | null = null;
 	/** The drawing on show, at its own size; what fitting it to the screen measures. */
 	private drawingSize = { width: 800, height: 600 };
 	/** The filter the clicked drawing had in its note, given to every drawing paged to. */
@@ -333,6 +350,9 @@ export class ZoomOverlay {
 		const filter = getComputedStyle(target).filter;
 		this.drawingFilter = filter && filter !== "none" ? filter : "";
 		this.mountDrawing(shown, this.options.sourceOf?.(target) ?? null);
+		// The drawing as a picture is the <img> it was in the note, when it was one.
+		if (shown !== target && target instanceof HTMLImageElement) this.prepareStandIn(target.currentSrc || target.src);
+		else this.prepareStandIn();
 		this.createToolbar();
 		this.overlay.style.display = "flex";
 		this.fitToRoom();
@@ -342,6 +362,7 @@ export class ZoomOverlay {
 	/** Put a clone of `target` on show, replacing the one there, at the fit-to-screen scale. */
 	private mountDrawing(target: ZoomTarget, source: ZoomSource | null): void {
 		if (!this.overlay) return;
+		this.dropStandIn();
 		this.translateX = 0;
 		this.translateY = 0;
 		this.overlay.querySelector(`:scope > .${this.options.cssPrefix}-container`)?.remove();
@@ -518,6 +539,7 @@ export class ZoomOverlay {
 			if (token !== this.galleryToken || !drawing || this.gallery !== gallery) return;
 			gallery.index = index;
 			this.mountDrawing(drawing, gallery.items[index]?.source ?? null);
+			this.prepareStandIn();
 			this.fitToRoom();
 			this.markCurrent();
 		});
@@ -627,8 +649,10 @@ export class ZoomOverlay {
 		// Trackpad: pinch (ctrlKey) zooms, two-finger scroll pans.
 		container.addEventListener("wheel", (e: WheelEvent) => {
 			e.preventDefault();
+			this.moving();
 			// A pinch arrives as ctrlKey; Cmd/Ctrl with a mouse wheel zooms the same way.
 			if (e.ctrlKey || e.metaKey) {
+				this.zooming();
 				this.scale = this.clampScale(
 					this.scale * Math.exp(-e.deltaY * PINCH_SENSITIVITY),
 				);
@@ -676,6 +700,7 @@ export class ZoomOverlay {
 				this.isDragging = false;
 				frame.style.cursor = "grab";
 				frame.style.willChange = "";
+				this.scheduleDetail();
 				if (moveHandler) document.removeEventListener("mousemove", moveHandler);
 				if (upHandler) document.removeEventListener("mouseup", upHandler);
 				moveHandler = null;
@@ -718,7 +743,9 @@ export class ZoomOverlay {
 			"touchmove",
 			(e: TouchEvent) => {
 				e.preventDefault();
+				this.moving();
 				if (e.touches.length === 2) {
+					this.zooming();
 					const d = dist(e.touches);
 					if (lastDist > 0) {
 						// Already proportional: the ratio is how much the fingers spread.
@@ -796,6 +823,7 @@ export class ZoomOverlay {
 		this.scale = this.clampScale(this.scale * factor);
 		this.updateTransform();
 		this.updateToolbar();
+		this.scheduleDetail();
 	}
 
 	private clampScale(next: number): number {
@@ -808,6 +836,7 @@ export class ZoomOverlay {
 		this.translateY = 0;
 		this.updateTransform();
 		this.updateToolbar();
+		this.scheduleDetail();
 	}
 
 	/**
@@ -823,6 +852,251 @@ export class ZoomOverlay {
 		});
 	}
 
+	/**
+	 * The drawing on its own layer while a wheel or touch gesture moves it, let go of once
+	 * the gesture has rested for SETTLE_MS. Without it every frame of a two-finger scroll or a
+	 * pinch repainted the whole drawing — slight for a Mermaid diagram, but an Excalidraw
+	 * drawing's hand-drawn strokes are thousands of path points, and it stuttered. On its
+	 * layer a move is a composite; a zoom scales the picture already drawn, a little soft until
+	 * it rests and is drawn again at its new size. (A mouse drag does the same, see mousedown.)
+	 */
+	private moving(): void {
+		const frame = this.frame;
+		if (!frame) return;
+		frame.style.willChange = "transform";
+		if (this.settleTimer !== null) window.clearTimeout(this.settleTimer);
+		this.settleTimer = window.setTimeout(() => {
+			this.settleTimer = null;
+			this.showVector();
+			this.scheduleDetail();
+			if (!this.isDragging && this.frame === frame) frame.style.willChange = "";
+		}, SETTLE_MS);
+	}
+
+	/**
+	 * Show the drawing as a picture of itself while it's zoomed, the SVG back once the zoom
+	 * rests (moving's settle). Even on its own layer, a scale that changes has the browser
+	 * draw an SVG again, and an Excalidraw drawing's thousands of hand-drawn path points made
+	 * every step of a pinch stutter; an image it scales from the picture it has. Nothing is
+	 * made here, in the gesture — making the picture (serializing an SVG with its fonts) is
+	 * what made the first pinch after opening stutter; see prepareStandIn. Not ready yet,
+	 * the SVG zooms as before.
+	 */
+	private zooming(): void {
+		if (this.standIn?.svg === this.current) this.showStandIn();
+	}
+
+	/**
+	 * Make the picture zooming shows, while nothing else is going on, as a drawing is put on
+	 * show: from `src` when there is one (the <img> the drawing was in the note — nothing to
+	 * make), else from the SVG, serialized with its fonts. Decoded ahead, so the first zoom
+	 * finds it ready.
+	 */
+	private prepareStandIn(src?: string): void {
+		if (!this.options.rasterWhileZooming) return;
+		const svg = this.current;
+		const frame = this.frame;
+		if (!frame || !(svg instanceof SVGElement)) return;
+		whenIdle(() => {
+			if (this.current !== svg || this.frame !== frame || this.standIn?.svg === svg) return;
+			this.dropStandIn();
+			let url = src ?? "";
+			let owned = false;
+			if (!url) {
+				const markup = new XMLSerializer().serializeToString(svg);
+				url = URL.createObjectURL(new Blob([markup], { type: "image/svg+xml" }));
+				owned = true;
+			}
+			const el = frame.doc.createElement("div");
+			el.className = `${this.options.cssPrefix}-stand-in`;
+			el.style.cssText = `position:absolute;left:0;top:0;width:${svg.style.width};height:${svg.style.height};display:none;pointer-events:none;`;
+			if (svg.style.filter) el.style.filter = svg.style.filter;
+			const base = el.createEl("img");
+			base.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;";
+			base.decoding = "async";
+			const standIn: StandIn = { svg, el, base, urls: owned ? [url] : [], ready: false, source: null, detail: null };
+			// A bitmap, not the SVG as an image: an SVG image is still drawn again at each scale,
+			// and zoomed in, its layer is the drawing's size times the zoom times the screen's
+			// density — tens of thousands of pixels across, drawn again tile by tile as zooming
+			// out brought more of it into view. A bitmap at a capped size is scaled, not drawn.
+			const source = new Image();
+			source.decoding = "async";
+			source.src = url;
+			void source
+				.decode()
+				.then(() => toBitmapUrl(source, parseFloat(svg.style.width), parseFloat(svg.style.height), this.initialScale))
+				.then((png) => {
+					if (this.standIn !== standIn) {
+						URL.revokeObjectURL(png);
+						return;
+					}
+					standIn.urls.push(png);
+					// Kept for the detail, which is drawn from it.
+					standIn.source = source;
+					base.src = png;
+					return base.decode().then(() => {
+						if (this.standIn !== standIn) return;
+						standIn.ready = true;
+						// Zooming already: take over now.
+						if (this.settleTimer !== null) this.showStandIn();
+						else this.scheduleDetail();
+					});
+				})
+				.catch(() => {
+					if (this.standIn === standIn) this.dropStandIn();
+				});
+			frame.style.position = "relative";
+			frame.appendChild(el);
+			this.standIn = standIn;
+		});
+	}
+
+	/** Make the stand-in's detail once the view has rested a moment; see refreshDetail. */
+	private scheduleDetail(): void {
+		if (!this.standIn) return;
+		if (this.detailTimer !== null) window.clearTimeout(this.detailTimer);
+		// Past the 0.1s easing the toolbar's buttons give a zoom, so the view measured is the one it ends at.
+		this.detailTimer = window.setTimeout(() => {
+			this.detailTimer = null;
+			whenIdle(() => this.refreshDetail());
+		}, DETAIL_DELAY_MS);
+	}
+
+	/**
+	 * Draw the part of the drawing around the screen, as sharp as it's shown now, over the
+	 * stand-in. The whole-drawing bitmap is only as sharp as the drawing was when the zoom
+	 * opened; zoomed in past that, the step from the SVG to it at the start of a zoom, and back
+	 * at its end, was a step from sharp to soft and back — a jolt each time. With this over it,
+	 * a zoom starts from a picture of just what was on screen; only the drawing newly brought
+	 * into view while zooming out, past the margin, is the softer whole.
+	 */
+	private refreshDetail(): void {
+		const standIn = this.standIn;
+		const source = standIn?.source;
+		const overlay = this.overlay;
+		if (!standIn || !source || !overlay || standIn.svg !== this.current || this.settleTimer !== null) return;
+		const svg = standIn.svg as SVGElement;
+		const width = parseFloat(svg.style.width);
+		const height = parseFloat(svg.style.height);
+		const rect = svg.getBoundingClientRect();
+		const view = overlay.getBoundingClientRect();
+		if (!(width > 0) || !(height > 0) || rect.width <= 0) return;
+		// Screen px per px of the drawing, and the part of the drawing on screen.
+		const per = rect.width / width;
+		const left = (Math.max(view.left, rect.left) - rect.left) / per;
+		const right = (Math.min(view.right, rect.right) - rect.left) / per;
+		const top = (Math.max(view.top, rect.top) - rect.top) / per;
+		const bottom = (Math.min(view.bottom, rect.bottom) - rect.top) / per;
+		if (right <= left || bottom <= top) return;
+		const marginX = (right - left) * DETAIL_MARGIN;
+		const marginY = (bottom - top) * DETAIL_MARGIN;
+		const x0 = Math.max(0, Math.floor(left - marginX));
+		const y0 = Math.max(0, Math.floor(top - marginY));
+		const x1 = Math.min(width, Math.ceil(right + marginX));
+		const y1 = Math.min(height, Math.ceil(bottom + marginY));
+		const k = Math.min(Math.max(window.devicePixelRatio, 1) * per, STAND_IN_MAX_PX / Math.max(x1 - x0, y1 - y0));
+		// The whole is as sharp already: nothing to add.
+		if (k <= (standIn.base.naturalWidth / width) * 1.05) {
+			this.setDetail(standIn, null);
+			return;
+		}
+		const key = `${x0},${y0},${x1},${y1},${k.toFixed(3)}`;
+		if (standIn.detail?.key === key) return;
+		const canvas = svg.doc.createElement("canvas");
+		canvas.width = Math.max(1, Math.round((x1 - x0) * k));
+		canvas.height = Math.max(1, Math.round((y1 - y0) * k));
+		const ctx = canvas.getContext("2d");
+		if (!ctx) return;
+		// An SVG image draws as vectors at the size it's drawn at: the part, sharp.
+		const sx = source.naturalWidth / width;
+		const sy = source.naturalHeight / height;
+		ctx.drawImage(source, x0 * sx, y0 * sy, (x1 - x0) * sx, (y1 - y0) * sy, 0, 0, canvas.width, canvas.height);
+		canvas.toBlob((blob) => {
+			if (!blob || this.standIn !== standIn) return;
+			const url = URL.createObjectURL(blob);
+			const img = svg.doc.createElement("img");
+			img.decoding = "async";
+			img.style.cssText = `position:absolute;left:${x0}px;top:${y0}px;width:${x1 - x0}px;height:${y1 - y0}px;`;
+			img.src = url;
+			img.decode()
+				.then(() => {
+					// Zooming meanwhile: swapped in now, the picture would sharpen mid-zoom. The next
+					// rest makes it again.
+					if (this.standIn !== standIn || this.settleTimer !== null) URL.revokeObjectURL(url);
+					else this.setDetail(standIn, { img, url, key });
+				})
+				.catch(() => URL.revokeObjectURL(url));
+		}, "image/png");
+	}
+
+	private setDetail(standIn: StandIn, detail: StandIn["detail"]): void {
+		const old = standIn.detail;
+		if (old) {
+			old.img.remove();
+			URL.revokeObjectURL(old.url);
+		}
+		standIn.detail = detail;
+		if (detail) standIn.el.appendChild(detail.img);
+	}
+
+	private showStandIn(): void {
+		const standIn = this.standIn;
+		if (!standIn?.ready) return;
+		if (this.fadeTimer !== null) window.clearTimeout(this.fadeTimer);
+		this.fadeTimer = null;
+		standIn.el.style.transition = "none";
+		standIn.el.style.opacity = "1";
+		standIn.el.style.display = "block";
+		(standIn.svg as SVGElement).style.visibility = "hidden";
+		// No layer of its own while the bitmap stands in: a layer is kept at the scale it was
+		// made at, which zoomed in is enormous; the bitmap is cheap to draw at any scale.
+		if (this.frame && !this.isDragging) this.frame.style.willChange = "";
+	}
+
+	/**
+	 * The SVG back once a zoom rests. Shown under the stand-in first and the stand-in faded out
+	 * over it once the SVG has been drawn: swapped at once, the moment the browser took to draw
+	 * the SVG and the step from the picture to the sharp drawing showed as a jolt.
+	 */
+	private showVector(immediately = false): void {
+		const standIn = this.standIn;
+		if (!standIn) return;
+		(standIn.svg as SVGElement).style.visibility = "";
+		const el = standIn.el;
+		if (this.fadeTimer !== null) window.clearTimeout(this.fadeTimer);
+		this.fadeTimer = null;
+		if (immediately || el.style.display === "none") {
+			el.style.display = "none";
+			return;
+		}
+		// Two frames: the SVG is drawn in the first, under the picture still on top.
+		window.requestAnimationFrame(() =>
+			window.requestAnimationFrame(() => {
+				if (this.standIn !== standIn || this.settleTimer !== null) return;
+				el.style.transition = `opacity ${FADE_MS}ms ease-out`;
+				el.style.opacity = "0";
+				this.fadeTimer = window.setTimeout(() => {
+					this.fadeTimer = null;
+					el.style.display = "none";
+					el.style.transition = "none";
+					el.style.opacity = "1";
+				}, FADE_MS + 20);
+			}),
+		);
+	}
+
+	private dropStandIn(): void {
+		const standIn = this.standIn;
+		if (!standIn) return;
+		this.showVector(true);
+		if (this.detailTimer !== null) window.clearTimeout(this.detailTimer);
+		this.detailTimer = null;
+		this.setDetail(standIn, null);
+		standIn.el.remove();
+		for (const url of standIn.urls) URL.revokeObjectURL(url);
+		this.standIn = null;
+	}
+
 	private updateTransform(disableTransition = false): void {
 		if (!this.frame) return;
 		this.frame.style.transition = disableTransition ? "none" : "";
@@ -833,6 +1107,9 @@ export class ZoomOverlay {
 		if (!this.overlay) return;
 		if (this.transformFrame !== null) window.cancelAnimationFrame(this.transformFrame);
 		this.transformFrame = null;
+		if (this.settleTimer !== null) window.clearTimeout(this.settleTimer);
+		this.settleTimer = null;
+		this.dropStandIn();
 		this.resetGallery();
 		this.overlay.style.display = "none";
 		this.overlay.empty();
@@ -841,4 +1118,55 @@ export class ZoomOverlay {
 		this.toolbar = null;
 		this.isDragging = false;
 	}
+}
+
+/** The drawing as pictures of itself, shown in its place while zooming; see zooming. */
+interface StandIn {
+	svg: Element;
+	/** What's shown and faded: the whole drawing, with the detail over it. */
+	el: HTMLElement;
+	base: HTMLImageElement;
+	/** Object URLs it owns: the SVG's, when serialized here, and the bitmap's. */
+	urls: string[];
+	ready: boolean;
+	/** The drawing as an image, decoded: what the detail is drawn from. */
+	source: HTMLImageElement | null;
+	/** The part around the screen at the scale it was last shown at; see refreshDetail. */
+	detail: { img: HTMLImageElement; url: string; key: string } | null;
+}
+
+/** Longest side of the bitmap a drawing stands in as while zoomed; see zooming. */
+const STAND_IN_MAX_PX = 4096;
+/** How long the stand-in takes to fade out over the SVG once a zoom rests; see showVector. */
+const FADE_MS = 150;
+/** How long a view rests before the stand-in's detail is made for it; see scheduleDetail. */
+const DETAIL_DELAY_MS = 200;
+/** How much of the drawing around the screen the detail takes in, each side, as a share of what's on it. */
+const DETAIL_MARGIN = 0.2;
+
+/** Run when the page is idle, or soon. */
+function whenIdle(run: () => void): void {
+	if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(run, { timeout: 1000 });
+	else window.setTimeout(run, 200);
+}
+
+/**
+ * An image drawn to a PNG as sharp as the drawing is at the scale the zoom opened at, on this
+ * screen (so the step back to the SVG, at about that scale, isn't one in sharpness), its
+ * longest side capped at STAND_IN_MAX_PX; an object URL.
+ */
+function toBitmapUrl(image: HTMLImageElement, width: number, height: number, scale: number): Promise<string> {
+	const w = width > 0 ? width : image.naturalWidth;
+	const h = height > 0 ? height : image.naturalHeight;
+	const sharp = Math.max(window.devicePixelRatio, 1) * Math.max(scale, 1);
+	const k = Math.min(sharp, STAND_IN_MAX_PX / Math.max(w, h, 1));
+	const canvas = image.doc.createElement("canvas");
+	canvas.width = Math.max(1, Math.round(w * k));
+	canvas.height = Math.max(1, Math.round(h * k));
+	const ctx = canvas.getContext("2d");
+	if (!ctx) return Promise.reject(new Error("no 2d context"));
+	ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+	return new Promise((resolve, reject) =>
+		canvas.toBlob((blob) => (blob ? resolve(URL.createObjectURL(blob)) : reject(new Error("no bitmap"))), "image/png"),
+	);
 }
