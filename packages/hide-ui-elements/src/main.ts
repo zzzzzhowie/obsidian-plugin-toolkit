@@ -6,6 +6,7 @@ const BODY_CLASSES: Record<keyof HideUIElementsSettings, string> = {
 	hideAllPropertiesTab: 'hue-hide-all-properties-tab',
 	hideBookmarksTab: 'hue-hide-bookmarks-tab',
 	hideOutgoingLinksTab: 'hue-hide-outgoing-links-tab',
+	hideBacklinksTab: 'hue-hide-backlinks-tab',
 	hideBacklinkStatus: 'hue-hide-backlink-status',
 	hideEditorStatus: 'hue-hide-editor-status',
 	hideSyncStatus: 'hue-hide-sync-status',

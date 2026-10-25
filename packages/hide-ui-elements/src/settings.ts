@@ -7,6 +7,7 @@ export interface HideUIElementsSettings {
 	hideAllPropertiesTab: boolean;
 	hideBookmarksTab: boolean;
 	hideOutgoingLinksTab: boolean;
+	hideBacklinksTab: boolean;
 	// Status bar
 	hideBacklinkStatus: boolean;
 	hideEditorStatus: boolean;
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS: HideUIElementsSettings = {
 	hideAllPropertiesTab: true,
 	hideBookmarksTab: true,
 	hideOutgoingLinksTab: false,
+	hideBacklinksTab: false,
 	hideBacklinkStatus: true,
 	hideEditorStatus: true,
 	hideSyncStatus: true,
@@ -78,6 +80,17 @@ export class HideUIElementsSettingTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.hideOutgoingLinksTab).onChange(async (value) => {
 					this.plugin.settings.hideOutgoingLinksTab = value;
+					await this.plugin.saveSettings();
+					this.plugin.applyStyles();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName('Hide backlinks tab')
+			.setDesc('The local graph shows both directions in one view; this hides the list of links to the note.')
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.hideBacklinksTab).onChange(async (value) => {
+					this.plugin.settings.hideBacklinksTab = value;
 					await this.plugin.saveSettings();
 					this.plugin.applyStyles();
 				})
