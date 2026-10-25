@@ -1,4 +1,4 @@
-import { Platform, Plugin, View, type WorkspaceLeaf } from "obsidian";
+import { Platform, Plugin, type TFile, View, type WorkspaceLeaf } from "obsidian";
 
 /** Obsidian's own "Close current tab", Cmd/Ctrl+W by default. */
 const CLOSE_COMMAND = "workspace:close";
@@ -21,6 +21,13 @@ interface TabGroup {
 	children: WorkspaceLeaf[];
 	currentTab: number;
 	selectTabIndex(index: number): void;
+}
+
+/** A panel that shows the active note — Outline, Backlinks, Properties — as it is at runtime. */
+interface NoteFollower {
+	file?: TFile | null;
+	isLeafBoundToFile?: boolean;
+	onFileOpen?: (file: TFile | null) => void;
 }
 
 /** The workspace's own record of the active file, and its way of announcing a new one. */
@@ -55,8 +62,38 @@ export default class SidebarGuardPlugin extends Plugin {
 			this.guard(CLOSE_COMMAND, (tab) => this.closeTab(tab));
 			this.guard(NEXT_TAB_COMMAND, (tab) => this.goToTab(tab, 1));
 			this.guard(PREVIOUS_TAB_COMMAND, (tab) => this.goToTab(tab, -1));
+			this.syncNoteFollowers();
 		});
-		this.registerEvent(this.app.workspace.on("layout-change", () => this.announceActiveFile()));
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => {
+				this.announceActiveFile();
+				this.syncNoteFollowers();
+			}),
+		);
+		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.syncNoteFollowers()));
+	}
+
+	/**
+	 * Put a sidebar panel that shows the active note back on it as it comes into view.
+	 *
+	 * A panel out of sight — Properties behind the Outline tab — isn't loaded, and hears no
+	 * `file-open` until it is. Shown again, it comes back with the note it last had, from the
+	 * saved layout, and only the next note opened puts it right: Properties showed a note from
+	 * days before over an empty tab. Each panel in view that follows the active note is given
+	 * the active one (none, for an empty tab) when it shows another. A panel pinned or linked to
+	 * a tab follows that instead and is left be, as Obsidian leaves it.
+	 */
+	private syncNoteFollowers(): void {
+		const { workspace } = this.app;
+		const active = workspace.getActiveFile();
+		workspace.iterateAllLeaves((leaf) => {
+			const root = leaf.getRoot();
+			if (root !== workspace.leftSplit && root !== workspace.rightSplit) return;
+			const view = leaf.view as unknown as NoteFollower;
+			if (typeof view.onFileOpen !== "function" || view.isLeafBoundToFile) return;
+			if (!leaf.view.containerEl.isShown()) return;
+			if ((view.file ?? null) !== active) view.onFileOpen(active);
+		});
 	}
 
 	/**
