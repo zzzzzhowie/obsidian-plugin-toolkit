@@ -21,6 +21,11 @@
     linear-gradient(var(--table-header-background, transparent), var(--table-header-background, transparent)),
     var(--background-primary);
   box-shadow: inset 0 -1px 0 var(--table-border-color);
+  /* That line is the header's bottom border now — collapsed borders don't move with a sticky
+     cell, so a stuck header had none. The table's own border there is hidden, the strongest
+     style in a collapsed table, which takes the first row's top border with it; with both,
+     an unstuck header showed two lines. */
+  border-bottom-style: hidden;
 }
 
 /* 手机：滚动容器的 padding-top 换成了 --view-top-spacing-markdown（app.css 的 .is-phone 规则），
