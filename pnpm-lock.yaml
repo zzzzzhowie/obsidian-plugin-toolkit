@@ -65,6 +65,9 @@ importers:
         specifier: latest
         version: 1.14.4(@codemirror/state@6.7.6)(@codemirror/view@6.43.13)
     devDependencies:
+      '@codemirror/state':
+        specifier: 6.7.6
+        version: 6.7.6
       '@codemirror/view':
         specifier: 6.43.13
         version: 6.43.13

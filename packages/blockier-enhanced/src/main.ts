@@ -4,6 +4,7 @@ import { tryReplace as tryReplaceBlock } from "replace";
 import { runSelectBlock } from "select";
 import { CalloutSuggest, CheckboxSuggest } from "suggest";
 import { FenceSuggest } from "fence-suggest";
+import { codeIndentExtension } from "code-indent";
 
 export type PluginSettings = {
 	replaceBlocks: boolean;
@@ -16,6 +17,7 @@ export type PluginSettings = {
 	fenceLanguages: string;
 	fenceTemplates: string;
 	codeBlocksNoWrap: boolean;
+	codeBlockIndent: boolean;
 };
 
 const DEFAULT_SETTINGS: PluginSettings = {
@@ -31,6 +33,7 @@ const DEFAULT_SETTINGS: PluginSettings = {
 		"python, javascript, typescript, shell, bash, sql, mermaid, excalidraw, json, yaml, html, css, go, jsx, tsx, java, c, cpp, rust, markdown, plain, diff, http, dockerfile",
 	fenceTemplates: "",
 	codeBlocksNoWrap: true,
+	codeBlockIndent: true,
 };
 
 /** On <body> while code blocks scroll sideways rather than wrap; styles.css. */
@@ -99,6 +102,19 @@ export default class BlockierPlugin extends Plugin {
 				])
 			);
 		}
+
+		this.registerEditorExtension(
+			codeIndentExtension({
+				enabled: () =>
+					this.settings.codeBlockIndent &&
+					!(this.app.workspace as unknown as { editorSuggest?: { currentSuggest?: unknown } }).editorSuggest?.currentSuggest,
+				indentUnit: () => {
+					const vault = this.app.vault as unknown as { getConfig(key: string): unknown };
+					const size = vault.getConfig("tabSize");
+					return vault.getConfig("useTab") === false ? " ".repeat(typeof size === "number" ? size : 4) : "\t";
+				},
+			})
+		);
 
 		// Checking at plugin initialisation instead of every keypress.
 		// Requires reload if this setting is changed.
@@ -255,6 +271,18 @@ class SettingsTab extends PluginSettingTab {
 					this.plugin.settings.codeBlocksNoWrap = value;
 					await this.plugin.saveSettings();
 					this.plugin.applyCodeWrap();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Indent new lines in code blocks")
+			.setDesc(
+				"In a code block, a new line keeps the indent and goes one level deeper after an opening bracket, or a colon that opens a block; between a pair of brackets the closing one moves to its own line."
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.codeBlockIndent).onChange(async (value) => {
+					this.plugin.settings.codeBlockIndent = value;
+					await this.plugin.saveSettings();
 				})
 			);
 
