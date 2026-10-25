@@ -168,6 +168,13 @@ body.excalidraw-enhanced-sizing
 	pointer-events: auto;
 }
 
+/* Its links, as a caption's are: the theme's link colour, underlined. */
+.excalidraw-zoom-title a {
+	color: var(--link-external-color, var(--link-color));
+	text-decoration: underline;
+	cursor: pointer;
+}
+
 /* With a strip under it the toolbar sits closer, to leave the diagram the room. */
 .excalidraw-zoom-overlay.excalidraw-zoom-has-strip .excalidraw-zoom-toolbar {
 	margin-bottom: 8px;

@@ -208,22 +208,28 @@
 	width: 100%;
 }
 
-/* Match the edit button beside it. Themes style that button by its own class —
-   Primary gives `.edit-block-button` a padded box with its `--embed-edit-btn-*`
-   background and shadow — so the caption button, which only shares `embed-action`,
-   came out flat next to it. Same selector shape and the theme's own variables, so it
-   tracks the theme. Where a theme defines none of them, background and shadow fall
-   back to nothing — the plain action look the edit button has there too. */
-.markdown-source-view.mod-cm6 .cm-embed-block:not(.cm-table-widget):hover .mermaid-caption-btn {
-	padding: var(--size-2-2) var(--size-2-2);
-	background: var(--embed-edit-btn-bg);
-	border-radius: var(--radius-m);
-	box-shadow: var(--embed-edit-btn-shadow);
+/* A diagram's action group looks as an image's does — Obsidian's own rule for an image's
+   group, its `--embed-actions-*` variables: one pill holding flat buttons. A theme dresses a
+   code block's edit button by itself instead (Primary gives it a raised box), and a diagram's
+   caption button beside it came out as a second box, unlike the same buttons on an image. */
+.markdown-source-view.mod-cm6 .cm-embed-block.cm-preview-code-block:has(.mermaid) > .embed-actions {
+	corner-shape: var(--embed-actions-corner-shape);
+	box-shadow: var(--embed-actions-shadow);
+	background-color: var(--embed-actions-background);
+	border-radius: var(--embed-actions-radius);
+	padding: var(--embed-actions-padding);
+	backdrop-filter: var(--embed-actions-blur);
 }
-
-.markdown-source-view.mod-cm6 .cm-embed-block:not(.cm-table-widget):hover .mermaid-caption-btn:hover {
-	background: var(--embed-edit-btn-bg-hover);
-	box-shadow: var(--embed-edit-btn-shadow-hover);
+.markdown-source-view.mod-cm6 .cm-embed-block.cm-preview-code-block:not(.cm-table-widget):has(.mermaid) > .embed-actions > .embed-action {
+	padding: var(--size-2-2) var(--size-2-3);
+	border-radius: var(--embed-action-radius);
+	box-shadow: none;
+}
+.markdown-source-view.mod-cm6 .cm-embed-block.cm-preview-code-block:not(.cm-table-widget):has(.mermaid) > .embed-actions > .embed-action:not(:hover) {
+	background: none;
+}
+.markdown-source-view.mod-cm6 .cm-embed-block.cm-preview-code-block:not(.cm-table-widget):has(.mermaid) > .embed-actions > .embed-action:hover {
+	background: var(--background-modifier-hover);
 }
 
 /* Paging through the note's diagrams (gallery in main.ts): a strip of thumbnails under the
@@ -244,6 +250,13 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	pointer-events: auto;
+}
+
+/* Its links, as a caption's are: the theme's link colour, underlined. */
+.mermaid-zoom-title a {
+	color: var(--link-external-color, var(--link-color));
+	text-decoration: underline;
+	cursor: pointer;
 }
 
 /* With a strip under it the toolbar sits closer, to leave the diagram the room. */

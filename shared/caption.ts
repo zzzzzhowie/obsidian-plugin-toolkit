@@ -34,6 +34,22 @@ export function captionMarkdown(caption: string): string {
 	return caption;
 }
 
+/**
+ * A caption as plain text, for where it's a name rather than shown — a zoom's title, its
+ * thumbnails: `[Tickets \\| Filoli](https://…)` is "Tickets | Filoli". Links keep their text
+ * (a bare url after words, its words), emphasis and code their content, escapes their
+ * character.
+ */
+export function captionPlainText(caption: string): string {
+	return captionMarkdown(caption)
+		.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, target: string, label?: string) => label ?? target)
+		.replace(/\[((?:[^\[\]\\]|\\.)*)\]\([^)]*\)/g, "$1")
+		.replace(/(\*\*|__|~~|==|`)(.+?)\1/g, "$2")
+		.replace(/(^|[^\w*])\*([^*\s][^*]*?)\*(?![\w*])/g, "$1$2")
+		.replace(/\\([\\`*_{}[\]()#+\-.!|<>~=])/g, "$1")
+		.trim();
+}
+
 export interface CaptionContext {
 	app: App;
 	/** What the rendered markdown's children live under: the plugin. */

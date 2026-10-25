@@ -1,4 +1,5 @@
 import { Platform, Plugin, setIcon } from "obsidian";
+import { captionPlainText, followCaptionLink, renderCaption } from "./caption";
 
 /**
  * What a click can open in the overlay: a Mermaid diagram's `<svg>`, or an embedded
@@ -456,13 +457,21 @@ export class ZoomOverlay {
 		next.addEventListener("click", () => void this.step(1));
 		this.title = createDiv(`${prefix}-title`);
 		this.overlay.prepend(this.title);
+		// Its links work as a caption's do. A note's opens behind the zoom, so the zoom goes; a
+		// website's opens in the browser, and the zoom is still here to come back to.
+		this.title.addEventListener("click", (event) => {
+			const internal = event.target instanceof Element && !!event.target.closest("a.internal-link");
+			if (followCaptionLink(this.plugin.app, event, this.sourcePath(), `.${prefix}-title`) && internal) this.close();
+		});
 
 		const strip = this.overlay.createDiv(`${prefix}-strip`);
 		this.strip = strip;
 		gallery.items.forEach((item, index) => {
-			const thumb = strip.createEl("button", { cls: `${prefix}-thumb`, attr: { "aria-label": item.label } });
+			// A label is a caption, markdown and all; here it's a name (see captionPlainText).
+			const label = captionPlainText(item.label);
+			const thumb = strip.createEl("button", { cls: `${prefix}-thumb`, attr: { "aria-label": label } });
 			const picture = thumb.createDiv(`${prefix}-thumb-picture`);
-			thumb.createDiv({ cls: `${prefix}-thumb-label`, text: item.label });
+			thumb.createDiv({ cls: `${prefix}-thumb-label`, text: label });
 			thumb.addEventListener("click", () => void this.goTo(index));
 			void this.galleryDrawing(index).then((drawing) => {
 				if (!drawing || !picture.isConnected) return;
@@ -475,12 +484,18 @@ export class ZoomOverlay {
 		this.markCurrent();
 	}
 
+	/** The note a figure's links are relative to: the one open. */
+	private sourcePath(): string {
+		return this.plugin.app.workspace.getActiveFile()?.path ?? "";
+	}
+
 	private markCurrent(): void {
 		const index = this.gallery?.index ?? -1;
 		const label = this.gallery?.items[index]?.label ?? "";
-		if (this.title && this.title.textContent !== label) {
-			this.title.setText(label);
-			this.title.setAttribute("title", label);
+		if (this.title) {
+			// Rendered as the figure's caption is under it, links and all (shared/caption.ts).
+			renderCaption(this.title, label, { app: this.plugin.app, component: this.plugin, sourcePath: this.sourcePath() });
+			this.title.setAttribute("title", captionPlainText(label));
 		}
 		this.strip?.querySelectorAll(`.${this.options.cssPrefix}-thumb`).forEach((thumb, i) => {
 			thumb.toggleClass("is-current", i === index);
