@@ -1693,8 +1693,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const leaf = this.getClaudianLeaf();
 		if (!leaf || !this.isLeafVisible(leaf)) this.openClaudian(gen);
 		const tab = leaf && this.isLeafVisible(leaf) ? this.getActiveTab() : await this.tabForAsking(Date.now() + ASK_SETTLE_MS);
-		const input = tab?.dom?.inputEl as ClaudianComposer | undefined;
-		if (typeof input?.value !== "string" || typeof input.replaceText !== "function") {
+		// Shown is not ready: just after Obsidian starts, Claudian is on screen before its composer
+		// is mounted, and the reference was turned away as if it weren't open at all.
+		const input = composerOf(tab) ?? (await this.composerReady(Date.now() + ASK_SETTLE_MS));
+		if (!input) {
 			new Notice("Claudian isn't open.");
 			return;
 		}
@@ -1708,6 +1710,19 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		input.replaceText(head.length, end, text);
 		(input.getAccessibleTextbox?.() ?? input).focus();
 		this.getSelectionController()?.clear?.();
+	}
+
+	/** The active tab's composer once it can take text, or null if not by `deadline`. */
+	private composerReady(deadline: number): Promise<ReadyComposer | null> {
+		return new Promise((resolve) => {
+			const look = (): void => {
+				const input = composerOf(this.getActiveTab());
+				if (input) resolve(input);
+				else if (Date.now() > deadline) resolve(null);
+				else window.setTimeout(look, 50);
+			};
+			look();
+		});
 	}
 
 	/** The editor of the Live Preview table cell being edited in `cm`, if it has focus. */
@@ -4950,4 +4965,13 @@ function tableRowCells(row: string): string[] {
 	if (cells.length > 1 && cells[0]?.trim() === "") cells.shift();
 	if (cells.length > 1 && cells[cells.length - 1]?.trim() === "") cells.pop();
 	return cells.map((c) => c.trim());
+}
+
+/** A composer mounted and taking text. */
+type ReadyComposer = ClaudianComposer & { value: string; replaceText: (from: number, to: number, text: string) => void };
+
+/** A tab's composer, if it's mounted and takes text. */
+function composerOf(tab: ClaudianTab | null | undefined): ReadyComposer | null {
+	const input = tab?.dom?.inputEl as ClaudianComposer | undefined;
+	return typeof input?.value === "string" && typeof input.replaceText === "function" ? (input as ReadyComposer) : null;
 }
