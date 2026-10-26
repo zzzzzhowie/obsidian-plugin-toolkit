@@ -8,6 +8,15 @@
   overflow: visible !important;
 }
 
+/* 实时预览表格的「加一列」「加一行」按钮按 wrapper 定位（右沿 / 底边宽度 100%）。
+   主题（如 Primary）把 wrapper 设成 width:100%，超宽表撑出 wrapper 后，「加一列」那条竖条
+   就落在表格中间，hover 时像一根多出来的线。改回 Obsidian 自己的 fit-content，wrapper 跟着
+   表格走；min-width 保住主题要的满宽。 */
+.markdown-source-view .cm-table-widget .table-wrapper {
+  width: fit-content !important;
+  min-width: 100%;
+}
+
 .markdown-rendered thead th,
 .markdown-source-view .cm-table-widget thead th {
   position: sticky !important; /* 压过 app.css 里 .mod-cm6 .cm-table-widget th 的 relative */
