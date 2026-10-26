@@ -355,3 +355,26 @@
 .mermaid > .pele-zoom {
 	display: none !important;
 }
+
+/* A flowchart's connections on hover (dependencies.ts): what the hovered box or edge connects
+   stays, the rest fades back, and its edges are drawn heavier, with a glow. */
+svg.pele :is(.pele-node, .pele-edge, .pele-edge-label) {
+	transition: opacity 120ms ease;
+}
+
+svg.mermaid-deps-on :is(.pele-node, .pele-edge, .pele-edge-label):not(.is-dep) {
+	opacity: 0.15;
+}
+
+svg.mermaid-deps-on .pele-edge.is-dep > path:not(.pele-marker, .mermaid-deps-hit) {
+	stroke-width: 3px;
+	filter: drop-shadow(0 0 3px var(--color-accent));
+}
+
+/* The wide, unseen copy of each edge's line that the pointer finds it by. */
+.mermaid-deps-hit {
+	fill: none;
+	stroke: transparent;
+	stroke-width: 12px;
+	pointer-events: stroke;
+}

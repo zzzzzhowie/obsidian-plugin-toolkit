@@ -16,6 +16,7 @@ import {
 } from "./settings";
 import { CaptionModal, createCaptionButton, followCaptionLink, renderCaption } from "../../../shared/caption";
 import { type Gallery, ZoomOverlay, type ZoomSource, type ZoomTarget } from "../../../shared/zoom-overlay";
+import { DiagramDependencies } from "./dependencies";
 
 /** Attribute stamped on a reading-view block naming the note line its diagram starts on. */
 const LINE_ATTR = "data-mermaid-line";
@@ -106,6 +107,9 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			inline: inlineSvgOf,
 			gallery: (target) => Promise.resolve(claudianDiagramsAround(target)),
 		}).register();
+
+		// Hovering a box or an edge lights what it connects (dependencies.ts), in a note and the zoom.
+		new DiagramDependencies().register(this);
 
 		// A diagram shows as code only once its edit button is pressed.
 		this.registerEditorExtension([
