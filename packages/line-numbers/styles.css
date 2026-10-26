@@ -89,6 +89,15 @@
 }
 
 /*
+ * No side padding out in the margin: the gap from the text is the transform's alone, and the
+ * margin (as little as 32px without readable line length) is left for the digits, so ¹185
+ * still fits. Doubled class: CodeMirror's theme sets this padding at the same specificity.
+ */
+.line-numbers-overlay .cm-lineNumbers .cm-gutterElement.cm-gutterElement {
+	padding-inline: 0;
+}
+
+/*
  * The active line's number is highlighted by CodeMirror with a background
  * (`#e2f2ff` in its default light theme), which reads as a tint across the
  * gutter column — but in overlay mode there is no column: the element is 0-wide
@@ -107,7 +116,11 @@
 	overflow: visible;
 	white-space: nowrap;
 	text-align: right;
-	transform: translateX(calc(-100% - 0.6em));
+	/* As wide as its number. The column is 0 wide and CodeMirror's theme sets a min-width, so a
+	   number wider than that (four digits, or ¹185) ran out of the element's right side, past
+	   the gap, up to the text; the transform only moves the element by its own width. */
+	width: max-content;
+	transform: translateX(calc(-100% - 0.7em));
 	/* Numbers sit in the margin, not over the text — don't eat clicks. */
 	pointer-events: none;
 }
