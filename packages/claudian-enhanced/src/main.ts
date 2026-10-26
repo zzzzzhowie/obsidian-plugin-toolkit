@@ -400,10 +400,14 @@ interface Restore {
 	phase: "armed" | "hidden" | "holding";
 }
 
+/** How long ⌥K keeps the focus in the composer against the note taking it back; see holdComposerFocus. */
+const COMPOSER_FOCUS_HOLD_MS = 600;
+
 /**
  * Claudian's composer: an editor of its own (not a textarea) that answers to a textarea's
  * value and caret, and takes text as typed.
  */
+
 interface ClaudianComposer extends HTMLElement {
 	value?: unknown;
 	selectionStart?: number;
@@ -1708,8 +1712,34 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const text = `${head.trim() && !head.endsWith("\n") ? "\n" : ""}${reference}${/^\s/.test(value.slice(end)) ? "" : " "}`;
 		// As typed: Claudian's composer takes it as input, its caret after it.
 		input.replaceText(head.length, end, text);
-		(input.getAccessibleTextbox?.() ?? input).focus();
+		const box = input.getAccessibleTextbox?.() ?? input;
+		box.focus();
+		this.holdComposerFocus(box);
 		this.getSelectionController()?.clear?.();
+	}
+
+	/**
+	 * Keep the focus in the composer for a moment after ⌥K put it there. From a Live Preview
+	 * table cell the note took it back: the cell's editor, let go of, writes the cell into the
+	 * note and the table is drawn again with that cell being edited — the reference landed, and
+	 * the cursor was left in the table. A press or a key of the user's own ends the hold.
+	 */
+	private holdComposerFocus(box: HTMLElement): void {
+		const doc = box.ownerDocument;
+		const note = this.cmOf(this.getNoteLeaf())?.dom ?? null;
+		const back = (e: FocusEvent): void => {
+			if (note && e.target instanceof Node && note.contains(e.target)) box.focus();
+		};
+		const stop = (): void => {
+			window.clearTimeout(timer);
+			doc.removeEventListener("focusin", back, true);
+			doc.removeEventListener("pointerdown", stop, true);
+			doc.removeEventListener("keydown", stop, true);
+		};
+		doc.addEventListener("focusin", back, true);
+		doc.addEventListener("pointerdown", stop, true);
+		doc.addEventListener("keydown", stop, true);
+		const timer = window.setTimeout(stop, COMPOSER_FOCUS_HOLD_MS);
 	}
 
 	/** The active tab's composer once it can take text, or null if not by `deadline`. */
