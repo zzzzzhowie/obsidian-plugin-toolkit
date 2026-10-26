@@ -188,6 +188,14 @@
 	margin-bottom: 8px;
 }
 
+/* Live Preview: the caption is the block's last child, and its bottom margin went through the
+   block's bottom edge. CodeMirror measures a block by its own box, so that 8px was space it
+   didn't know of: everything under each captioned diagram — the gutter's line numbers among
+   it — sat 8px off its lines, one more 8px for every captioned diagram above. Kept inside. */
+.markdown-source-view.mod-cm6 .cm-embed-block:has(> .mermaid-caption) {
+	display: flow-root;
+}
+
 /* Caption button. Normally it lives inside Obsidian's `.embed-actions` group and
    needs nothing here — the group styles and reveals it. These rules are only the
    fallback for a build without that group, where it floats beside the edit button
