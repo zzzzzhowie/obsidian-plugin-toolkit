@@ -1434,7 +1434,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/**
 	 * ⌥K (bound in the vault's hotkeys), as in Claude Code's VS Code extension: the note's
 	 * selection goes into Claudian's composer as a reference, `@path#first-last`, on a line of
-	 * its own at the caret, for what to do about it to follow. Several in one prompt review
+	 * its own at the end, for what to do about it to follow. Several in one prompt review
 	 * several passages in one go; Claude reads the lines from the note.
 	 *
 	 * Diagrams too: a Mermaid diagram is its code block's lines, an Excalidraw drawing its
@@ -1682,7 +1682,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return from === 0 && to >= width - 1 ? null : [from, to];
 	}
 
-	/** Put the references into Claudian's composer, at its caret, and go type there. */
+	/** Put the references at the end of Claudian's composer, and go type there. */
 	private async insertReference(selected: NoteReference[]): Promise<void> {
 		if (selected.length === 0) return;
 		const reference = selected.map(referenceText).join(" ");
@@ -1705,13 +1705,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			return;
 		}
 		const value = input.value;
-		const start = input.selectionStart ?? value.length;
-		const end = input.selectionEnd ?? start;
-		const head = value.slice(0, start).replace(/[ \t]+$/, "");
-		// On a line of its own after what's written: each passage gets its own say.
-		const text = `${head.trim() && !head.endsWith("\n") ? "\n" : ""}${reference}${/^\s/.test(value.slice(end)) ? "" : " "}`;
+		// At the end, wherever the caret is: the passages and what's said about each read in the
+		// order they were taken. On a line of its own after what's written: each gets its own say.
+		const head = value.replace(/[ \t]+$/, "");
+		const text = `${head.trim() && !head.endsWith("\n") ? "\n" : ""}${reference} `;
 		// As typed: Claudian's composer takes it as input, its caret after it.
-		input.replaceText(head.length, end, text);
+		input.replaceText(head.length, value.length, text);
 		const box = input.getAccessibleTextbox?.() ?? input;
 		box.focus();
 		this.holdComposerFocus(box);
