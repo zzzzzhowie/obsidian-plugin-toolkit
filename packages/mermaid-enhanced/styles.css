@@ -339,3 +339,19 @@
 	opacity: 0;
 	pointer-events: none;
 }
+
+/* Obsidian 1.15 zooms a diagram in place, and sets a zoomed one's text unselectable; it
+   stays text (the press that would pan from a label is let through in main.ts). */
+.mermaid > svg {
+	-webkit-user-select: text !important;
+	user-select: text !important;
+}
+
+.mermaid > svg :is(text, text *, foreignObject, foreignObject *) {
+	cursor: text;
+}
+
+/* Its zoom buttons: zooming is this plugin's overlay. Inline display set by the renderer. */
+.mermaid > .pele-zoom {
+	display: none !important;
+}

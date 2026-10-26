@@ -166,6 +166,31 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			{ capture: true },
 		);
 
+		// Obsidian 1.15 draws diagrams with its own renderer, which zooms one in place: a
+		// double-click zooms it (zoomed, one anywhere on it resets), and zoomed, its text can't be selected — a press on a label
+		// starts a pan. Zooming is this plugin's overlay; in the note a double-click selects a
+		// word again, and a label stays text however the diagram is zoomed (styles.css): a
+		// press on one is the browser's, to select, while one beside the text still pans.
+		this.registerDomEvent(
+			document,
+			"dblclick",
+			(event: MouseEvent) => {
+				// On the diagram or the blank around it: zoomed, the container is wider than the SVG.
+				if (event.target instanceof Element && event.target.closest(".mermaid")) event.stopPropagation();
+			},
+			{ capture: true },
+		);
+		this.registerDomEvent(
+			document,
+			"pointerdown",
+			(event: PointerEvent) => {
+				const target = event.target instanceof Element ? event.target : null;
+				if (event.pointerType !== "mouse" || !target?.closest(".mermaid > svg")) return;
+				if (target.closest("text, foreignObject")) event.stopPropagation();
+			},
+			{ capture: true },
+		);
+
 		// Read per-diagram directives (`%% fit: ... %%`) from the block source and
 		// stamp them onto the rendered container so fitSvg can honor them.
 		this.registerMarkdownPostProcessor((el, ctx) => {
