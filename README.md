@@ -180,7 +180,7 @@ Find in the current note without collapsing rendered tables. The built-in find m
 
 ![Line numbers on every line, code block included](docs/images/line-numbers.png)
 
-Whole-document line numbers in the editor gutter, with an option to float them in the left margin.
+Whole-document line numbers in the editor gutter, with an option to float them in the left margin. A Live Preview table, drawn in place of its lines, gets a number on every row rather than on its first line only.
 
 ## Figures
 
