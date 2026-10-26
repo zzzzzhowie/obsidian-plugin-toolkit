@@ -8,6 +8,20 @@ import {
 	LineNumbersSettingTab,
 } from "./settings";
 
+/** Superscript digits, by digit. */
+const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+
+/**
+ * A line's number as the gutter shows it: from line 1000 on, its last three digits after its
+ * thousands, small and raised (1185 → ¹185, 2005 → ²005). Out in the margin there's room for
+ * three; the thousands, which change once every thousand lines, still tell 185 from ¹185.
+ */
+function lineLabel(line: number): string {
+	if (line < 1000) return String(line);
+	const thousands = String(Math.floor(line / 1000)).replace(/\d/g, (digit) => SUPERSCRIPT[Number(digit)] ?? digit);
+	return thousands + String(line % 1000).padStart(3, "0");
+}
+
 export default class LineNumbersPlugin extends Plugin {
 	settings: LineNumbersSettings;
 
@@ -106,9 +120,9 @@ export default class LineNumbersPlugin extends Plugin {
 
 		this.editorExtensions.length = 0;
 		if (active) {
-			this.editorExtensions.push(lineNumbers());
+			this.editorExtensions.push(lineNumbers({ formatNumber: lineLabel }));
 			// A Live Preview table is one block in the gutter; this numbers each of its rows.
-			this.editorExtensions.push(tableRowNumbers(this.settings.highlightActiveLine));
+			this.editorExtensions.push(tableRowNumbers(this.settings.highlightActiveLine, lineLabel));
 			if (this.settings.highlightActiveLine) {
 				this.editorExtensions.push(highlightActiveLineGutter());
 			}

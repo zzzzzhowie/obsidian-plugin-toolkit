@@ -45,6 +45,7 @@ class TableRowsMarker extends GutterMarker {
 		readonly from: number,
 		readonly lines: number[],
 		readonly active: number,
+		private readonly format: (line: number) => string,
 	) {
 		super();
 	}
@@ -69,7 +70,7 @@ class TableRowsMarker extends GutterMarker {
 		this.lines.forEach((line, i) => {
 			const number = rows.appendChild(doc.createElement("span"));
 			number.className = line === this.active ? `${ROW_CLS} is-active` : ROW_CLS;
-			number.textContent = String(line);
+			number.textContent = this.format(line);
 			place(number, places?.[i]);
 		});
 		return rows;
@@ -84,15 +85,22 @@ function place(number: HTMLElement, at: RowPlace | undefined): void {
 	number.style.height = number.style.lineHeight = `${at.height}px`;
 }
 
-export function tableRowNumbers(highlightActiveLine: boolean): Extension {
+/** `format` writes a line's number as the gutter's own numbers are written. */
+export function tableRowNumbers(highlightActiveLine: boolean, format: (line: number) => string): Extension {
 	return [
 		// Ahead of any other widget marker for the line-number gutter.
-		Prec.highest(lineNumberWidgetMarker.of((view, widget, block) => tableMarker(view, widget, block, highlightActiveLine))),
+		Prec.highest(lineNumberWidgetMarker.of((view, widget, block) => tableMarker(view, widget, block, highlightActiveLine, format))),
 		RowPlacer,
 	];
 }
 
-function tableMarker(view: EditorView, widget: WidgetType, block: BlockInfo, highlightActiveLine: boolean): GutterMarker | null {
+function tableMarker(
+	view: EditorView,
+	widget: WidgetType,
+	block: BlockInfo,
+	highlightActiveLine: boolean,
+	format: (line: number) => string,
+): GutterMarker | null {
 	// Obsidian's table widget, as Sticky Table Header knows it: it finds the cell under a point.
 	if (typeof (widget as { getClosestCell?: unknown }).getClosestCell !== "function") return null;
 	const doc = view.state.doc;
@@ -101,7 +109,7 @@ function tableMarker(view: EditorView, widget: WidgetType, block: BlockInfo, hig
 	const lines = [first];
 	for (let line = first + 2; line <= last; line++) lines.push(line);
 	const head = doc.lineAt(view.state.selection.main.head).number;
-	return new TableRowsMarker(block.from, lines, highlightActiveLine && head >= first && head <= last ? head : -1);
+	return new TableRowsMarker(block.from, lines, highlightActiveLine && head >= first && head <= last ? head : -1, format);
 }
 
 interface Found {
