@@ -1,0 +1,42 @@
+/* The section in view after the note's title (src/main.ts), styled as the folders before it are,
+   with the theme's breadcrumb colours where it has them. */
+.sticky-heading-trail {
+	display: flex;
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+.sticky-heading-trail:empty {
+	display: none;
+}
+
+.sticky-heading-separator {
+	flex: none;
+	padding: 2px 1px;
+	color: var(--breadcrumb-separator-color, var(--text-faint));
+}
+
+.sticky-heading-crumb {
+	/* Out of room, the headings it's under give way before the one you're in. */
+	flex: 0 3 auto;
+	min-width: 0;
+	padding: 2px 4px;
+	border-radius: var(--radius-s);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: var(--breadcrumb-color, var(--text-muted));
+	cursor: var(--cursor);
+}
+
+.sticky-heading-crumb:last-child {
+	flex-shrink: 1;
+}
+
+@media (hover: hover) {
+	.sticky-heading-crumb:hover {
+		background-color: var(--breadcrumb-bg-hover, var(--background-modifier-hover));
+		color: var(--breadcrumb-color-hover, var(--text-normal));
+	}
+}

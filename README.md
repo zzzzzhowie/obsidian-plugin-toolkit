@@ -35,6 +35,7 @@ flowchart LR
 | | [Sticky Table Header](#sticky-table-header) | Table headers stay pinned while scrolling |
 | Navigation | [Quick Open](#quick-open) | `Cmd+P` Go to File |
 | | [Nav History](#nav-history) | Global Go Back / Go Forward |
+| | [Sticky Heading](#sticky-heading) | The section in view, after the title in the tab header |
 | | [Tab Manager](#tab-manager) | A link to an open note goes to its tab |
 | | [Sidebar Guard](#sidebar-guard) | `Cmd+W` never closes a sidebar panel |
 | | [File Explorer (Enhanced)](#file-explorer-enhanced) | Pins, folder notes, hidden files |
@@ -240,6 +241,16 @@ flowchart LR
 ```
 
 VS Code style global Go Back / Go Forward (`Ctrl+-` / `Ctrl+Shift+-`). Obsidian's own history is per tab; this keeps one stack for the whole workspace, restores the exact cursor position, and reopens a tab that was closed rather than taking over the one you're looking at.
+
+### Sticky Heading
+
+```mermaid
+flowchart LR
+    S["Scrolled to a line<br/>under ## Design → ### API"] --> H["Tab header:<br/>Docs / Note › Design › API"]
+    H -->|"click Design"| T["## Design at the top"]
+```
+
+Shows the section you've scrolled to after the note's title in the tab header, as VS Code's breadcrumbs and sticky scroll do: the last heading at or above the top line, and each heading it's under. It follows the scroll in Live Preview, Source and Reading view. Clicking a heading scrolls it back to the top; the cursor stays put.
 
 ### Tab Manager
 

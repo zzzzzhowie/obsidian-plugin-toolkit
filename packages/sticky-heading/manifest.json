@@ -1,0 +1,9 @@
+{
+	"id": "yeyan-sticky-heading",
+	"name": "Sticky Heading",
+	"version": "1.0.0",
+	"minAppVersion": "1.5.0",
+	"description": "Show the headings of the section in view after the note's title in the tab header, as VS Code's breadcrumbs and sticky scroll do; click one to scroll back to it.",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}
