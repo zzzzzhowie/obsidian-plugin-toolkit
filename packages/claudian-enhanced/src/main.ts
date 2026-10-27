@@ -40,7 +40,7 @@ const BURIED_CLS = "claudian-enhanced-buried";
 const FOLDABLE_CLS = "claudian-enhanced-foldable";
 /** Marks a foldable prompt that is currently collapsed. */
 const FOLDED_CLS = "claudian-enhanced-folded";
-/** The expand/collapse button in a long prompt's bubble, at its bottom-right corner. */
+/** The expand/collapse control in a long prompt's bubble: a strip along its bottom edge. */
 const FOLD_TOGGLE_CLS = "claudian-enhanced-fold-toggle";
 /** Lines a folded prompt keeps — styles.css says `3lh`; keep the two together. */
 const FOLD_LINES = 3;
@@ -4003,10 +4003,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * The expand/collapse control: a small round button in the bubble's bottom-right
-	 * corner, over the end of the last line it keeps, with a chevron — always shown, since
-	 * it is the only sign there is more. Not a <button>: the theme pads every button, which
-	 * is what made the toolbar's icons shake; and the pinned-prompt click handler stands
+	 * The expand/collapse control: a strip along the bubble's bottom edge, the whole width,
+	 * with a chevron in its middle — always shown, since it is the only sign there is more.
+	 * Only the edge: a press anywhere else on a pinned prompt goes to its turn, and the two
+	 * would be told apart by where they land. Not a <button>: the theme pads every button,
+	 * which is what made the toolbar's icons shake; and the pinned-prompt click handler stands
 	 * aside for it, so expanding never doubles as a jump to the turn. Claudian refills the
 	 * bubble when a prompt is edited, which takes this with it; the fold pass that follows
 	 * puts it back. The icon is only rewritten when the state flips.
@@ -4032,6 +4033,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				if (container) this.foldLongPrompts(container);
 			};
 			toggle = bubble.createDiv({ cls: FOLD_TOGGLE_CLS, attr: { role: "button", tabindex: "0" } });
+			toggle.createSpan({ cls: `${FOLD_TOGGLE_CLS}-icon` });
 			toggle.addEventListener("click", flip);
 			toggle.addEventListener("keydown", (event) => {
 				if (event.key === "Enter" || event.key === " ") flip(event);
@@ -4040,7 +4042,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const state = folded ? "folded" : "expanded";
 		if (toggle.dataset.state === state) return;
 		toggle.dataset.state = state;
-		setIcon(toggle, folded ? "chevron-down" : "chevron-up");
+		const icon = toggle.querySelector<HTMLElement>(`.${FOLD_TOGGLE_CLS}-icon`) ?? toggle;
+		setIcon(icon, folded ? "chevron-down" : "chevron-up");
 		toggle.setAttribute("aria-label", folded ? "Expand prompt" : "Collapse prompt");
 	}
 

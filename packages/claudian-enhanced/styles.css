@@ -300,37 +300,42 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5lh), transparent);
 }
 
-/* The button: a small pill in the bubble's bottom-right corner (the bubble is Claudian's
-   positioned box), centred on the last line — over its faded end while folded. Expanded,
-   the bubble keeps a strip at the bottom for it, so it sits under the text, not over it. */
+/* The toggle is the bubble's bottom edge (syncFoldToggle): a strip the bubble's width, in a
+   bottom padding grown to hold it, the chevron in its middle. Only the edge: a press anywhere
+   else on a pinned prompt goes to its turn, so the strip is lit on hover to say which is
+   which. It takes the bubble's bottom corners, so the light follows its rounding. */
+.claudian-message-user.claudian-enhanced-foldable > .claudian-message-content {
+	padding-bottom: 20px;
+}
+
 .claudian-message-user .claudian-enhanced-fold-toggle {
 	position: absolute;
-	right: 10px;
-	bottom: 9px;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	height: 20px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 32px;
-	height: 24px;
-	border-radius: 999px;
-	color: var(--text-muted);
-	background-color: var(--background-primary);
-	box-shadow: 0 1px 3px rgb(0 0 0 / 14%), 0 0 0 1px rgb(0 0 0 / 4%);
+	border-bottom-left-radius: inherit;
+	border-bottom-right-radius: inherit;
+	color: var(--text-faint);
 	cursor: pointer;
 	user-select: none;
 }
 
 .claudian-message-user .claudian-enhanced-fold-toggle:hover {
 	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+.claudian-message-user .claudian-enhanced-fold-toggle-icon {
+	display: flex;
 }
 
 .claudian-message-user .claudian-enhanced-fold-toggle svg {
 	width: 16px;
 	height: 16px;
-}
-
-.claudian-message-user.claudian-enhanced-foldable:not(.claudian-enhanced-folded) > .claudian-message-content {
-	padding-bottom: 38px;
 }
 
 /* A conversation coming back with its note is rebuilt out of sight and shown once it is
