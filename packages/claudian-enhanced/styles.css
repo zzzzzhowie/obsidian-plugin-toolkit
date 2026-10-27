@@ -531,6 +531,29 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	text-decoration-line: var(--link-decoration-hover);
 }
 
+/* The table cells a reference goes to, or the text in them it quotes (lightTable in main.ts):
+   either view draws a table as one block, so the cursor can't say which cell. Lit as Obsidian
+   lights a search result it jumped to (its .is-flashing), on the cells over a theme's striping. */
+td.claudian-enhanced-lit-cell,
+th.claudian-enhanced-lit-cell {
+	background-color: var(--text-highlight-bg) !important;
+}
+
+/* Sticky Table Header fills a header cell with an opaque gradient over the background, so rows
+   scrolling under it don't show through; the highlight goes over that fill, not under it. */
+.markdown-rendered thead th.claudian-enhanced-lit-cell,
+.markdown-source-view .cm-table-widget thead th.claudian-enhanced-lit-cell {
+	background-color: var(--background-primary) !important;
+	background-image:
+		linear-gradient(var(--text-highlight-bg), var(--text-highlight-bg)),
+		linear-gradient(var(--table-header-background, transparent), var(--table-header-background, transparent)) !important;
+}
+
+::highlight(claudian-enhanced-lit-text) {
+	background-color: var(--text-highlight-bg);
+	color: var(--text-normal);
+}
+
 /* In a reply's change list, as its heading links: the colour says link, no underline needed. */
 .claudian-message p:has(> [class*="claudian-enhanced-change-"]) + ul .claudian-enhanced-reference {
 	text-decoration-line: none;
@@ -814,4 +837,42 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 
 .claudian-message p:has(> [class*="claudian-enhanced-change-"]) + ul a.internal-link:hover {
 	text-decoration: underline;
+}
+
+/* The parts of a Mermaid diagram a reference goes to (lightDiagram in main.ts): outlined and
+   tinted in the yellow the table cells are lit in. Over the diagram's own classDef colours,
+   which it writes as inline styles. */
+.claudian-enhanced-lit-shape {
+	filter: drop-shadow(0 0 3px var(--color-yellow));
+}
+
+.pele-node.claudian-enhanced-lit-shape > :not(text),
+.pele-edge-label.claudian-enhanced-lit-shape > rect {
+	fill: color-mix(in srgb, var(--color-yellow) 30%, var(--background-primary)) !important;
+	stroke: var(--color-yellow) !important;
+	stroke-width: 3px !important;
+}
+
+.pele-cluster.claudian-enhanced-lit-shape > rect {
+	fill: var(--color-yellow) !important;
+	fill-opacity: 0.15 !important;
+	stroke: var(--color-yellow) !important;
+	stroke-width: 3px !important;
+}
+
+.pele-edge.claudian-enhanced-lit-shape {
+	stroke: var(--color-yellow) !important;
+	stroke-width: 4px !important;
+}
+
+.pele-edge.claudian-enhanced-lit-shape > .pele-marker {
+	fill: var(--color-yellow) !important;
+}
+
+/* A range of lines a reference names, in reading view: lit as Obsidian lights the line it opens a note at. */
+.markdown-preview-view .claudian-enhanced-lit-block {
+	background-color: var(--highlight-background) !important;
+	color: var(--text-normal);
+	mix-blend-mode: var(--highlight-mix-blend-mode);
+	border-radius: var(--radius-s);
 }

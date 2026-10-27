@@ -1,4 +1,4 @@
-import { FileSystemAdapter, MarkdownView, Notice, parseLinktext, Platform, Plugin, Scope, setIcon, TextFileView, TFile, WorkspaceLeaf } from "obsidian";
+import { FileSystemAdapter, MarkdownView, Notice, parseLinktext, Platform, Plugin, Scope, type SectionCache, setIcon, TextFileView, TFile, WorkspaceLeaf } from "obsidian";
 import { EditorView } from "@codemirror/view";
 
 import { CommentSelection, type CommentSelectionTab } from "./comment-selection";
@@ -122,6 +122,18 @@ const SELECTION_TAG_CLS = "claudian-enhanced-selection-tag";
  * system prompt asks for one per change) — shown as a link to its lines; see linkReferences.
  */
 const REFERENCE_CLS = "claudian-enhanced-reference";
+/** The table cells a reference goes to, lit until a click in the note (lightTable). */
+const LIT_CELL_CLS = "claudian-enhanced-lit-cell";
+/** The text in them a reference quotes, lit the same way as a CSS Custom Highlight. */
+const LIT_TEXT = "claudian-enhanced-lit-text";
+/** The parts of a Mermaid diagram — nodes, edges, subgraphs — a reference goes to (lightDiagram). */
+const LIT_SHAPE_CLS = "claudian-enhanced-lit-shape";
+/** What a reference to a range of lines lights in reading view: its blocks or list items. */
+const LIT_BLOCK_CLS = "claudian-enhanced-lit-block";
+/** Something a reference lights (lightTable, lightDiagram, lightLines), held lit by keepLit. */
+type Light = { paint: () => Element[] | null; clear: () => void };
+/** A diagram as drawn, not mermaid-enhanced's copy standing in while it's redrawn. */
+const DRAWN_DIAGRAM = ".mermaid:not(.mermaid-enhanced-hold) svg";
 /** Where references are looked for: a prompt's text, a reply's text. */
 const REFERENCE_TEXT = `${CLAUDIAN_USER_MESSAGE} ${CLAUDIAN_PROMPT_TEXT}, .claudian-message-assistant .claudian-text-block`;
 /**
@@ -761,6 +773,119 @@ function tagChangeLabels(root: Node): void {
 }
 
 /**
+ * The ids a drawn flowchart gives what lines `from`–`to` (0-based) of its source `body`
+ * draw: a node's own; a subgraph's, for its `subgraph` line and its `end`. An edge, carried
+ * by the edge and its label alike, is `L_<from>_<to>_<k>` — but k skips (the second of two
+ * A → B edges is `L_A_B_2`), so it's given as `L_<from>_<to>_#<n>`, the n-th of them drawn;
+ * see drawnIds.
+ */
+function diagramTargets(body: string[], from: number, to: number): Set<string> {
+	const ids = new Set<string>();
+	// Earlier lines count too: they number the edges and open the subgraphs these close.
+	const edges = new Map<string, number>();
+	const open: string[] = [];
+	for (let i = 0; i <= Math.min(to, body.length - 1); i++) {
+		const code = (body[i] ?? "").replace(/%%.*$/, "").trim();
+		const found: string[] = [];
+		let m: RegExpExecArray | null;
+		if ((m = /^subgraph\s+("?)([^\s"[]+)\1/.exec(code))) {
+			open.push(m[2] ?? "");
+			found.push(m[2] ?? "");
+		} else if (/^end$/.test(code)) found.push(open.pop() ?? "");
+		else if ((m = /^(?:style|click)\s+(\S+)/.exec(code))) found.push(m[1] ?? "");
+		else if ((m = /^class\s+(\S+)/.exec(code))) found.push(...(m[1] ?? "").split(","));
+		else if (code && !/^(?:classDef|linkStyle|direction|flowchart|graph|title|accTitle|accDescr)\b/.test(code)) {
+			const groups = statementNodes(code);
+			if (groups.length === 1) found.push(...(groups[0] ?? []));
+			for (let g = 1; g < groups.length; g++) {
+				for (const a of groups[g - 1] ?? []) {
+					for (const b of groups[g] ?? []) {
+						const pair = `${a}_${b}`;
+						const n = edges.get(pair) ?? 0;
+						edges.set(pair, n + 1);
+						found.push(`L_${pair}_#${n}`);
+					}
+				}
+			}
+		}
+		if (i >= from) for (const id of found) if (id) ids.add(id);
+	}
+	return ids;
+}
+
+/** `targets` (diagramTargets) as the ids among `drawn`, in drawing order, that they stand for. */
+function drawnIds(targets: Set<string>, drawn: string[]): Set<string> {
+	const ids = new Set<string>();
+	const edges = [...new Set(drawn.filter((id) => id.startsWith("L_")))];
+	for (const target of targets) {
+		const edge = /^(L_.+_)#(\d+)$/.exec(target);
+		if (!edge) ids.add(target);
+		const [, prefix = "", n = "0"] = edge ?? [];
+		const id = edge && edges.filter((at) => at.startsWith(prefix) && /^\d+$/.test(at.slice(prefix.length)))[Number(n)];
+		if (id) ids.add(id);
+	}
+	return ids;
+}
+
+/**
+ * The nodes of a flowchart statement, link by link: `A & B --> C` is [[A, B], [C]]. Labels —
+ * quoted, in a shape's brackets, on a link — are taken out first, whatever they hold.
+ */
+function statementNodes(code: string): string[][] {
+	let text = code
+		.replace(/"[^"]*"/g, "")
+		.replace(/\|[^|]*\|/g, " ")
+		.replace(/:::[\w-]+/g, "")
+		// A label written into its link: `A -- text --> B`.
+		.replace(/(?<![-=.])(?:--|==|-\.)(?![-=.>])\s+[^-=.>|]+?\s+(?:-->|---|==>|===|\.->|-\.-|--[ox])/g, " --> ");
+	for (let before = ""; before !== text; ) {
+		before = text;
+		text = text.replace(/[[({][^[\](){}]*[\])}]/g, "");
+	}
+	return text
+		.split(/\s*(?:<?(?:-{2,}|={2,}|-\.+-)[->ox]?|~{3,})\s*/)
+		.map((part) => part.split("&").map((id) => /[\p{L}\p{N}_]+(?:[-.][\p{L}\p{N}_]+)*/u.exec(id)?.[0] ?? "").filter(Boolean))
+		.filter((group) => group.length > 0);
+}
+
+/**
+ * Where `quote` — source text, shortened as "start … end" when long — is in the rendered
+ * `cells`, both read as flatten reads them (no markup, no spacing); null when it isn't there,
+ * or when it's all their text (the cells themselves are what's meant).
+ */
+function renderedRange(cells: HTMLElement[], quote: string): Range | null {
+	const chars: { node: Text; offset: number }[] = [];
+	let flat = "";
+	for (const cell of cells) {
+		const walker = cell.ownerDocument.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			if (!(node instanceof Text)) continue;
+			for (let i = 0; i < node.data.length; i++) {
+				const ch = node.data.charAt(i);
+				if (MARKUP.test(ch)) continue;
+				flat += ch;
+				chars.push({ node, offset: i });
+			}
+		}
+	}
+	const [head = "", tail] = quote.split(" … ").map(flatten);
+	const start = head ? flat.indexOf(head) : -1;
+	if (start < 0) return null;
+	let end = start + head.length;
+	if (tail) {
+		const at = flat.indexOf(tail, end);
+		if (at < 0) return null;
+		end = at + tail.length;
+	}
+	const [from, to] = [chars[start], chars[end - 1]];
+	if (!from || !to || (start === 0 && end === flat.length)) return null;
+	const range = from.node.ownerDocument.createRange();
+	range.setStart(from.node, from.offset);
+	range.setEnd(to.node, to.offset + 1);
+	return range;
+}
+
+/**
  * Text from a table cell, spelled one way. A line break in a cell is `<br>` in the note, and
  * that is how Claudian carries it; the cell's own editor holds a real one.
  */
@@ -871,6 +996,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private foldFrame: number | null = null;
 	/** rAF handle for linking a streaming reply's references; see scheduleReplyLinks. */
 	private replyLinkFrame: number | null = null;
+	/** Puts out what keepLit keeps lit, while something is. */
+	private litOff: (() => void) | null = null;
 	/** Prompts the reader expanded by hand, which a later pass must not fold back up. */
 	private expandedPrompts = new WeakSet<HTMLElement>();
 	/** Each menu box quietEmptyMenus took over, and its own render, put back on unload. */
@@ -1270,6 +1397,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	onunload(): void {
 		// Stops every focus loop and veil/restore pass still running against this instance.
 		this.gen++;
+		this.litOff?.();
 		if (this.syncTimer !== null) window.clearTimeout(this.syncTimer);
 		if (this.tagRetryTimer !== null) window.clearTimeout(this.tagRetryTimer);
 		if (this.verifyTimer !== null) window.clearTimeout(this.verifyTimer);
@@ -3549,11 +3677,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		};
 	}
 
-	/** To a sent selection's lines in its note, from its peek card. */
+	/** To a sent selection's lines in its note, from its tag or peek card: lit as a reference to them is. */
 	private openSelection(selection: PeekSelection): void {
-		void this.app.workspace.openLinkText(selection.notePath, "", false, {
-			eState: { line: (selection.startLine ?? 1) - 1 },
-		});
+		const start = selection.startLine ?? 1;
+		const end = start + Math.max(1, selection.lineCount ?? 1) - 1;
+		void this.revealReference(selection.notePath, start, end, selection.selectedText || undefined);
 	}
 
 	/** Claudian's view has built its composer → its tab/context manager exists. */
@@ -3909,9 +4037,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/**
 	 * Open the note a reference names at its first line — or, when the reference quotes text
 	 * that's no longer on its lines (the note has moved since), the line that text is on now.
-	 * A drawing or a reference without lines just opens.
+	 * A drawing or a reference without lines just opens. In a table, what it names is lit:
+	 * the columns of those rows it gives, or the text it quotes (lightTable).
 	 */
-	private async revealReference(path: string, start: number, end: number, quote: string | undefined): Promise<void> {
+	private async revealReference(path: string, start: number, end: number, quote: string | undefined, columns: string[] = []): Promise<void> {
 		const file = this.app.vault.getFileByPath(path);
 		if (!file) return;
 		let existing: WorkspaceLeaf | null = null;
@@ -3932,12 +4061,258 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			const found = locateText(view.data, quoted);
 			if (found) line = view.data.slice(0, found.from).split("\n").length;
 		}
-		view.setEphemeralState({ line: line - 1 });
-		const cm = this.cmOf(leaf);
-		if (cm && view.getMode() === "source") {
+		const last = Math.max(line, Math.min(line + end - start, lines.length));
+		const table = this.blockAt(view, line, "table");
+		let diagram = this.blockAt(view, line, "code");
+		if (diagram && !/^\s*(?:```|~~~)\s*mermaid\b/.test(lines[diagram.position.start.line] ?? "")) diagram = null;
+		const cm = view.getMode() === "source" ? this.cmOf(leaf) : null;
+		// A diagram the cursor is already in shows its source: its lines are there to go to.
+		const main = cm?.state.selection.main;
+		if (diagram && main && main.to >= diagram.position.start.offset && main.from <= diagram.position.end.offset) diagram = null;
+		if (cm) {
 			const pos = cm.state.doc.line(Math.min(line, cm.state.doc.lines)).from;
-			cm.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+			// Not into a table or a diagram: the cursor in a table opens a cell's editor, the table's
+			// own focus state, neither of which says which row; in a diagram it shows the source in
+			// its place. Scrolled to, what the reference names is lit instead.
+			if (table || diagram) cm.dispatch({ effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+			else {
+				// `line` alone lights the one line; a range is lit as a search match is, start to end.
+				const range = last > line ? { startLoc: { line: line - 1, col: 0 }, endLoc: { line: last - 1, col: lines[last - 1]?.length ?? 0 } } : {};
+				view.setEphemeralState({ line: line - 1, ...range });
+				cm.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+			}
+		} else view.setEphemeralState({ line: line - 1 });
+		let lights: (Light | null)[];
+		if (table) lights = [this.lightTable(view, table, line, last, columns, quoted)];
+		else if (diagram) lights = [this.lightDiagram(view, diagram, line, last)];
+		else {
+			// A range of text can take in tables, which neither the editor's highlight nor reading
+			// view's reaches into: each is lit by its rows.
+			const sections = view.file ? this.app.metadataCache.getFileCache(view.file)?.sections : undefined;
+			const tables = (sections ?? []).filter((s) => s.type === "table" && s.position.start.line + 1 > line && s.position.start.line < last);
+			lights = tables.map((s) => this.lightTable(view, s, s.position.start.line + 1, last, [], undefined, false));
+			if (!cm && last > line) lights.push(this.lightLines(view, line, last, tables));
 		}
+		const lit = lights.filter((light): light is Light => light !== null);
+		if (lit.length === 0) return;
+		this.keepLit(
+			view,
+			() => {
+				const held = lit.map((light) => light.paint());
+				return held.every((els) => els === null) ? null : held.flatMap((els) => els ?? []);
+			},
+			() => lit.forEach((light) => light.clear()),
+		);
+	}
+
+	/** The `type` section (a table, a code block) line `line` (1-based) of `view`'s note is in; not one nested in a callout or a list. */
+	private blockAt(view: MarkdownView, line: number, type: string): SectionCache | null {
+		const sections = view.file ? this.app.metadataCache.getFileCache(view.file)?.sections : undefined;
+		return sections?.find((s) => s.type === type && s.position.start.line < line && line <= s.position.end.line + 1) ?? null;
+	}
+
+	/**
+	 * Light the cells of lines `from`–`to` (1-based) of `section`, the table they're in: those
+	 * in `columns` (header names, as references give them), else the whole rows — or, when the
+	 * reference quotes part of them, just that text. Either view draws a table as one block, so
+	 * the scroll gets as far as the table, never the cell.
+	 */
+	private lightTable(view: MarkdownView, section: SectionCache, from: number, to: number, columns: string[], quote: string | undefined, scroll = true): Light {
+		const first = section.position.start.line + 1;
+		const last = Math.min(to, section.position.end.line + 1);
+		// Row 0 is the header; the delimiter line under it isn't a row of the table, so it lights the header.
+		const rowOf = (line: number): number => Math.max(line - first - 1, 0);
+		const header = tableRowCells(view.data.split("\n")[first - 1] ?? "").map((name) => name.replace(/[*_`]/g, "").trim());
+		const indexes = columns
+			.map((name) => (header.includes(name) ? header.indexOf(name) : Number(/^#(\d+)$/.exec(name)?.[1] ?? 0) - 1))
+			.filter((index) => index >= 0);
+		const [minCol, maxCol] = indexes.length ? [Math.min(...indexes), Math.max(...indexes)] : [0, Infinity];
+		const registry = highlightRegistry();
+		const Highlight = (window as unknown as { Highlight?: new (...ranges: Range[]) => object }).Highlight;
+		let lit: HTMLTableCellElement[] = [];
+		let scrolled = !scroll;
+		const paint = (): HTMLTableCellElement[] | null => {
+			const table = this.renderedBlock(view, first)?.querySelector("table");
+			const cells = Array.from(table?.rows ?? [])
+				.slice(rowOf(from), rowOf(last) + 1)
+				.flatMap((row) => Array.from(row.cells).filter((cell) => cell.cellIndex >= minCol && cell.cellIndex <= maxCol));
+			if (cells.length === 0) return null;
+			const range = quote && registry && Highlight ? renderedRange(cells, quote) : null;
+			for (const cell of lit) if (!cells.includes(cell) || range) cell.removeClass(LIT_CELL_CLS);
+			if (range && registry && Highlight) registry.set(LIT_TEXT, new Highlight(range));
+			else for (const cell of cells) if (!cell.hasClass(LIT_CELL_CLS)) cell.addClass(LIT_CELL_CLS);
+			lit = range ? [] : cells;
+			if (!scrolled) {
+				scrolled = true;
+				// Reading view flashes the whole table it scrolled to, which would drown the cells out.
+				table?.closest(".is-flashing")?.removeClass("is-flashing");
+				(range?.startContainer.parentElement ?? cells[0])?.scrollIntoView({ block: "center" });
+			}
+			return cells;
+		};
+		return {
+			paint,
+			clear: () => {
+				for (const cell of lit) cell.removeClass(LIT_CELL_CLS);
+				registry?.delete(LIT_TEXT);
+			},
+		};
+	}
+
+	/**
+	 * Light what lines `from`–`to` (1-based) of `section`, a Mermaid block, draw: the nodes
+	 * they define, their edges with their labels, the subgraphs they open or close — found by
+	 * the ids the drawing gives them (diagramTargets). Lines that draw nothing (styling,
+	 * comments) light nothing; the scroll got as far as the diagram.
+	 */
+	private lightDiagram(view: MarkdownView, section: SectionCache, from: number, to: number): Light | null {
+		const first = section.position.start.line + 1;
+		const body = view.data.split("\n").slice(first, section.position.end.line);
+		// The fence lines are none of the diagram's: line `first` is the opening one.
+		const targets = diagramTargets(body, Math.max(from - first - 1, 0), to - first - 1);
+		if (targets.size === 0) return null;
+		let lit: Element[] = [];
+		let scrolled = false;
+		const paint = (): Element[] | null => {
+			const svg = this.renderedBlock(view, first)?.querySelector(DRAWN_DIAGRAM);
+			const all = Array.from(svg?.querySelectorAll("[data-id]") ?? []);
+			const ids = drawnIds(targets, all.map((el) => el.getAttribute("data-id") ?? ""));
+			const parts = all.filter((el) => ids.has(el.getAttribute("data-id") ?? ""));
+			if (parts.length === 0) return null;
+			for (const el of lit) if (!parts.includes(el)) el.classList.remove(LIT_SHAPE_CLS);
+			for (const el of parts) if (!el.classList.contains(LIT_SHAPE_CLS)) el.classList.add(LIT_SHAPE_CLS);
+			lit = parts;
+			if (!scrolled) {
+				scrolled = true;
+				svg?.closest(".is-flashing")?.removeClass("is-flashing");
+				parts[0]?.scrollIntoView({ block: "center", inline: "nearest" });
+			}
+			return parts;
+		};
+		return { paint, clear: () => lit.forEach((el) => el.classList.remove(LIT_SHAPE_CLS)) };
+	}
+
+	/**
+	 * Light lines `from` to `to` (1-based) in reading view, which lights only the block or list
+	 * item at the first: the blocks they take, or of a block they take part of, its list items;
+	 * not the tables in `skip`.
+	 */
+	private lightLines(view: MarkdownView, from: number, to: number, skip: SectionCache[]): Light {
+		let lit: HTMLElement[] = [];
+		let first = true;
+		const paint = (): HTMLElement[] | null => {
+			const renderer = (view.previewMode as unknown as { renderer?: { sections?: { el: HTMLElement; lines: number }[] } }).renderer;
+			const parts: HTMLElement[] = [];
+			let at = 1;
+			for (const section of renderer?.sections ?? []) {
+				const end = at + section.lines - 1;
+				// A table in range is lit by its cells (lightTable).
+				const table = skip.some((s) => s.position.start.line + 1 === at);
+				if (section.lines > 0 && !table && at <= to && end >= from && section.el.isConnected) {
+					// A list item's data-line counts from its block's first line.
+					const inRange = from <= at && end <= to ? [] : Array.from(section.el.querySelectorAll<HTMLElement>("li[data-line]")).filter((li) => {
+						const n = at + Number(li.dataset.line);
+						return n >= from && n <= to;
+					});
+					// An item lit lights the items nested in it.
+					const items = inRange.filter((li) => !inRange.some((other) => other !== li && other.contains(li)));
+					parts.push(...(items.length ? items : [section.el]));
+				}
+				at += section.lines;
+				if (at > to) break;
+			}
+			if (parts.length === 0) return null;
+			for (const el of lit) if (!parts.includes(el)) el.removeClass(LIT_BLOCK_CLS);
+			for (const el of parts) if (!el.hasClass(LIT_BLOCK_CLS)) el.addClass(LIT_BLOCK_CLS);
+			lit = parts;
+			if (first) {
+				first = false;
+				view.previewMode.containerEl.querySelectorAll(".is-flashing").forEach((el) => el.removeClass("is-flashing"));
+			}
+			return parts;
+		};
+		return { paint, clear: () => lit.forEach((el) => el.removeClass(LIT_BLOCK_CLS)) };
+	}
+
+	/**
+	 * Keep what `paint` lights lit as Obsidian lights a search result it opened a note at: until
+	 * a click in the note, or Escape. `paint` lights it and returns what it lit, or null while
+	 * that isn't drawn; it runs again whenever the
+	 * note's DOM changes, since the table or diagram can be drawn afresh meanwhile — the widget as
+	 * the note changes, reading view as it scrolls. `clear` puts it out.
+	 */
+	private keepLit(view: MarkdownView, paint: () => Element[] | null, clear: () => void): void {
+		this.litOff?.();
+		const path = view.file?.path;
+		const doc = view.containerEl.ownerDocument;
+		const repaint = (): boolean => {
+			if (view.file?.path !== path) {
+				off();
+				return true;
+			}
+			return paint() !== null;
+		};
+		let frame: number | null = null;
+		const observer = new MutationObserver(() => {
+			frame ??= requestAnimationFrame(() => {
+				frame = null;
+				repaint();
+			});
+		});
+		const onPointerDown = (e: PointerEvent): void => {
+			const target = e.target instanceof Node ? e.target : null;
+			if (target && view.containerEl.contains(target)) off();
+		};
+		const onKeyDown = (e: KeyboardEvent): void => {
+			if (e.key === "Escape") off();
+		};
+		const off = (): void => {
+			if (this.litOff !== off) return;
+			this.litOff = null;
+			observer.disconnect();
+			if (frame !== null) cancelAnimationFrame(frame);
+			doc.removeEventListener("pointerdown", onPointerDown, true);
+			doc.removeEventListener("keydown", onKeyDown, true);
+			clear();
+		};
+		this.litOff = off;
+		doc.addEventListener("pointerdown", onPointerDown, true);
+		doc.addEventListener("keydown", onKeyDown, true);
+		// Drawn on a frame to come: the widget once the editor has scrolled to it, reading
+		// view's section once it has rendered.
+		let frames = 0;
+		const look = (): void => {
+			if (this.litOff !== off) return;
+			if (repaint()) observer.observe(view.containerEl, { childList: true, subtree: true });
+			else if (++frames < 30) requestAnimationFrame(look);
+			else off();
+		};
+		requestAnimationFrame(look);
+	}
+
+	/** What `view` draws for the table or code block whose source starts on line `first` (1-based), if it's drawn. */
+	private renderedBlock(view: MarkdownView, first: number): HTMLElement | null {
+		if (view.getMode() === "source") {
+			const cm = this.cmOf(view.leaf);
+			for (const widget of Array.from(cm?.contentDOM.querySelectorAll<HTMLElement>(".cm-table-widget, .cm-preview-code-block") ?? [])) {
+				try {
+					if (cm?.state.doc.lineAt(cm.posAtDOM(widget)).number === first) return widget;
+				} catch {
+					// A widget the editor is redrawing has no position yet.
+				}
+			}
+			return null;
+		}
+		// Reading view's sections say how many lines each takes, not where it starts: counted up.
+		const renderer = (view.previewMode as unknown as { renderer?: { sections?: { el: HTMLElement; lines: number }[] } }).renderer;
+		let at = 1;
+		for (const section of renderer?.sections ?? []) {
+			// A header or footer takes no lines, and shares its place with what's next.
+			if (at === first && section.lines > 0) return section.el.isConnected ? section.el : null;
+			at += section.lines;
+			if (at > first) break;
+		}
+		return null;
 	}
 
 	/** Link the references in the latest reply of `list` on the next frame, once however many pieces stream in. */
