@@ -5,6 +5,7 @@ import { CommentSelection, type CommentSelectionTab } from "./comment-selection"
 import { ConversationFind } from "./conversation-find";
 import { type ClaudianStatusSource, NoteTabStatus } from "./tab-status";
 import { type PeekSelection, SelectionPeek } from "./selection-peek";
+import { PromptNav } from "./prompt-nav";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
 const CLAUDIAN_VIEW = "claudian-view";
@@ -854,6 +855,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private detached = new WeakSet<HTMLElement>();
 	/** Each message list's jump-to-latest button, made the first time it's needed. */
 	private jumpButtons = new WeakMap<HTMLElement, HTMLElement>();
+	/** Each message list's outline of its prompts, top left (prompt-nav.ts), made once it has two. */
+	private promptNavs = new WeakMap<HTMLElement, PromptNav>();
 	/** Last scrollTop seen per list, to tell an upward move from a downward one. */
 	private lastScrollTop = new WeakMap<HTMLElement, number>();
 	/** Set while we move a list ourselves, so our own pin isn't read as the reader scrolling. */
@@ -1291,6 +1294,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const view = this.getClaudianLeaf()?.view.containerEl;
 		if (!view) return;
 		view.querySelectorAll(`.${FOLD_TOGGLE_CLS}, .${JUMP_BTN_CLS}, .${SELECTION_TAG_CLS}`).forEach((el) => el.remove());
+		view.querySelectorAll<HTMLElement>(CLAUDIAN_MESSAGES).forEach((list) => this.promptNavs.get(list)?.destroy());
 		view.querySelectorAll<HTMLElement>(`.${REFERENCE_CLS}`).forEach((el) => el.replaceWith(el.dataset.source ?? ""));
 		const marks = [PINNED_CLS, BURIED_CLS, FOLDABLE_CLS, FOLDED_CLS, VEILED_CLS, RESTORING_CLS];
 		for (const el of [view, ...Array.from(view.querySelectorAll<HTMLElement>(marks.map((cls) => `.${cls}`).join(", ")))]) {
@@ -3782,6 +3786,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				pinnedIndex = index;
 			} else break;
 		}
+		this.syncPromptNav(scroller, prompts.length, Math.max(pinnedIndex, 0));
 		// The next prompt, on its way up, pushes the pinned one out ahead of it instead of
 		// sliding over it — as a list's section headers do. Every prompt sticks to the same
 		// edge of the same list, so CSS alone can only stack them: a header is pushed out by
@@ -4556,6 +4561,44 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			this.jumpButtons.set(scroller, button);
 		}
 		if (button.hasClass("is-shown") !== show) button.toggleClass("is-shown", show);
+	}
+
+	/**
+	 * The list's outline of its prompts (prompt-nav.ts), made in the list's wrapper beside the
+	 * jump-to-latest button once there are two prompts to tell apart; `current` is the one
+	 * pinned. Its moves through the list are the plugin's own until the reader chooses one:
+	 * hovering a prompt shows its turn without detaching a list that follows the stream, and
+	 * leaving puts it back as it was; choosing one is the reader's own move up.
+	 */
+	private syncPromptNav(scroller: HTMLElement, count: number, current: number): void {
+		let nav = this.promptNavs.get(scroller);
+		if (!nav) {
+			const wrapper = scroller.parentElement;
+			if (count < 2 || !wrapper) return;
+			const ownMove = (move: () => void): void => {
+				this.selfScrolling = true;
+				move();
+				this.lastScrollTop.set(scroller, scroller.scrollTop);
+				requestAnimationFrame(() => {
+					this.selfScrolling = false;
+				});
+			};
+			nav = new PromptNav(scroller, wrapper, {
+				preview: (list, prompt) => ownMove(() => this.scrollTurnIntoView(list, prompt)),
+				restore: (list, top, wasFollowing) =>
+					ownMove(() => {
+						list.scrollTop = top;
+						if (wasFollowing) this.detached.delete(list);
+					}),
+				commit: (list) => {
+					const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
+					if (distance > REATTACH_PX) this.detached.add(list);
+				},
+				isFollowing: (list) => !this.detached.has(list),
+			});
+			this.promptNavs.set(scroller, nav);
+		}
+		nav.sync(count, current);
 	}
 
 	/**
