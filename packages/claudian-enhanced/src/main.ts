@@ -134,13 +134,15 @@ const LIT_BLOCK_CLS = "claudian-enhanced-lit-block";
 type Light = { paint: () => Element[] | null; clear: () => void };
 /** A diagram as drawn, not mermaid-enhanced's copy standing in while it's redrawn. */
 const DRAWN_DIAGRAM = ".mermaid:not(.mermaid-enhanced-hold) svg";
+/** Elements that end one run of a reference's text and start another (linkReferencesIn). */
+const RUN_BREAK = /^(?:P|LI|UL|OL|DIV|TABLE|TR|TD|TH|H[1-6]|PRE|BLOCKQUOTE|BR|HR)$/;
 /** Where references are looked for: a prompt's text, a reply's text. */
 const REFERENCE_TEXT = `${CLAUDIAN_USER_MESSAGE} ${CLAUDIAN_PROMPT_TEXT}, .claudian-message-assistant .claudian-text-block`;
 /**
  * A reference as insertReference writes it: `@path`, its lines (`#12` or `#12-14`), then
  * which columns and what text, if it says.
  */
-const REFERENCE = /@([^\s@][^@\n]*?\.(?:md|canvas|excalidraw))(?:#(\d+)(?:-(\d+))?)?(?: \((?:column|columns) [^)\n]*\))?(?: "([^"\n]*)")?/g;
+const REFERENCE = /@([^\s@][^@\n]*?\.(?:md|canvas|excalidraw))(?:#(\d+)(?:-(\d+))?)?(?: \((?:column|columns) ([^)\n]*)\))?(?: "([^"\n]*)")?/g;
 /** The conversation's session id at the end of the row under the composer; see syncSessionIds. */
 const SESSION_ID_CLS = "claudian-enhanced-session-id";
 /** How long a copied session id says so before showing the id again (ms). */
@@ -513,9 +515,9 @@ interface NoteReference extends NoteLines {
 function referenceText(reference: NoteReference): string {
 	const { path, start, end, columns, quote } = reference;
 	let text = `@${path}${!start ? "" : start === end ? `#${start}` : `#${start}-${end}`}`;
-	if (columns?.length) text += ` (${columns.length === 1 ? "column" : "columns"} ${columns.map((name) => `"${name}"`).join(", ")})`;
+	if (columns?.length) text += ` (${columns.length === 1 ? "column" : "columns"} ${columns.map((name) => `"${curlyQuotes(name)}"`).join(", ")})`;
 	if (quote) {
-		const flat = quote.replace(/\s+/g, " ").trim();
+		const flat = curlyQuotes(quote.replace(/\s+/g, " ").trim());
 		// Long, its two ends: enough to tell where it starts and stops.
 		text += ` "${flat.length > 100 ? `${flat.slice(0, 45)} … ${flat.slice(-45)}` : flat}"`;
 	}
@@ -577,8 +579,16 @@ function columnsOf(selection: Selection | null): [number, number] | null {
 	return [Math.min(anchor.cellIndex, focus.cellIndex), Math.max(anchor.cellIndex, focus.cellIndex)];
 }
 
-/** What a rendering leaves out of the source: spacing, table pipes, emphasis, list and quote marks. */
-const MARKUP = /[\s|*_`~=>\\-]/;
+/**
+ * What a rendering leaves out of the source: spacing, table pipes, emphasis, list and quote
+ * marks — and double quotes, which a reference's text has curled (curlyQuotes).
+ */
+const MARKUP = /[\s|*_`~=>\\"“”-]/;
+
+/** `text` with its straight double quotes curled: a reference ends its quoted text at a straight one. */
+function curlyQuotes(text: string): string {
+	return text.replace(/"([^"]*)"/g, "“$1”").replace(/"/g, "”");
+}
 
 /** Text with what a rendering leaves out of the source (MARKUP, `<br>`) left out. */
 function flatten(text: string): string {
@@ -3968,12 +3978,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const blocks = root.matches(".claudian-message-assistant") ? root.querySelectorAll<HTMLElement>(".claudian-text-block") : root.querySelectorAll<HTMLElement>(REFERENCE_TEXT);
 		for (const block of Array.from(blocks)) {
 			if (!block.textContent?.includes("@")) continue;
-			const walker = block.ownerDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT);
-			const nodes: Text[] = [];
+			const walker = block.ownerDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+			const run: (Text | null)[] = [];
 			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-				if (node instanceof Text && node.data.includes("@") && !node.parentElement?.closest(`.${REFERENCE_CLS}, a, code`)) nodes.push(node);
+				if (node instanceof Text) run.push(node.parentElement?.closest(`.${REFERENCE_CLS}`) ? null : node);
+				else if (node instanceof HTMLElement && RUN_BREAK.test(node.tagName)) run.push(null);
 			}
-			for (const node of nodes) this.linkReferencesIn(node);
+			this.linkReferencesIn(run);
 		}
 	}
 
@@ -3982,46 +3993,79 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * else the note's name — and the lines: `排期 L88`. In a list item, a reference to the same
 	 * section as the one before it (a reply's change list giving several spots in a section)
 	 * reads as its lines alone.
+	 *
+	 * In a prompt, the one asking already knows where they selected: there it reads as the lines
+	 * and what's selected in them — columns, text — taken into the link: `L729 · 时间片显示 · 「局」`.
+	 *
+	 * `run` is one paragraph's (list item's, cell's) text nodes, null where one ends and another
+	 * starts: markup draws parts of a reference as elements — selected text with `code` or
+	 * **bold** in it, a path with emphasis marks in it — read together they are one again.
 	 */
-	private linkReferencesIn(node: Text): void {
-		const text = node.data;
-		const parts: (string | HTMLElement)[] = [];
-		const item = node.parentElement?.closest("li") ?? null;
-		const before = item
-			? Array.from(item.querySelectorAll<HTMLElement>(`.${REFERENCE_CLS}`))
-					.filter((el) => el.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING)
-					.pop()
-			: undefined;
-		let previous = before?.dataset.section ?? null;
-		let last = 0;
+	private linkReferencesIn(run: (Text | null)[]): void {
+		let text = "";
+		const pieces: { node: Text; from: number }[] = [];
+		for (const node of run) {
+			if (node) {
+				pieces.push({ node, from: text.length });
+				text += node.data;
+			} else text += "\n";
+		}
+		// A spot in `text` as one in a node: a start in the node it starts, an end in the one it ends.
+		const spot = (offset: number, end: boolean): { node: Text; offset: number } | null => {
+			const piece = pieces.find(({ node, from }) => (end ? offset > from && offset <= from + node.data.length : offset >= from && offset < from + node.data.length));
+			return piece ? { node: piece.node, offset: offset - piece.from } : null;
+		};
+		const previous = new Map<HTMLElement | null, string | null>();
+		const links: { from: { node: Text; offset: number }; to: { node: Text; offset: number }; link: HTMLElement }[] = [];
 		for (const match of text.matchAll(REFERENCE)) {
-			const [, path = "", start, end, quote] = match;
+			const [, path = "", start, end, columns, quote] = match;
 			const file = this.app.vault.getFileByPath(path);
-			if (!file) continue;
-			const source = `@${path}${start ? `#${start}${end ? `-${end}` : ""}` : ""}`;
-			const at = match.index;
+			const from = spot(match.index, false);
+			if (!file || !from || from.node.parentElement?.closest("a, code")) continue;
+			const prompt = !!from.node.parentElement?.closest(CLAUDIAN_USER_MESSAGE);
+			const source = prompt ? match[0] : `@${path}${start ? `#${start}${end ? `-${end}` : ""}` : ""}`;
+			const to = spot(match.index + source.length, true);
+			if (!to) continue;
+			const names = Array.from(columns?.matchAll(/"([^"]*)"/g) ?? [], (name) => name[1] ?? "");
+			const item = from.node.parentElement?.closest("li") ?? null;
+			if (!previous.has(item)) {
+				const before = item
+					? Array.from(item.querySelectorAll<HTMLElement>(`.${REFERENCE_CLS}`))
+							.filter((el) => el.compareDocumentPosition(from.node) & Node.DOCUMENT_POSITION_FOLLOWING)
+							.pop()
+					: undefined;
+				previous.set(item, before?.dataset.section ?? null);
+			}
 			const section = `${path}#${this.sectionAt(file, Number(start ?? 0))}`;
 			const name = section.slice(path.length + 1);
 			const lines = start ? `L${start}${end ? `–${end}` : ""}` : "";
-			const link = node.ownerDocument.createElement("span");
+			const link = from.node.ownerDocument.createElement("span");
 			link.className = REFERENCE_CLS;
-			link.setText(item && section === previous && lines ? lines : [name, lines].filter(Boolean).join(" "));
+			if (prompt && lines) {
+				const flat = quote?.replace(/\s+/g, " ").trim() ?? "";
+				const short = flat.length > 20 ? `${flat.slice(0, 18)}…` : flat;
+				link.setText([lines, names.join(" / "), short && `「${short}」`].filter(Boolean).join(" · "));
+			} else link.setText(item && section === previous.get(item) && lines ? lines : [name, lines].filter(Boolean).join(" "));
 			link.dataset.section = section;
-			previous = section;
+			previous.set(item, section);
 			link.setAttribute("role", "link");
 			link.setAttribute("aria-label", source.slice(1));
 			link.dataset.source = source;
 			link.addEventListener("click", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				void this.revealReference(path, Number(start ?? 0), Number(end ?? start ?? 0), quote);
+				void this.revealReference(path, Number(start ?? 0), Number(end ?? start ?? 0), quote, names);
 			});
-			parts.push(text.slice(last, at), link);
-			last = at + source.length;
+			links.push({ from, to, link });
 		}
-		if (last === 0) return;
-		parts.push(text.slice(last));
-		node.replaceWith(...parts);
+		// Last first: taking one out leaves the spots before it where they were.
+		for (const { from, to, link } of links.reverse()) {
+			const range = from.node.ownerDocument.createRange();
+			range.setStart(from.node, from.offset);
+			range.setEnd(to.node, to.offset);
+			range.deleteContents();
+			range.insertNode(link);
+		}
 	}
 
 	/** The deepest heading above line `line` (1-based) of `file`, else the note's own name. */
