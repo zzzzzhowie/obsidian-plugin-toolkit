@@ -160,6 +160,10 @@ const REFERENCE_TEXT = `${CLAUDIAN_USER_MESSAGE} ${CLAUDIAN_PROMPT_TEXT}, .claud
 const SESSION_ID_CLS = "claudian-enhanced-session-id";
 /** How long a copied session id says so before showing the id again (ms). */
 const COPIED_MS = 1200;
+/** The stop button at the end of the composer's toolbar, while Claudian works; see syncStopButtons. */
+const STOP_BTN_CLS = "claudian-enhanced-stop";
+/** How often whether Claudian is working is looked at again (ms): a turn ends without a mutation of its own. */
+const STOP_POLL_MS = 300;
 /**
  * What `lastOpenedPath` holds while an empty tab ("New tab") is the one open: no note, so a
  * conversation of none (see leaveForEmptyTab). Falsy, and never a note's path.
@@ -339,14 +343,23 @@ interface ClaudianTab {
 	controllers?: {
 		composerSelections?: { editor?: ClaudianSelectionController };
 		selectionController?: ClaudianSelectionController;
-		/** Sends what the composer holds, as Enter does. */
-		inputController?: { sendMessage?: () => Promise<void>; deps?: { canStartTurn?: () => boolean } };
+		/** Sends what the composer holds, as Enter does; `cancelStreaming` stops the turn, as Esc does. */
+		inputController?: {
+			sendMessage?: () => Promise<void>;
+			deps?: { canStartTurn?: () => boolean };
+			cancelStreaming?: () => void;
+			isPreparingMainTurn?: boolean;
+		};
+		/** The side chat; while it's where the composer sends (`destination` "side"), Esc stops it instead. */
+		sideChatController?: { destination?: string; runtime?: { isWorking?: boolean } | null; cancelSide?: () => void };
 	};
+	/** What runs on past a reply: background work, and messages waiting to be sent. */
+	session?: { hasMainBackgroundWork?: boolean; runtime?: { mailbox?: { hasPending?: boolean } | null } };
 	/**
 	 * The composer; Claudian gives its CodeMirror host a `value` that reads the text in it.
 	 * `infoRowEl` is the row under it, with the note chip at its start.
 	 */
-	dom?: { inputEl?: { value?: unknown }; infoRowEl?: HTMLElement; contentEl?: HTMLElement; messagesEl?: HTMLElement };
+	dom?: { inputEl?: { value?: unknown }; inputWrapper?: HTMLElement; infoRowEl?: HTMLElement; contentEl?: HTMLElement; messagesEl?: HTMLElement };
 }
 
 /**
@@ -841,6 +854,13 @@ function boxText(range: Range): SVGRectElement[] {
 		parent.insertBefore(box, text);
 		return box;
 	});
+}
+
+/** Whether Claudian is working on `tab`, as Esc reads it before stopping it. */
+function isWorking(tab: ClaudianTab): boolean {
+	const side = tab.controllers?.sideChatController;
+	if (side?.destination === "side") return side.runtime?.isWorking ?? false;
+	return !!(tab.state?.isStreaming || tab.controllers?.inputController?.isPreparingMainTurn || tab.session?.hasMainBackgroundWork || tab.session?.runtime?.mailbox?.hasPending);
 }
 
 /**
@@ -1391,6 +1411,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.tabStatus.sync()));
 		this.registerInterval(window.setInterval(() => this.tabStatus.sync(), TAB_STATUS_POLL_MS));
 		this.register(() => this.tabStatus.clear());
+		this.registerInterval(window.setInterval(() => this.syncStopButtons(), STOP_POLL_MS));
 		this.app.workspace.onLayoutReady(() => {
 			this.reconcileChipOnStartup(Date.now() + 8000);
 		});
@@ -1416,6 +1437,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// Composers of background tabs sit outside the view, so their labels go tab by tab.
 		for (const tab of this.allClaudianTabs()) {
 			tab.dom?.infoRowEl?.querySelector(`:scope > .${SESSION_ID_CLS}`)?.remove();
+			tab.dom?.inputWrapper?.querySelector(`.${STOP_BTN_CLS}`)?.remove();
 			const menu = tab.ui?.composerDropdown?.controller?.view;
 			const render = menu && this.quietedMenus.get(menu);
 			if (menu && render) menu.render = render;
@@ -3620,6 +3642,38 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
+	 * A stop button at the bottom right of each tab's composer while Claudian works on it, for
+	 * what Esc does there: the side chat stopped while the composer sends to it, else the turn,
+	 * with the queued messages and background work behind it. Gone once it's stopped.
+	 */
+	private syncStopButtons(): void {
+		for (const tab of this.allClaudianTabs()) {
+			const toolbar = tab.dom?.inputWrapper?.querySelector<HTMLElement>(":scope > .claudian-input-toolbar");
+			if (!toolbar) continue;
+			let button = toolbar.querySelector<HTMLElement>(`:scope > .${STOP_BTN_CLS}`);
+			const working = isWorking(tab);
+			if (!button && !working) continue;
+			if (!button) {
+				const created = toolbar.createEl("button", { cls: STOP_BTN_CLS, attr: { "aria-label": "Stop" } });
+				setIcon(created, "square");
+				// Not off the composer: the next prompt is typed there.
+				created.addEventListener("mousedown", (e) => e.preventDefault());
+				created.addEventListener("click", () => {
+					if (!isWorking(tab)) return;
+					const side = tab.controllers?.sideChatController;
+					if (side?.destination === "side") side.cancelSide?.();
+					else tab.controllers?.inputController?.cancelStreaming?.();
+					this.syncStopButtons();
+				});
+				button = created;
+			}
+			// Only on a change: the view observer calls this on every mutation, a class written
+			// over with the same value included, which would call it again, and again.
+			if (button.hasClass("claudian-hidden") === working) button.toggleClass("claudian-hidden", !working);
+		}
+	}
+
+	/**
 	 * Claudian's `@` and `/` menus say "No matches" when nothing matches what's typed: a box
 	 * in the way of the text that offers nothing. It closes instead — closed, not just out of
 	 * sight, so the arrow keys it would take go back to the composer (Enter and Tab already
@@ -3803,6 +3857,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			}
 			if (queued) this.handleQueueChange();
 			this.syncSessionIds();
+			this.syncStopButtons();
 			this.quietEmptyMenus();
 			this.noticeNewSessions();
 		});
@@ -3828,6 +3883,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.scheduleFold(container);
 		this.scheduleSelectionTags();
 		this.syncSessionIds();
+		this.syncStopButtons();
 		this.quietEmptyMenus();
 	}
 

@@ -603,6 +603,31 @@ th.claudian-enhanced-lit-cell {
 	color: var(--text-normal);
 }
 
+/* The stop button at the end of the composer's toolbar while Claudian works (syncStopButtons):
+   a filled square in a round button, as Claude's own apps show it, the chips' height. */
+.claudian-input-toolbar > .claudian-enhanced-stop {
+	flex: none;
+	width: 24px;
+	height: 24px;
+	margin-left: auto;
+	padding: 0;
+	border-radius: 50%;
+	background-color: var(--text-normal);
+	color: var(--background-primary);
+	box-shadow: none;
+	cursor: pointer;
+}
+
+.claudian-input-toolbar > .claudian-enhanced-stop:hover {
+	background-color: var(--text-muted);
+}
+
+.claudian-input-toolbar > .claudian-enhanced-stop svg {
+	width: 10px;
+	height: 10px;
+	fill: currentColor;
+}
+
 /* A hovered "N lines selected" chip shows what it carries (selection-peek.ts), the way
    Claude's apps show a quoted reply: where it's from, then the text behind a quote bar. */
 .claudian-enhanced-peek {
