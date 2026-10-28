@@ -228,7 +228,17 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const root =
 			document.querySelector(".workspace") ?? document.body;
 		this.observer = new MutationObserver((mutations) => {
+			// Diagrams laid out again in place. Obsidian's renderer (1.15, "pele") does that to a
+			// diagram each time it's put on the page, a frame after it's in — redrawn after an
+			// edit, scrolled back to — resetting the SVG's style and the fit in it with it; it
+			// always sets the viewBox, which this plugin never does.
+			const relaid = new Set<SVGSVGElement>();
 			for (const m of mutations) {
+				if (m.type === "attributes") {
+					const svg = m.target as Element;
+					if (svg.matches(DIAGRAM_SVG)) relaid.add(svg as SVGSVGElement);
+					continue;
+				}
 				if (m.addedNodes.length === 0) continue;
 				// Ignore mutations from our own UI (e.g. the tooltip's live text),
 				// otherwise re-fitting would stomp the drag preview mid-drag.
@@ -245,8 +255,18 @@ export default class MermaidEnhancedPlugin extends Plugin {
 				this.processAll();
 				return;
 			}
+			// Fitted again before it's drawn: only its size went.
+			if (!this.settings.enabled) return;
+			for (const svg of relaid) {
+				if (svg === this.draggingSvg) continue;
+				try {
+					this.fitSvg(svg);
+				} catch (e) {
+					console.error("mermaid-enhanced: failed to fit a diagram", e);
+				}
+			}
 		});
-		this.observer.observe(root, { childList: true, subtree: true });
+		this.observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["viewBox"] });
 
 		// Re-process when leaves are rearranged (split/close/switch).
 		this.registerEvent(
