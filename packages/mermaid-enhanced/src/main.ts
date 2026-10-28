@@ -1346,6 +1346,9 @@ function renderDiagram(code: string): Promise<ZoomTarget | null> {
 			const mermaid = (await loadMermaid()) as {
 				render: (id: string, code: string) => Promise<{ svg: string }>;
 			};
+			// A task of its own each: drawn one after another in one, a note's diagrams held the
+			// zoom still, panning and all, until the last was drawn.
+			await new Promise((resolve) => window.setTimeout(resolve, 0));
 			const { svg } = await mermaid.render(`mermaid-enhanced-zoom-${++drawnCount}`, code);
 			// Read as HTML, not XML: a label's line break comes out as `<br>`, which isn't XML,
 			// and one in any label failed the whole diagram — an empty thumbnail.

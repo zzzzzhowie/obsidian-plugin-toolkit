@@ -356,7 +356,16 @@ export class ZoomOverlay {
 		this.createToolbar();
 		this.overlay.style.display = "flex";
 		this.fitToRoom();
-		if (this.options.gallery) void this.loadGallery(target, shown, this.options.gallery);
+		// Once the zoom is on screen: listing and drawing the others for the strip went in the
+		// click's own task, and the zoom showed only after them — a second or two the first time
+		// after Obsidian starts, every other diagram of a note parsed and drawn cold.
+		const gallery = this.options.gallery;
+		if (gallery) {
+			const token = this.galleryToken;
+			afterPaint(() => {
+				if (token === this.galleryToken) void this.loadGallery(target, shown, gallery);
+			});
+		}
 	}
 
 	/** Put a clone of `target` on show, replacing the one there, at the fit-to-screen scale. */
@@ -1148,6 +1157,11 @@ const DETAIL_MARGIN = 0.2;
 function whenIdle(run: () => void): void {
 	if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(run, { timeout: 1000 });
 	else window.setTimeout(run, 200);
+}
+
+/** Run `run` once what's on screen now has been painted: the next frame, then a task past it. */
+function afterPaint(run: () => void): void {
+	window.requestAnimationFrame(() => window.setTimeout(run, 0));
 }
 
 /**
