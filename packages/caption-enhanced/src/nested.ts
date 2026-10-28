@@ -1,6 +1,6 @@
 import { type EditorSelection, type EditorState, type Extension, Prec, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
-import { editorInfoField, editorLivePreviewField, setIcon, setTooltip } from 'obsidian';
+import { editorInfoField, editorLivePreviewField, Platform, setIcon, setTooltip } from 'obsidian';
 import { captionApp } from './caption-content';
 import { hasNestedBrackets, readImage, sizeOf, type ImageSource } from './source';
 
@@ -43,14 +43,16 @@ const revealed = StateField.define<Revealed | null>({
 });
 
 /**
- * A markdown image with a link in its caption, drawn right in Live Preview.
+ * A markdown image with a link in its alt, drawn right in Live Preview.
  *
  * `![see [V](https://…)](img)` is CommonMark — an image whose alt holds a link — and reading
  * view parses it so. Live Preview doesn't: it takes the inner link for the image, shows
- * https://… as a broken picture and leaves `](img)` as text. So such an image's markdown is
- * replaced here, whole, by the image it names, with Obsidian's look (`.image-embed`, its
- * action group); the caption under it is drawn as for any image. Its Edit button shows the
- * markdown as written (see revealed), as does the cursor inside it.
+ * https://… as a broken picture and leaves `](img)` as text. Its caption's dialog writes such a
+ * link in the title instead (see withCaption), where Obsidian draws and handles the image as
+ * its own; one written so by hand is replaced here, whole, by the image it names, with
+ * Obsidian's look (`.image-embed`, its action group), until its caption is next edited. The
+ * caption under it is drawn as for any image. Its Edit button shows the markdown as written
+ * (see revealed), as does the cursor inside it.
  */
 export const nestedImageExtension: Extension = [
 	revealed,
@@ -70,6 +72,7 @@ export const nestedImageExtension: Extension = [
 
 				constructor(view: EditorView) {
 					this.decorations = decorate(view.state);
+					takeIntoLightbox(view.state);
 				}
 
 				update(update: ViewUpdate): void {
@@ -204,9 +207,29 @@ class NestedImageWidget extends WidgetType {
 		if (width) img.width = Number(width);
 		if (height) img.height = Number(height);
 
-		// Obsidian's action group, for the caption button and a way into the markdown.
+		// Obsidian's action group, for the caption button, Zoom in and a way into the markdown.
 		const actions = embed.appendChild(doc.createElement('div'));
 		actions.className = 'embed-actions';
+		// As Obsidian gives its own images Zoom in on desktop only; a phone opens one on a tap.
+		if (!Platform.isMobile && imageKeeper(view.state)) {
+			const zoom = actions.appendChild(doc.createElement('div'));
+			zoom.className = 'embed-action';
+			setIcon(zoom, 'lucide-zoom-in');
+			setTooltip(zoom, 'Zoom in');
+			zoom.addEventListener('mousedown', (evt) => evt.preventDefault());
+			zoom.addEventListener('click', (evt) => {
+				evt.preventDefault();
+				evt.stopPropagation();
+				let from: number;
+				try {
+					from = view.posAtDOM(embed);
+				} catch {
+					return;
+				}
+				takeIntoLightbox(view.state);
+				imageKeeper(view.state)?.showImage(shownImage(from, this.src, this.image.alt, () => img));
+			});
+		}
 		const edit = actions.appendChild(doc.createElement('div'));
 		edit.className = 'embed-action edit-block-button';
 		setIcon(edit, 'code-2');
@@ -228,6 +251,128 @@ class NestedImageWidget extends WidgetType {
 		});
 		return embed;
 	}
+}
+
+/**
+ * Obsidian's keeper of a Live Preview editor's images, a value of its editor state: its Zoom
+ * in asks this to show an image in the lightbox, paging through every image in the note,
+ * which it reads from its own drawing of them.
+ */
+interface ImageKeeper {
+	view: EditorView;
+	decorations: StateField<DecorationSet>;
+	showImage(image: ShownImage): void;
+}
+
+/** An image as the lightbox takes it: Obsidian's own image widgets, or one of these. */
+interface ShownImage {
+	url: string;
+	/** The alt as written, size and all; the lightbox reads its caption from it. */
+	title: string;
+	/** What the lightbox grows out of, and shrinks back into. */
+	getImageEl(): HTMLImageElement | null;
+}
+
+/** Ours: where each stands in the note, so the one zoomed is found among the rest. */
+const ours = new WeakMap<ShownImage, number>();
+
+function shownImage(from: number, url: string, title: string, image: () => HTMLImageElement | null): ShownImage {
+	const shown = { url, title, getImageEl: image };
+	ours.set(shown, from);
+	return shown;
+}
+
+function imageKeeper(state: EditorState): ImageKeeper | null {
+	const values = (state as unknown as { values?: unknown[] }).values ?? [];
+	for (const value of values) {
+		const keeper = value as Partial<ImageKeeper> | null;
+		if (typeof keeper?.showImage === 'function' && keeper.decorations && keeper.view) return keeper as ImageKeeper;
+	}
+	return null;
+}
+
+let restoreLightbox: (() => void) | null = null;
+
+/**
+ * Have the lightbox page through these images too, in their places among the note's others.
+ * It reads Live Preview's drawing of the note's images, which has none of these — only its
+ * misreading of each, the link in the caption as a broken picture — so they're swapped in for
+ * those. Taken over on the keepers' shared prototype, the first time an editor turns up, so
+ * paging from one of Obsidian's own images gets them right as well.
+ */
+function takeIntoLightbox(state: EditorState): void {
+	if (restoreLightbox) return;
+	const keeper = imageKeeper(state);
+	if (!keeper) return;
+	const proto = Object.getPrototypeOf(keeper) as ImageKeeper;
+	// eslint-disable-next-line @typescript-eslint/unbound-method -- called with the keeper below
+	const original = proto.showImage;
+	const showImage = function (this: ImageKeeper, target: ShownImage): void {
+		const { view } = this;
+		const nested = nestedImages(view.state);
+		if (!nested.length) {
+			original.call(this, target);
+			return;
+		}
+		type Drawn = { spec: { isImageEmbed?: boolean; widget?: ShownImage } };
+		const drawn: { from: number; value: Drawn }[] = [];
+		const iter = view.state.field(this.decorations).iter() as unknown as { value: Drawn | null; from: number; next(): void };
+		for (; iter.value; iter.next()) {
+			const at = iter.from;
+			if (nested.some((image) => at >= image.from && at < image.to)) continue;
+			drawn.push({ from: at, value: iter.value });
+		}
+		const sourcePath = view.state.field(editorInfoField, false)?.file?.path ?? '';
+		for (const image of nested) {
+			const widget = ours.get(target) === image.from
+				? target
+				: shownImage(image.from, resolveSrc(image.target, sourcePath), image.alt, () => imageElAt(view, image.from));
+			drawn.push({ from: image.from, value: { spec: { isImageEmbed: true, widget } } });
+		}
+		drawn.sort((a, b) => a.from - b.from);
+		let at = 0;
+		const decorations = {
+			iter: () => ({
+				get value() {
+					return drawn[at]?.value ?? null;
+				},
+				next() {
+					at++;
+				},
+			}),
+		};
+		// What the original reads of the keeper: its editor's drawing of the images, and the
+		// editor itself, to blur while the lightbox is up and focus once it's gone.
+		original.call(
+			{
+				...this,
+				view: { state: { field: () => decorations }, focus: () => view.focus(), contentDOM: view.contentDOM },
+			} as unknown as ImageKeeper,
+			target,
+		);
+	};
+	proto.showImage = showImage;
+	restoreLightbox = () => {
+		if (proto.showImage === showImage) proto.showImage = original;
+		restoreLightbox = null;
+	};
+}
+
+/** Give the lightbox back to Obsidian as it was; for the plugin's unload. */
+export function releaseLightbox(): void {
+	restoreLightbox?.();
+}
+
+/** The <img> of one of these drawn at a place in the note, if it's on screen. */
+function imageElAt(view: EditorView, from: number): HTMLImageElement | null {
+	for (const embed of Array.from(view.contentDOM.querySelectorAll<HTMLElement>(`.${IMAGE_CLS}`))) {
+		try {
+			if (view.posAtDOM(embed) === from) return embed.querySelector('img');
+		} catch {
+			// Not in the note any more.
+		}
+	}
+	return null;
 }
 
 /**

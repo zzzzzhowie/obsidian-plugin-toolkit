@@ -10,7 +10,7 @@ import {
 	syncCaptionWidth,
 } from './extension';
 import { setCaptionContent, setRenderContext } from './caption-content';
-import { nestedImageExtension } from './nested';
+import { nestedImageExtension, releaseLightbox } from './nested';
 import { captionOf, type ImageSource, readImages, sameTarget } from './source';
 
 // ============================================================
@@ -34,6 +34,7 @@ export default class CaptionEnhancedPlugin extends Plugin {
 
 		// 1. 注册 Live Preview 模式编辑器扩展
 		this.registerEditorExtension([imageCaptionExtension, nestedImageExtension]);
+		this.register(releaseLightbox);
 
 		// 2. 注册 Reading Mode (阅读模式) Markdown 渲染后处理器
 		this.registerMarkdownPostProcessor((el, ctx) => {

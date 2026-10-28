@@ -2,6 +2,8 @@
 // An image's markdown, read and rewritten for its caption
 // ============================================================
 
+import { captionPlainText } from '../../../shared/caption';
+
 /**
  * The size in an alt or alias: a trailing `|500` or `| 500x300`, or the whole of it — `![578](img)`
  * is how Obsidian writes a width it was dragged to on an image with no caption.
@@ -100,16 +102,17 @@ function altCaption(alt: string): string {
 
 
 /**
- * The caption as written, as the dialog shows it: the alt or alias, without the size. A
- * markdown image with a title — how links were written before they went in the alt — reads
- * as the same caption would now: its alt then the title's url, or the title alone.
+ * The caption as written, as the dialog shows it: the alt or alias, without the size — or,
+ * for a caption with a link in it, the title (see withCaption): the caption whole, or the url
+ * its words link to. A title that's neither is a link target, as an older note may have it.
  */
 export function captionOf(image: ImageSource): string {
 	const text = altCaption(image.alt);
 	const title = image.kind === 'markdown' ? image.title?.trim() : '';
 	if (!title) return text;
+	if (hasNestedBrackets(title)) return title;
 	if (!text) return title;
-	return URL_RE.test(title) ? `${text} ${title}` : `[${text}](<${title}>)`;
+	return URL_RE.test(title) ? `[${text}](${title})` : `[${text}](<${title}>)`;
 }
 
 /** Whether an alt holds brackets — a link in it — which Live Preview can't parse (see nested.ts). */
@@ -120,10 +123,13 @@ export function hasNestedBrackets(alt: string): boolean {
 /**
  * The image's markdown with `caption` as its caption, its size kept.
  *
- * The caption is the alt or alias, written as typed, links included, as CommonMark has it:
- * `![see [V](https://…)|500](img)`. Reading view parses that; Live Preview doesn't, and is
- * drawn right by this plugin (see nested.ts). A `[[link]]` goes in as `[text](<target>)`,
- * the same link — its `]]` would end a wiki embed, and is no link inside an alt.
+ * The caption is the alt or alias, written as typed. One with a link in it goes in the title:
+ * the url, when the caption is its words linked — `![HSA Portal|500](img "https://…")` — else
+ * the caption whole, `![see V|500](img "see [V](https://…)")`; the alt keeps its words, which
+ * the zoom shows. In the alt, as CommonMark allows, Obsidian takes the inner link for the image
+ * — Live Preview draws it so, its resizing and Edit cut the markdown there (see nested.ts) —
+ * and in the title it leaves it be. A `[[link]]` goes in as `[text](<target>)`, the same link:
+ * its `]]` would end a wiki embed.
  */
 export function withCaption(image: ImageSource, caption: string): string {
 	const text = caption
@@ -135,5 +141,20 @@ export function withCaption(image: ImageSource, caption: string): string {
 		const parts = [image.target, text, size].filter((part): part is string => !!part);
 		return `![[${parts.join('|')}]]`;
 	}
-	return `![${[text, size].filter(Boolean).join('|')}](${image.target})`;
+	if (!hasNestedBrackets(text)) return `![${[text, size].filter(Boolean).join('|')}](${image.target})`;
+	const link = LINKED_WORDS_RE.exec(text);
+	const url = link?.[2]?.replace(/^<(.*)>$/, '$1') ?? '';
+	const linked = !!link && URL_RE.test(url);
+	const words = (linked ? (link[1] ?? '') : captionPlainText(text)).replace(/[[\]]/g, '').trim();
+	return `![${[words, size].filter(Boolean).join('|')}](${image.target} ${quoted(linked ? url : text)})`;
+}
+
+/** A caption that's its words linked: `[HSA Portal](https://…)`. */
+const LINKED_WORDS_RE = /^\[((?:[^[\]\\]|\\.)*)\]\((<[^>]*>|[^\s)]+)\)$/;
+
+/** A title in quotes its text doesn't hold, else escaped ones. */
+function quoted(title: string): string {
+	if (!title.includes('"')) return `"${title}"`;
+	if (!title.includes("'")) return `'${title}'`;
+	return `"${title.replace(/["\\]/g, '\\$&')}"`;
 }
