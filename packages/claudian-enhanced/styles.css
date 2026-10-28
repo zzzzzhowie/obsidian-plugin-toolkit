@@ -847,6 +847,7 @@ th.claudian-enhanced-lit-cell {
 }
 
 .pele-node.claudian-enhanced-lit-shape > :not(text),
+.pele-note.claudian-enhanced-lit-shape > :not(text),
 .pele-edge-label.claudian-enhanced-lit-shape > rect {
 	fill: color-mix(in srgb, var(--color-yellow) 30%, var(--background-primary)) !important;
 	stroke: var(--color-yellow) !important;
@@ -867,6 +868,13 @@ th.claudian-enhanced-lit-cell {
 
 .pele-edge.claudian-enhanced-lit-shape > .pele-marker {
 	fill: var(--color-yellow) !important;
+}
+
+/* The text a reference quotes in a diagram's label, boxed behind it in the colour a table's
+   quoted text is lit in (boxText in main.ts). */
+.claudian-enhanced-lit-text-box {
+	fill: var(--text-highlight-bg);
+	pointer-events: none;
 }
 
 /* A range of lines a reference names, in reading view: lit as Obsidian lights the line it opens a note at. */

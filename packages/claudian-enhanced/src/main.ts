@@ -6,6 +6,22 @@ import { ConversationFind } from "./conversation-find";
 import { type ClaudianStatusSource, NoteTabStatus } from "./tab-status";
 import { type PeekSelection, SelectionPeek } from "./selection-peek";
 import { PromptNav } from "./prompt-nav";
+import {
+	columnAt,
+	columnsOf,
+	describe,
+	flatten,
+	linesLabel,
+	locateText,
+	MARKUP,
+	type NoteReference,
+	readReference,
+	REFERENCE,
+	referenceLabel,
+	referenceText,
+	selectionReference,
+	tableRowCells,
+} from "./note-reference";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
 const CLAUDIAN_VIEW = "claudian-view";
@@ -126,7 +142,9 @@ const REFERENCE_CLS = "claudian-enhanced-reference";
 const LIT_CELL_CLS = "claudian-enhanced-lit-cell";
 /** The text in them a reference quotes, lit the same way as a CSS Custom Highlight. */
 const LIT_TEXT = "claudian-enhanced-lit-text";
-/** The parts of a Mermaid diagram — nodes, edges, subgraphs — a reference goes to (lightDiagram). */
+/** Behind the text a reference quotes in a diagram's label, which a highlight doesn't reach (boxText). */
+const LIT_TEXT_BOX_CLS = "claudian-enhanced-lit-text-box";
+/** The parts of a Mermaid diagram — nodes, edges, subgraphs, states, notes — a reference goes to (lightDiagram). */
 const LIT_SHAPE_CLS = "claudian-enhanced-lit-shape";
 /** What a reference to a range of lines lights in reading view: its blocks or list items. */
 const LIT_BLOCK_CLS = "claudian-enhanced-lit-block";
@@ -138,11 +156,6 @@ const DRAWN_DIAGRAM = ".mermaid:not(.mermaid-enhanced-hold) svg";
 const RUN_BREAK = /^(?:P|LI|UL|OL|DIV|TABLE|TR|TD|TH|H[1-6]|PRE|BLOCKQUOTE|BR|HR)$/;
 /** Where references are looked for: a prompt's text, a reply's text. */
 const REFERENCE_TEXT = `${CLAUDIAN_USER_MESSAGE} ${CLAUDIAN_PROMPT_TEXT}, .claudian-message-assistant .claudian-text-block`;
-/**
- * A reference as insertReference writes it: `@path`, its lines (`#12` or `#12-14`), then
- * which columns and what text, if it says.
- */
-const REFERENCE = /@([^\s@][^@\n]*?\.(?:md|canvas|excalidraw))(?:#(\d+)(?:-(\d+))?)?(?: \((?:column|columns) ([^)\n]*)\))?(?: "([^"\n]*)")?/g;
 /** The conversation's session id at the end of the row under the composer; see syncSessionIds. */
 const SESSION_ID_CLS = "claudian-enhanced-session-id";
 /** How long a copied session id says so before showing the id again (ms). */
@@ -494,134 +507,6 @@ interface ClaudianMenuView {
 	hide?: () => void;
 }
 
-/** Lines of a note, 1-based and inclusive. */
-interface NoteLines {
-	path: string;
-	start: number;
-	end: number;
-}
-
-/**
- * What's selected, as the composer refers to it: its lines and, a line being a whole
- * paragraph or a table row, which part of them — the table columns, by their headers, and
- * the text, when it's less than the whole line.
- */
-interface NoteReference extends NoteLines {
-	columns?: string[];
-	quote?: string;
-}
-
-/** `@path#first-last` (no lines: the whole file), then the columns and the text it's about, if any. */
-function referenceText(reference: NoteReference): string {
-	const { path, start, end, columns, quote } = reference;
-	let text = `@${path}${!start ? "" : start === end ? `#${start}` : `#${start}-${end}`}`;
-	if (columns?.length) text += ` (${columns.length === 1 ? "column" : "columns"} ${columns.map((name) => `"${curlyQuotes(name)}"`).join(", ")})`;
-	if (quote) {
-		const flat = curlyQuotes(quote.replace(/\s+/g, " ").trim());
-		// Long, its two ends: enough to tell where it starts and stops.
-		text += ` "${flat.length > 100 ? `${flat.slice(0, 45)} … ${flat.slice(-45)}` : flat}"`;
-	}
-	return text;
-}
-
-/**
- * Say which part of `lines` is selected: the columns `columns` spans when the lines are rows
- * of a table, and `selected` when it's less than one whole line. Nothing more for whole lines,
- * or when `selected` is null (cells picked by class: their columns say it all).
- */
-function describe(lines: NoteLines, lineText: (n: number) => string, selected: string | null, columns: [number, number] | null): NoteReference {
-	const whole = selected !== null && lines.start === lines.end ? flatten(selected) === flatten(lineText(lines.start)) : lines.start !== lines.end;
-	if (selected !== null && whole) return lines;
-	const reference: NoteReference = { ...lines };
-	const header = columns ? tableHeader(lineText, lines.start) : null;
-	if (header && columns) {
-		const names: string[] = [];
-		for (let i = columns[0]; i <= columns[1]; i++) names.push(header[i]?.replace(/[*_`]/g, "") || `#${i + 1}`);
-		reference.columns = names;
-	}
-	if (selected !== null && lines.start === lines.end) reference.quote = selected;
-	return reference;
-}
-
-/** The header cells of the table that line `row` is a row of; null when it isn't one. */
-function tableHeader(lineText: (n: number) => string, row: number): string[] | null {
-	const isRow = (n: number): boolean => /^\s*\|/.test(lineText(n));
-	if (!isRow(row)) return null;
-	let first = row;
-	while (first > 1 && isRow(first - 1)) first--;
-	return tableRowCells(lineText(first));
-}
-
-/** The column (0-based) of a table row that `offset` in its line falls in. */
-function columnAt(text: string, offset: number): number {
-	let column = 0;
-	let started = false;
-	for (let i = 0; i < offset && i < text.length; i++) {
-		const ch = text.charAt(i);
-		if (ch === "\\") {
-			i++;
-			started = true;
-		} else if (ch === "|") {
-			// The pipe a row opens with bounds it; the others part cells.
-			if (started) column++;
-			started = true;
-		} else if (!/\s/.test(ch)) started = true;
-	}
-	return column;
-}
-
-/** The columns of a rendered table a page selection runs across; null outside a table. */
-function columnsOf(selection: Selection | null): [number, number] | null {
-	const cellOf = (node: Node | null | undefined): HTMLTableCellElement | null =>
-		(node instanceof Element ? node : node?.parentElement)?.closest<HTMLTableCellElement>("td, th") ?? null;
-	const [anchor, focus] = [cellOf(selection?.anchorNode), cellOf(selection?.focusNode)];
-	if (!anchor || !focus) return null;
-	return [Math.min(anchor.cellIndex, focus.cellIndex), Math.max(anchor.cellIndex, focus.cellIndex)];
-}
-
-/**
- * What a rendering leaves out of the source: spacing, table pipes, emphasis, list and quote
- * marks — and double quotes, which a reference's text has curled (curlyQuotes).
- */
-const MARKUP = /[\s|*_`~=>\\"“”-]/;
-
-/** `text` with its straight double quotes curled: a reference ends its quoted text at a straight one. */
-function curlyQuotes(text: string): string {
-	return text.replace(/"([^"]*)"/g, "“$1”").replace(/"/g, "”");
-}
-
-/** Text with what a rendering leaves out of the source (MARKUP, `<br>`) left out. */
-function flatten(text: string): string {
-	let flat = "";
-	for (const ch of text.replace(/<br\s*\/?>/gi, "")) if (!MARKUP.test(ch)) flat += ch;
-	return flat;
-}
-
-/**
- * Where text selected as rendered (a table, a callout, reading view) sits in `source`: found
- * with what the rendering leaves out flattened out of both. Null when it isn't there.
- */
-function locateText(source: string, text: string): { from: number; to: number } | null {
-	let flat = "";
-	const at: number[] = [];
-	for (let i = 0; i < source.length; ) {
-		const br = /^<br\s*\/?>/i.exec(source.slice(i, i + 6));
-		if (br) {
-			i += br[0].length;
-			continue;
-		}
-		if (!MARKUP.test(source.charAt(i))) {
-			flat += source.charAt(i);
-			at.push(i);
-		}
-		i++;
-	}
-	const wanted = flatten(text);
-	const found = wanted ? flat.indexOf(wanted) : -1;
-	if (found < 0) return null;
-	return { from: at[found] ?? 0, to: (at[found + wanted.length - 1] ?? 0) + 1 };
-}
-
 /** The note lines a prompt was sent with, as Claude got them. */
 interface SentSelection {
 	path: string;
@@ -783,13 +668,31 @@ function tagChangeLabels(root: Node): void {
 }
 
 /**
+ * The ids a drawn diagram gives what lines `from`–`to` (0-based) of its source `body` draw:
+ * a flowchart's or a state diagram's, by the kind its first line names; none for another kind.
+ */
+function diagramTargets(body: string[], from: number, to: number): Set<string> {
+	let front = false;
+	for (const line of body) {
+		const code = line.trim();
+		// Frontmatter (`---` … `---`), comments and directives (`%%{init}%%`) come before the kind.
+		if (code === "---") front = !front;
+		if (front || code === "---" || !code || code.startsWith("%%")) continue;
+		if (/^stateDiagram\b/.test(code)) return stateTargets(body, from, to);
+		if (/^(?:flowchart|graph)\b/.test(code)) return flowchartTargets(body, from, to);
+		break;
+	}
+	return new Set();
+}
+
+/**
  * The ids a drawn flowchart gives what lines `from`–`to` (0-based) of its source `body`
  * draw: a node's own; a subgraph's, for its `subgraph` line and its `end`. An edge, carried
  * by the edge and its label alike, is `L_<from>_<to>_<k>` — but k skips (the second of two
  * A → B edges is `L_A_B_2`), so it's given as `L_<from>_<to>_#<n>`, the n-th of them drawn;
  * see drawnIds.
  */
-function diagramTargets(body: string[], from: number, to: number): Set<string> {
+function flowchartTargets(body: string[], from: number, to: number): Set<string> {
 	const ids = new Set<string>();
 	// Earlier lines count too: they number the edges and open the subgraphs these close.
 	const edges = new Map<string, number>();
@@ -817,6 +720,47 @@ function diagramTargets(body: string[], from: number, to: number): Set<string> {
 					}
 				}
 			}
+		}
+		if (i >= from) for (const id of found) if (id) ids.add(id);
+	}
+	return ids;
+}
+
+/**
+ * The ids a drawn state diagram gives what lines `from`–`to` (0-based) of its source `body`
+ * draw: a state's own, for the lines that declare, describe or style it, and a composite
+ * state's for its `{` and `}`. A transition is `edge<k>`, its label too; a note
+ * `<state>----note-<k>`, with the line to its state. One count, k, numbers transitions and
+ * notes alike, in the order they're written, composite states' insides included.
+ */
+function stateTargets(body: string[], from: number, to: number): Set<string> {
+	const ids = new Set<string>();
+	const open: string[] = [];
+	let count = 0;
+	// A note written over lines of its own, up to its `end note`: what each of them draws.
+	let note: string[] | null = null;
+	for (let i = 0; i <= Math.min(to, body.length - 1); i++) {
+		const code = (body[i] ?? "").replace(/%%.*$/, "").trim();
+		let found: string[] = [];
+		let m: RegExpExecArray | null;
+		if (note) {
+			found = note;
+			if (/^end\s+note$/i.test(code)) note = null;
+		} else if ((m = /^note\s+(left|right)\s+of\s+([^\s:]+)\s*(:)?/i.exec(code))) {
+			const [, side = "", state = "", colon] = m;
+			const id = `${state}----note-${count++}`;
+			// The line runs from the note on the left of its state, to it on the right.
+			found = [id, side.toLowerCase() === "left" ? `${id}-${state}` : `${state}-${id}`];
+			if (!colon) note = found;
+		} else if (code === "}") found = [open.pop() ?? ""];
+		else if ((m = /^state\s+(?:"[^"]*"\s+as\s+)?([^\s{"<]+)\s*(\{)?/.exec(code))) {
+			found = [m[1] ?? ""];
+			if (m[2]) open.push(m[1] ?? "");
+		} else if ((m = /^(?:style|class)\s+(\S+)/.exec(code))) found = (m[1] ?? "").split(",");
+		else if (code.includes("-->")) found = [`edge${count++}`];
+		else if (code && code !== "--" && !/^(?:stateDiagram|direction|classDef|title|accTitle|accDescr)\b/.test(code)) {
+			// `A`, `A : what it is`, `A:::class`.
+			found = [/^[^\s:]+/.exec(code)?.[0] ?? ""];
 		}
 		if (i >= from) for (const id of found) if (id) ids.add(id);
 	}
@@ -859,11 +803,52 @@ function statementNodes(code: string): string[][] {
 }
 
 /**
- * Where `quote` — source text, shortened as "start … end" when long — is in the rendered
- * `cells`, both read as flatten reads them (no markup, no spacing); null when it isn't there,
- * or when it's all their text (the cells themselves are what's meant).
+ * Boxes behind `range`'s text in a diagram's SVG `<text>`, one per line of it, in the text's
+ * own coordinates: measured on screen and scaled back, the diagram being drawn at any size.
+ * None while the diagram isn't laid out.
  */
-function renderedRange(cells: HTMLElement[], quote: string): Range | null {
+function boxText(range: Range): SVGRectElement[] {
+	const text = range.startContainer.parentElement?.closest("text");
+	const parent = text?.parentNode;
+	if (!text || !parent) return [];
+	const screen = text.getBoundingClientRect();
+	const own = text.getBBox();
+	if (screen.width === 0 || screen.height === 0) return [];
+	const [sx, sy] = [own.width / screen.width, own.height / screen.height];
+	const doc = text.ownerDocument;
+	// Text node by text node: the range's own rects would add a whole line's tspan over its text.
+	const rects: DOMRect[] = [];
+	const walker = doc.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		if (!range.intersectsNode(node)) continue;
+		const part = doc.createRange();
+		part.selectNodeContents(node);
+		if (node === range.startContainer) part.setStart(node, range.startOffset);
+		if (node === range.endContainer) part.setEnd(node, range.endOffset);
+		rects.push(...Array.from(part.getClientRects()));
+	}
+	const pad = 2;
+	return rects.map((rect) => {
+		const box = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
+		box.setAttribute("class", LIT_TEXT_BOX_CLS);
+		box.setAttribute("x", String(own.x + (rect.left - screen.left) * sx - pad));
+		box.setAttribute("y", String(own.y + (rect.top - screen.top) * sy));
+		box.setAttribute("width", String(rect.width * sx + 2 * pad));
+		box.setAttribute("height", String(rect.height * sy));
+		box.setAttribute("rx", "3");
+		const transform = text.getAttribute("transform");
+		if (transform) box.setAttribute("transform", transform);
+		parent.insertBefore(box, text);
+		return box;
+	});
+}
+
+/**
+ * Where `quote` — source text, shortened as "start … end" when long — is in the rendered
+ * `cells` (or a diagram's part), both read as flatten reads them (no markup, no spacing); null
+ * when it isn't there, or when it's all their text (the cells themselves are what's meant).
+ */
+function renderedRange(cells: Element[], quote: string): Range | null {
 	const chars: { node: Text; offset: number }[] = [];
 	let flat = "";
 	for (const cell of cells) {
@@ -988,6 +973,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * tab keeps its own answer, and held weakly so a closed tab's list can be collected.
 	 */
 	private detached = new WeakSet<HTMLElement>();
+	/**
+	 * The message list a press is held in, whether it was following the stream when it began,
+	 * and where it was scrolled to then (holdStillWhilePressed).
+	 */
+	private pressed: { list: HTMLElement; following: boolean; top: number } | null = null;
 	/** Each message list's jump-to-latest button, made the first time it's needed. */
 	private jumpButtons = new WeakMap<HTMLElement, HTMLElement>();
 	/** Each message list's outline of its prompts, top left (prompt-nav.ts), made once it has two. */
@@ -1093,7 +1083,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** The card a hovered selection chip shows its text in; see selection-peek.ts. */
 	private readonly selectionPeek = new SelectionPeek(
 		() => this.getClaudianLeaf()?.view.containerEl ?? null,
-		() => this.getSelectionController()?.storedSelection ?? null,
+		() => this.peekForComposer(),
 		() => this.visibleInput()?.querySelector<HTMLElement>(".cm-content")?.focus(),
 		(tag) => this.peekForTag(tag),
 		(selection) => this.openSelection(selection),
@@ -1367,6 +1357,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// the link interception above so a link inside the bubble is still claimed by it
 		// first (it stops immediate propagation), and this never sees that click.
 		this.interceptPinnedPromptClicks();
+		this.holdStillWhilePressed();
 		// Cold-start fix. Claudian restores its last conversation together with *that
 		// conversation's* note, and a sent conversation is locked to it — so it stays on the
 		// old note even though a different note is open now, and the active-leaf sync above
@@ -1753,6 +1744,16 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		}
 		const doc = cm.state.doc;
 		const lineText = (n: number): string => doc.line(n).text;
+		const cells = this.tableCellSelection();
+		// Cells picked out by class, rows and columns: the columns say which, no text needed.
+		const byCells = (start: number, count: number): NoteReference => {
+			const end = Math.min(start + Math.max(0, count - 1), doc.lines);
+			return describe({ path, start, end }, lineText, null, this.selectedCellColumns(cm));
+		};
+		// Ahead of what a cell's own editor has selected when they're more than the one: a drag
+		// across cells starts in one, whose editor keeps its text selected, and the reference was
+		// to that cell alone.
+		if (cells?.startLine && this.selectedCellCount(cm) > 1) return byCells(cells.startLine, cells.lineCount);
 		const cell = this.cellEditorSelection(cm);
 		if (cell) return describe({ path, start: cell.line, end: cell.line }, lineText, cell.text, columnsOf(selection));
 		const main = cm.state.selection.main;
@@ -1765,12 +1766,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			const columns: [number, number] = [columnAt(first.text, from - first.from), columnAt(last.text, to - last.from)];
 			return describe({ path, start: first.number, end: last.number }, lineText, doc.sliceString(from, to), columns);
 		}
-		const cells = this.tableCellSelection();
-		if (cells?.startLine) {
-			// Cells picked out by class, rows and columns: the columns say which, no text needed.
-			const end = Math.min(cells.startLine + Math.max(0, cells.lineCount - 1), doc.lines);
-			return describe({ path, start: cells.startLine, end }, lineText, null, this.selectedCellColumns(cm));
-		}
+		if (cells?.startLine) return byCells(cells.startLine, cells.lineCount);
 		const block = this.selectionInRenderedBlock();
 		if (!block?.startLine || !block.selectedText.trim()) return null;
 		const first = doc.line(Math.min(block.startLine, doc.lines));
@@ -1813,6 +1809,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * The columns of the cells selected by class in a Live Preview table (see
 	 * tableCellSelection); null for whole rows, which need no columns named.
 	 */
+	private selectedCellCount(cm: EditorView): number {
+		return cm.contentDOM.querySelectorAll(".cm-table-widget.has-selection:not(.is-selected) :is(th, td).is-selected").length;
+	}
+
 	private selectedCellColumns(cm: EditorView): [number, number] | null {
 		const table = cm.contentDOM.querySelector<HTMLElement>(".cm-table-widget.has-selection:not(.is-selected)");
 		const columns = Array.from(table?.querySelectorAll<HTMLTableCellElement>("th.is-selected, td.is-selected") ?? []).map(
@@ -3659,10 +3659,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			existing?.remove();
 			return;
 		}
-		const lines = selection.start === selection.end ? `L${selection.start}` : `L${selection.start}–${selection.end}`;
 		const linked = this.linkedNotePath();
 		const note = selection.path === linked ? "" : `${selection.path.split("/").pop()?.replace(/\.md$/, "")} · `;
-		const label = `${note}${lines}`;
+		const label = `${note}${referenceLabel(this.referenceOfSelection(this.peekOfSent(selection)))}`;
 		if (existing?.dataset.label === label) {
 			this.tagSelections.set(existing, selection);
 			return;
@@ -3678,20 +3677,46 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** The selection a prompt's tag stands for, as the peek card shows it. */
 	private peekForTag(tag: HTMLElement): PeekSelection | null {
 		const selection = this.tagSelections.get(tag);
-		if (!selection) return null;
-		return {
-			notePath: selection.path,
-			selectedText: selection.text,
-			startLine: selection.start,
-			lineCount: selection.end - selection.start + 1,
-		};
+		return selection ? this.labelled(this.peekOfSent(selection)) : null;
 	}
 
-	/** To a sent selection's lines in its note, from its tag or peek card: lit as a reference to them is. */
+	/** The selection the composer carries, as the peek card shows it. */
+	private peekForComposer(): PeekSelection | null {
+		const selection = this.getSelectionController()?.storedSelection;
+		return selection ? this.labelled(selection) : null;
+	}
+
+	private peekOfSent(selection: SentSelection): PeekSelection {
+		return { notePath: selection.path, selectedText: selection.text, startLine: selection.start, lineCount: selection.end - selection.start + 1 };
+	}
+
+	/** `selection` with the label its tag has: what it is, as ⌥K's reference to it would say (referenceLabel). */
+	private labelled(selection: PeekSelection): PeekSelection {
+		return { ...selection, label: referenceLabel(this.referenceOfSelection(selection)) };
+	}
+
+	/**
+	 * A 划词 — the composer's, or one a prompt was sent with — as the reference ⌥K makes of the
+	 * same selection (selectionReference), read against the note's text: `source`, or the note
+	 * as it's open. Its lines alone when the note isn't to hand, or the selection has none.
+	 */
+	private referenceOfSelection(selection: PeekSelection, source = this.openText(selection.notePath)): NoteReference {
+		const start = selection.startLine ?? 0;
+		const lines = { path: selection.notePath, start, end: start ? start + Math.max(1, selection.lineCount) - 1 : 0 };
+		if (!start || source === null) return lines;
+		const text = source.split("\n");
+		return selectionReference(lines, (n) => text[n - 1] ?? "", selection.selectedText);
+	}
+
+	/** To a sent selection's lines in its note, from its tag or peek card: lit as ⌥K's reference to the same is. */
 	private openSelection(selection: PeekSelection): void {
-		const start = selection.startLine ?? 1;
-		const end = start + Math.max(1, selection.lineCount ?? 1) - 1;
-		void this.revealReference(selection.notePath, start, end, selection.selectedText || undefined);
+		void (async () => {
+			const file = this.app.vault.getFileByPath(selection.notePath);
+			const source = this.openText(selection.notePath) ?? (file ? await this.app.vault.cachedRead(file) : null);
+			const reference = this.referenceOfSelection(selection, source);
+			// No lines to go by: the note, at the text where it's found.
+			await this.revealReference(reference.start ? reference : { ...reference, start: 1, end: 1, quote: selection.selectedText || undefined });
+		})();
 	}
 
 	/** Claudian's view has built its composer → its tab/context manager exists. */
@@ -4018,15 +4043,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const previous = new Map<HTMLElement | null, string | null>();
 		const links: { from: { node: Text; offset: number }; to: { node: Text; offset: number }; link: HTMLElement }[] = [];
 		for (const match of text.matchAll(REFERENCE)) {
-			const [, path = "", start, end, columns, quote] = match;
+			const reference = readReference(match);
+			const { path, start, end } = reference;
 			const file = this.app.vault.getFileByPath(path);
 			const from = spot(match.index, false);
 			if (!file || !from || from.node.parentElement?.closest("a, code")) continue;
 			const prompt = !!from.node.parentElement?.closest(CLAUDIAN_USER_MESSAGE);
-			const source = prompt ? match[0] : `@${path}${start ? `#${start}${end ? `-${end}` : ""}` : ""}`;
+			const source = prompt ? match[0] : `@${path}${start ? `#${start}${end > start ? `-${end}` : ""}` : ""}`;
 			const to = spot(match.index + source.length, true);
 			if (!to) continue;
-			const names = Array.from(columns?.matchAll(/"([^"]*)"/g) ?? [], (name) => name[1] ?? "");
 			const item = from.node.parentElement?.closest("li") ?? null;
 			if (!previous.has(item)) {
 				const before = item
@@ -4036,16 +4061,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 					: undefined;
 				previous.set(item, before?.dataset.section ?? null);
 			}
-			const section = `${path}#${this.sectionAt(file, Number(start ?? 0))}`;
+			const section = `${path}#${this.sectionAt(file, start)}`;
 			const name = section.slice(path.length + 1);
-			const lines = start ? `L${start}${end ? `–${end}` : ""}` : "";
+			const lines = linesLabel(start, end);
 			const link = from.node.ownerDocument.createElement("span");
 			link.className = REFERENCE_CLS;
-			if (prompt && lines) {
-				const flat = quote?.replace(/\s+/g, " ").trim() ?? "";
-				const short = flat.length > 20 ? `${flat.slice(0, 18)}…` : flat;
-				link.setText([lines, names.join(" / "), short && `「${short}」`].filter(Boolean).join(" · "));
-			} else link.setText(item && section === previous.get(item) && lines ? lines : [name, lines].filter(Boolean).join(" "));
+			if (prompt && lines) link.setText(referenceLabel(reference));
+			else link.setText(item && section === previous.get(item) && lines ? lines : [name, lines].filter(Boolean).join(" "));
 			link.dataset.section = section;
 			previous.set(item, section);
 			link.setAttribute("role", "link");
@@ -4054,7 +4076,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			link.addEventListener("click", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				void this.revealReference(path, Number(start ?? 0), Number(end ?? start ?? 0), quote, names);
+				void this.revealReference(reference);
 			});
 			links.push({ from, to, link });
 		}
@@ -4084,7 +4106,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * A drawing or a reference without lines just opens. In a table, what it names is lit:
 	 * the columns of those rows it gives, or the text it quotes (lightTable).
 	 */
-	private async revealReference(path: string, start: number, end: number, quote: string | undefined, columns: string[] = []): Promise<void> {
+	private async revealReference(reference: NoteReference): Promise<void> {
+		const { path, start, end, quote, columns = [] } = reference;
 		const file = this.app.vault.getFileByPath(path);
 		if (!file) return;
 		let existing: WorkspaceLeaf | null = null;
@@ -4128,7 +4151,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		} else view.setEphemeralState({ line: line - 1 });
 		let lights: (Light | null)[];
 		if (table) lights = [this.lightTable(view, table, line, last, columns, quoted)];
-		else if (diagram) lights = [this.lightDiagram(view, diagram, line, last)];
+		else if (diagram) lights = [this.lightDiagram(view, diagram, line, last, quoted)];
 		else {
 			// A range of text can take in tables, which neither the editor's highlight nor reading
 			// view's reaches into: each is lit by its rows.
@@ -4204,18 +4227,21 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * Light what lines `from`–`to` (1-based) of `section`, a Mermaid block, draw: the nodes
-	 * they define, their edges with their labels, the subgraphs they open or close — found by
-	 * the ids the drawing gives them (diagramTargets). Lines that draw nothing (styling,
-	 * comments) light nothing; the scroll got as far as the diagram.
+	 * Light what lines `from`–`to` (1-based) of `section`, a Mermaid block, draw: a flowchart's
+	 * nodes, edges with their labels and subgraphs; a state diagram's states, transitions and
+	 * notes — found by the ids the drawing gives them (diagramTargets). Or, when the reference
+	 * quotes part of one of their labels, just that text. Lines that draw nothing (styling,
+	 * comments), and diagrams of other kinds, light nothing; the scroll got as far as the
+	 * diagram.
 	 */
-	private lightDiagram(view: MarkdownView, section: SectionCache, from: number, to: number): Light | null {
+	private lightDiagram(view: MarkdownView, section: SectionCache, from: number, to: number, quote: string | undefined): Light | null {
 		const first = section.position.start.line + 1;
 		const body = view.data.split("\n").slice(first, section.position.end.line);
 		// The fence lines are none of the diagram's: line `first` is the opening one.
 		const targets = diagramTargets(body, Math.max(from - first - 1, 0), to - first - 1);
 		if (targets.size === 0) return null;
 		let lit: Element[] = [];
+		let boxes: SVGRectElement[] = [];
 		let scrolled = false;
 		const paint = (): Element[] | null => {
 			const svg = this.renderedBlock(view, first)?.querySelector(DRAWN_DIAGRAM);
@@ -4223,17 +4249,32 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			const ids = drawnIds(targets, all.map((el) => el.getAttribute("data-id") ?? ""));
 			const parts = all.filter((el) => ids.has(el.getAttribute("data-id") ?? ""));
 			if (parts.length === 0) return null;
-			for (const el of lit) if (!parts.includes(el)) el.classList.remove(LIT_SHAPE_CLS);
-			for (const el of parts) if (!el.classList.contains(LIT_SHAPE_CLS)) el.classList.add(LIT_SHAPE_CLS);
-			lit = parts;
+			const range = quote ? (parts.map((part) => renderedRange([part], quote)).find((found) => found !== null) ?? null) : null;
+			const shapes = range ? [] : parts;
+			for (const el of lit) if (!shapes.includes(el)) el.classList.remove(LIT_SHAPE_CLS);
+			for (const el of shapes) if (!el.classList.contains(LIT_SHAPE_CLS)) el.classList.add(LIT_SHAPE_CLS);
+			lit = shapes;
+			// Drawn again only when the diagram was: boxes going in are a change keepLit repaints on.
+			if (!range || boxes.some((box) => !box.isConnected)) {
+				boxes.forEach((box) => box.remove());
+				boxes = [];
+			}
+			if (range && boxes.length === 0) boxes = boxText(range);
+			if (range && boxes.length === 0) return null;
 			if (!scrolled) {
 				scrolled = true;
 				svg?.closest(".is-flashing")?.removeClass("is-flashing");
-				parts[0]?.scrollIntoView({ block: "center", inline: "nearest" });
+				(boxes[0] ?? parts[0])?.scrollIntoView({ block: "center", inline: "nearest" });
 			}
-			return parts;
+			return range ? boxes : parts;
 		};
-		return { paint, clear: () => lit.forEach((el) => el.classList.remove(LIT_SHAPE_CLS)) };
+		return {
+			paint,
+			clear: () => {
+				lit.forEach((el) => el.classList.remove(LIT_SHAPE_CLS));
+				boxes.forEach((box) => box.remove());
+			},
+		};
 	}
 
 	/**
@@ -5038,6 +5079,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private followToBottom(scroller: HTMLElement): void {
 		// The reader took over; leave them where they are until they come back down.
 		if (this.detached.has(scroller)) return;
+		// Pressed in: what's under the pointer stays there until it's let go of.
+		if (this.pressed?.list === scroller) return;
 		const distance =
 			scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
 		if (distance > FOLLOW_THRESHOLD_PX) return;
@@ -5105,6 +5148,45 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * Only the pinned prompt answers to this. An unpinned one is already sitting at its own
 	 * position, so there would be nowhere to go.
 	 */
+	/**
+	 * Keep a message list still while a press is held in it. Following a reply as it streams
+	 * scrolls the list on every piece of it, so whatever was pressed — a reference in the prompt
+	 * just sent, its line tag, a link or a button in the reply — had moved away by the time the
+	 * press was let go of, and the browser, the press ending on something else, made no click
+	 * of it: a link in a fresh prompt did nothing until the prompt reached the top and stuck.
+	 * A text selection dragged across a streaming reply holds still the same way. Let go, the
+	 * list catches up with the stream — after the click, which is dispatched right after the
+	 * pointer comes up, to what was under it — unless it was moved meanwhile: the reader
+	 * dragging its scrollbar, or what the click does (the pinned prompt going back to its
+	 * turn), which is theirs to keep.
+	 */
+	private holdStillWhilePressed(): void {
+		this.registerDomEvent(
+			document,
+			"pointerdown",
+			(event: PointerEvent) => {
+				const list = event.target instanceof Element ? event.target.closest<HTMLElement>(CLAUDIAN_MESSAGES) : null;
+				if (!list) return;
+				const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
+				this.pressed = { list, following: !this.detached.has(list) && distance <= FOLLOW_THRESHOLD_PX, top: list.scrollTop };
+			},
+			{ capture: true },
+		);
+		const release = (): void => {
+			const pressed = this.pressed;
+			this.pressed = null;
+			if (!pressed?.following) return;
+			window.setTimeout(() => {
+				const { list, top } = pressed;
+				if (this.pressed?.list !== list && list.scrollTop === top && !this.detached.has(list)) this.pinToBottom(list);
+			}, 0);
+		};
+		this.registerDomEvent(document, "pointerup", release, { capture: true });
+		this.registerDomEvent(document, "pointercancel", release, { capture: true });
+		// Let go outside the window, the pointer up goes elsewhere.
+		this.registerDomEvent(window, "blur", release);
+	}
+
 	private interceptPinnedPromptClicks(): void {
 		this.registerDomEvent(
 			document,
@@ -5434,31 +5516,6 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (side === "right") this.app.workspace.rightSplit.expand();
 		else if (side === "left") this.app.workspace.leftSplit.expand();
 	}
-}
-
-/**
- * A Markdown table row's cells, trimmed. A `|` splits cells unless it's escaped — as it is
- * in a link's alias inside a table — and the pipes at either end bound the row rather than
- * add an empty cell.
- */
-function tableRowCells(row: string): string[] {
-	const cells: string[] = [];
-	let cell = "";
-	for (let i = 0; i < row.length; i++) {
-		const ch = row.charAt(i);
-		if (ch === "\\" && i + 1 < row.length) {
-			cell += ch + row.charAt(++i);
-		} else if (ch === "|") {
-			cells.push(cell);
-			cell = "";
-		} else {
-			cell += ch;
-		}
-	}
-	cells.push(cell);
-	if (cells.length > 1 && cells[0]?.trim() === "") cells.shift();
-	if (cells.length > 1 && cells[cells.length - 1]?.trim() === "") cells.pop();
-	return cells.map((c) => c.trim());
 }
 
 /** A composer mounted and taking text. */

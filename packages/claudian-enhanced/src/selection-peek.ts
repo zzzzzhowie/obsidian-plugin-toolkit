@@ -6,6 +6,8 @@ export interface PeekSelection {
 	selectedText: string;
 	startLine?: number;
 	lineCount: number;
+	/** What it is, past the note's name: `L354–359 · 拦截方案` (main.ts, referenceLabel). */
+	label?: string;
 }
 
 /** Claudian's chip for the editor 划词 in the composer's context row. */
@@ -163,9 +165,10 @@ export class SelectionPeek {
 	}
 }
 
-/** "Untitled · L25", "Untitled · L76–146". */
+/** "Untitled · L25", "Untitled · L76–146", "Untitled · L354–359 · 拦截方案". */
 function where(selection: PeekSelection): string {
 	const note = selection.notePath.split("/").pop()?.replace(/\.md$/, "") ?? selection.notePath;
+	if (selection.label) return `${note} · ${selection.label}`;
 	if (!selection.startLine) return note;
 	const end = selection.startLine + Math.max(1, selection.lineCount) - 1;
 	return `${note} · ${end === selection.startLine ? `L${selection.startLine}` : `L${selection.startLine}–${end}`}`;
