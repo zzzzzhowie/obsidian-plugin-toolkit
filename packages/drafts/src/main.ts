@@ -28,6 +28,12 @@ interface AppInternals {
 	vault: { getConfig?: (key: string) => unknown; setConfig?: (key: string, value: unknown) => void };
 }
 
+/** The right sidebar on a phone or tablet: under its tabs, the open note's name. */
+interface RightDrawer {
+	fileNameEl?: HTMLElement | null;
+	updateName?: (file: TFile | null) => void;
+}
+
 /**
  * VS Code's untitled files, for Obsidian. "New draft" opens a blank note that isn't anywhere
  * yet — no "Untitled.md" left in the vault for every thought jotted down — and ⌘S asks for a
@@ -248,16 +254,12 @@ export default class DraftsPlugin extends Plugin {
 	}
 
 	/**
-	 * Keep the draft views and empty tabs dressed, and catch a draft no tab shows any more —
-	 * closed while blank, or replaced in its tab by another note. A blank one goes; one with
-	 * text stays where it is and says how to get back to it.
-	 */
-	/**
 	 * Every draft's tab says "Draft". Its file can't: drafts share a folder, so the second is
 	 * "Draft 1", and so on. But that number names nothing the reader chose — a draft's real
 	 * name is the one it gets on saving — so only the file carries it. Taken over at the
-	 * view's display text, which the tab and its tooltip read (the window title goes by the
-	 * file's name, and still says "Draft 1").
+	 * view's display text, which the tab and its tooltip read, and on a phone or tablet at the
+	 * open note's name under the right sidebar (the window title goes by the file's name, and
+	 * still says "Draft 1").
 	 */
 	private nameDraftsAlike(): void {
 		const proto = MarkdownView.prototype;
@@ -267,19 +269,42 @@ export default class DraftsPlugin extends Plugin {
 			return isDraft(this.file) ? DRAFT_TITLE : original.call(this);
 		};
 		proto.getDisplayText = getDisplayText;
-		const updateHeaders = (): void =>
+		// The mobile right sidebar writes the name itself, from the file, on opening and renaming.
+		// It doesn't exist until the layout loads, so a plugin loading with the app waits for it.
+		let drawer: RightDrawer | null = null;
+		let updateName: RightDrawer["updateName"] | null = null;
+		const namedAlike = function (this: RightDrawer, file: TFile | null): void {
+			updateName?.call(this, file);
+			if (isDraft(file)) this.fileNameEl?.setText(DRAFT_TITLE);
+		};
+		const updateHeaders = (): void => {
 			this.app.workspace.iterateAllLeaves((leaf) => {
 				if (leaf.view instanceof MarkdownView && isDraft(leaf.view.file)) {
 					(leaf as unknown as { updateHeader?: () => void }).updateHeader?.();
 				}
 			});
-		this.app.workspace.onLayoutReady(updateHeaders);
+			if (updateName) drawer?.updateName?.(this.app.workspace.getActiveFile());
+		};
+		this.app.workspace.onLayoutReady(() => {
+			drawer = this.app.workspace.rightSplit as unknown as RightDrawer | null;
+			if (typeof drawer?.updateName === "function") {
+				updateName = drawer.updateName;
+				drawer.updateName = namedAlike;
+			}
+			updateHeaders();
+		});
 		this.register(() => {
 			if (proto.getDisplayText === getDisplayText) proto.getDisplayText = original;
+			if (updateName && drawer?.updateName === namedAlike) drawer.updateName = updateName;
 			updateHeaders();
 		});
 	}
 
+	/**
+	 * Keep the draft views and empty tabs dressed, and catch a draft no tab shows any more —
+	 * closed while blank, or replaced in its tab by another note. A blank one goes; one with
+	 * text stays where it is and says how to get back to it.
+	 */
 	private refresh(): void {
 		const open = new Set<string>();
 		this.app.workspace.iterateAllLeaves((leaf) => {
