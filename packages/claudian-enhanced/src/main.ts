@@ -854,7 +854,8 @@ function renderedRange(cells: Element[], quote: string): Range | null {
 	for (const cell of cells) {
 		const walker = cell.ownerDocument.createTreeWalker(cell, NodeFilter.SHOW_TEXT);
 		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-			if (!(node instanceof Text)) continue;
+			// Only what's drawn: a cell being edited keeps its rendered text, hidden, beside its editor.
+			if (!(node instanceof Text) || node.parentElement?.checkVisibility() === false) continue;
 			for (let i = 0; i < node.data.length; i++) {
 				const ch = node.data.charAt(i);
 				if (MARKUP.test(ch)) continue;
