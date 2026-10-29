@@ -80,6 +80,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	private editingView: EditorView | null = null;
 	/** The diagram currently being dragged via its slider (skip re-fitting it). */
 	private draggingSvg: SVGSVGElement | null = null;
+	/** The size it's being dragged to, once the slider has moved; see the observer. */
+	private draggingValue: number | null = null;
 
 	async onload() {
 		await this.loadSettings();
@@ -111,10 +113,10 @@ export default class MermaidEnhancedPlugin extends Plugin {
 
 		// Hovering a box or an edge lights what it connects (dependencies.ts), in a note and the zoom.
 		new DiagramDependencies().register(this);
-
-		// A diagram shows as code only once its edit button is pressed.
 		// A drag in a label selects line by line (label-selection.ts).
 		new LabelSelection().register(this);
+
+		// A diagram shows as code only once its edit button is pressed.
 		this.registerEditorExtension([
 			EditorState.transactionFilter.of((tr) => this.keepCursorOutOfDiagrams(tr)),
 			EditorView.updateListener.of((update) => this.stepOutOfDiagram(update)),
@@ -261,7 +263,12 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			// Fitted again before it's drawn: only its size went.
 			if (!this.settings.enabled) return;
 			for (const svg of relaid) {
-				if (svg === this.draggingSvg) continue;
+				// One being sized with its slider: the renderer puts the size it was drawn at back
+				// as soon as the size changes, so the drag showed nothing; it gets the dragged one.
+				if (svg === this.draggingSvg) {
+					if (this.draggingValue !== null) this.applyLiveSize(svg, this.draggingValue);
+					continue;
+				}
 				try {
 					this.fitSvg(svg);
 				} catch (e) {
@@ -699,6 +706,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		slider.addEventListener("pointerdown", (e) => {
 			e.stopPropagation();
 			this.draggingSvg = svg;
+			this.draggingValue = null;
 			showTip();
 		});
 		slider.addEventListener("click", (e) => e.stopPropagation());
@@ -714,7 +722,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		slider.addEventListener("touchend", stopTouch, { passive: true });
 		// Live preview while dragging — style the SVG only, don't touch source.
 		slider.addEventListener("input", () => {
-			this.applyLiveSize(svg, Number(slider.value));
+			this.draggingValue = Number(slider.value);
+			this.applyLiveSize(svg, this.draggingValue);
 			if (this.draggingSvg === svg) showTip();
 		});
 		// Persist and hide the tooltip on release.
