@@ -17,6 +17,7 @@ import {
 import { CaptionModal, createCaptionButton, followCaptionLink, renderCaption } from "../../../shared/caption";
 import { type Gallery, ZoomOverlay, type ZoomSource, type ZoomTarget } from "../../../shared/zoom-overlay";
 import { DiagramDependencies } from "./dependencies";
+import { LabelSelection } from "./label-selection";
 
 /** Attribute stamped on a reading-view block naming the note line its diagram starts on. */
 const LINE_ATTR = "data-mermaid-line";
@@ -112,6 +113,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		new DiagramDependencies().register(this);
 
 		// A diagram shows as code only once its edit button is pressed.
+		// A drag in a label selects line by line (label-selection.ts).
+		new LabelSelection().register(this);
 		this.registerEditorExtension([
 			EditorState.transactionFilter.of((tr) => this.keepCursorOutOfDiagrams(tr)),
 			EditorView.updateListener.of((update) => this.stepOutOfDiagram(update)),
