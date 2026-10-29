@@ -37,8 +37,19 @@ export class PromptNav {
 	private menu: HTMLElement | null = null;
 	/** The rail as last drawn: how many prompts, and which was being read. */
 	private drawn = "";
-	/** Where the list was when the outline opened, to go back to. */
-	private opened: { top: number; following: boolean; moved: boolean } | null = null;
+	/**
+	 * Where the list was when the outline opened, to go back to: the message at the top of the
+	 * view and how far into it the view was. Not the scroll offset alone: a reply out of sight
+	 * stands in at an estimated height (styles.css), and the turns shown on the way are drawn at
+	 * their own, so the same offset no longer lands on the same text.
+	 */
+	private opened: {
+		top: number;
+		anchor: HTMLElement | null;
+		offset: number;
+		following: boolean;
+		moved: boolean;
+	} | null = null;
 	private spotlit: HTMLElement[] = [];
 
 	constructor(
@@ -74,7 +85,14 @@ export class PromptNav {
 		if (this.menu) return;
 		const prompts = Array.from(this.scroller.querySelectorAll<HTMLElement>(`:scope > ${USER_MESSAGE}`));
 		if (prompts.length < 2) return;
-		this.opened = { top: this.scroller.scrollTop, following: this.host.isFollowing(this.scroller), moved: false };
+		const anchor = this.topMessage();
+		this.opened = {
+			top: this.scroller.scrollTop,
+			anchor,
+			offset: anchor ? anchor.getBoundingClientRect().top - this.scroller.getBoundingClientRect().top : 0,
+			following: this.host.isFollowing(this.scroller),
+			moved: false,
+		};
 		const current = Number(this.drawn.split(":")[1] ?? 0);
 		const menu = this.el.createDiv({ cls: `${NAV_CLS}-menu` });
 		// As wide as its longest prompt, within the list.
@@ -122,7 +140,24 @@ export class PromptNav {
 		this.opened = null;
 		if (!opened?.moved) return;
 		if (chosen) this.host.commit(this.scroller);
-		else this.host.restore(this.scroller, opened.top, opened.following);
+		else this.host.restore(this.scroller, this.openedTop(opened), opened.following);
+	}
+
+	/** The first message reaching into the view, other than a prompt: a stuck one isn't where it lies. */
+	private topMessage(): HTMLElement | null {
+		const top = this.scroller.getBoundingClientRect().top;
+		for (const el of Array.from(this.scroller.children)) {
+			if (el instanceof HTMLElement && !el.matches(USER_MESSAGE) && el.getBoundingClientRect().bottom > top) return el;
+		}
+		return null;
+	}
+
+	/** Where the list now has to be for its top message to sit where it did. */
+	private openedTop(opened: NonNullable<PromptNav["opened"]>): number {
+		const { anchor } = opened;
+		if (!anchor?.isConnected) return opened.top;
+		const at = anchor.getBoundingClientRect().top - this.scroller.getBoundingClientRect().top;
+		return this.scroller.scrollTop + at - opened.offset;
 	}
 
 	private clearSpotlight(): void {

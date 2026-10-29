@@ -486,6 +486,18 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	box-shadow: 0 0 0 2px var(--interactive-accent);
 }
 
+/* A reply out of sight isn't laid out or painted until it comes near: a conversation of 250
+   messages (30k elements) was laid out whole again on every piece of a streaming reply, some
+   25ms each, and on every change of the panel's width, 40ms, where this takes 2. `auto` keeps the
+   height a reply had when last drawn, so only one not yet on screen since the conversation was
+   opened stands in at the estimate, about a reply's average; drawn above the reader, the
+   difference is taken up by scroll anchoring, so what's being read stays put. Prompts are left
+   alone: they stick to the top, and markPinnedPrompt measures them. */
+.workspace-leaf-content[data-type="claudian-view"] .claudian-messages > .claudian-message-assistant {
+	content-visibility: auto;
+	contain-intrinsic-block-size: auto 750px;
+}
+
 /* Claudian hides its inactive tabs with display:none, which drops their layout: showing a long
    conversation again laid it all out from scratch, some 0.4s for 300 messages — the lag going
    back to a note (one Claudian tab is kept per open note, see trimTabCache). The tabs gone back

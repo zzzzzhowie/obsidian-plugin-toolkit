@@ -5104,8 +5104,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				preview: (list, prompt) => ownMove(() => this.scrollTurnIntoView(list, prompt)),
 				restore: (list, top, wasFollowing) =>
 					ownMove(() => {
-						list.scrollTop = top;
-						if (wasFollowing) this.detached.delete(list);
+						// Back to the end, not to the offset it was at: the turns shown on the way
+						// were drawn at their own heights, which moved the end.
+						if (!wasFollowing) {
+							list.scrollTop = top;
+							return;
+						}
+						this.detached.delete(list);
+						list.scrollTop = list.scrollHeight;
 					}),
 				commit: (list) => {
 					const distance = list.scrollHeight - list.scrollTop - list.clientHeight;
