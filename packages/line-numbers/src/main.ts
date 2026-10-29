@@ -1,7 +1,7 @@
 import { Platform, Plugin } from "obsidian";
 import { Extension } from "@codemirror/state";
 import { highlightActiveLineGutter, lineNumbers } from "@codemirror/view";
-import { tableRowNumbers } from "./table-rows";
+import { blockRowNumbers } from "./block-rows";
 import {
 	DEFAULT_SETTINGS,
 	LineNumbersSettings,
@@ -121,8 +121,9 @@ export default class LineNumbersPlugin extends Plugin {
 		this.editorExtensions.length = 0;
 		if (active) {
 			this.editorExtensions.push(lineNumbers({ formatNumber: lineLabel }));
-			// A Live Preview table is one block in the gutter; this numbers each of its rows.
-			this.editorExtensions.push(tableRowNumbers(this.settings.highlightActiveLine, lineLabel));
+			// A block Live Preview draws in place of its lines (a table, a callout, a diagram) is one
+			// element in the gutter; this numbers its lines in it.
+			this.editorExtensions.push(blockRowNumbers(this.settings.highlightActiveLine, lineLabel));
 			if (this.settings.highlightActiveLine) {
 				this.editorExtensions.push(highlightActiveLineGutter());
 			}

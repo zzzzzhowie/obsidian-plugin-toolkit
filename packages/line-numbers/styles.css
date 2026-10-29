@@ -126,29 +126,30 @@
 }
 
 /*
- * A Live Preview table's rows (src/table-rows.ts): numbered inside the table's one gutter
- * element, each at its row's first line of text, and ending where the other numbers do: at
- * the element's right padding, inherited rather than repeated, since CodeMirror's own theme
- * sets it over the rule at the top. The element is translated (above), so it holds them.
+ * The lines of a block Live Preview draws in place of them, a table, a callout, a diagram
+ * (src/block-rows.ts): numbered inside the block's one gutter element, each level with its line,
+ * and ending where the other numbers do: at the element's right padding, inherited rather than
+ * repeated, since CodeMirror's own theme sets it over the rule at the top. The element is
+ * translated (above), so it holds them.
  */
-.cm-lineNumbers .line-numbers-table-rows {
+.cm-lineNumbers .line-numbers-block-rows {
 	padding-inline: inherit;
 }
 
-.cm-lineNumbers .line-numbers-table-row {
+.cm-lineNumbers .line-numbers-block-row {
 	position: absolute;
 	right: 0;
 	padding-inline: inherit;
 	white-space: nowrap;
 }
 
-/* The table's first-line number, drawn under the marker that numbers all its rows. */
-.cm-lineNumbers .line-numbers-table-covered {
+/* The block's first-line number, drawn under the marker that numbers all its lines. */
+.cm-lineNumbers .line-numbers-block-covered {
 	visibility: hidden;
 }
 
-/* The element as a whole is never the active line's (the table isn't one line); its row is. */
-.cm-lineNumbers .line-numbers-table-row.is-active {
+/* The element as a whole is never the active line's (the block isn't one line); its line is. */
+.cm-lineNumbers .line-numbers-block-row.is-active {
 	color: var(--text-muted);
 	font-weight: var(--bold-weight, 600);
 }

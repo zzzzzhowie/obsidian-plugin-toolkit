@@ -182,7 +182,7 @@ Find in the current note without collapsing rendered tables. The built-in find m
 
 ![Line numbers on every line, code block included](docs/images/line-numbers.png)
 
-Whole-document line numbers in the editor gutter, with an option to float them in the left margin. A Live Preview table, drawn in place of its lines, gets a number on every row rather than on its first line only.
+Whole-document line numbers in the editor gutter, with an option to float them in the left margin. A block Live Preview draws in place of its lines gets them numbered too, not just its first: a table on every row, a callout on every line, level with its text (a folded one's hidden lines stay unnumbered, as a folded heading's do), and a diagram, math or HTML block — a picture, with no place in it for the lines between — its first line at its top and its last at its bottom.
 
 ## Figures
 
