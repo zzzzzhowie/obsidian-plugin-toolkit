@@ -123,6 +123,7 @@ mindmap
       Enter keeps and deepens the indent
       Cmd+A selects just the block
       Long lines scroll, not wrap
+      jsonc highlighted as JSON
     Callouts
       Callout type suggestions
     Checkboxes
@@ -136,6 +137,7 @@ Block editing utilities, forked from Blockier:
 - **Select block**: `Cmd/Ctrl+A` inside a code block selects just that block, and pressing it again selects the whole note.
 - **Code fence suggestions**: typing an opening fence (```` ```py ````) suggests the language. Exact matches come first, then prefix, then fuzzy, each ordered by how often the vault's code blocks use it, aliases (`ts`, `js`, `py`, `sh`, `yml`…) included. Enter, Tab or a click writes it and puts the cursor inside the block, with an optional per-language template. ```` ``` ```` + Enter still makes a plain block.
 - **Code block indentation**: Enter keeps the line's indent. It goes a level deeper after an opening bracket, or after a colon ending a Python or YAML line, and between a pair of brackets the closer moves to its own line. The indent unit is the block's own (a tab, or its fewest leading spaces).
+- **`jsonc` code blocks** are highlighted as the JSON they are, comments included, in the editor and Reading view alike; Obsidian knows no `jsonc` and showed them as plain text.
 - **Callout and checkbox suggestions**, and block-type replacement by prefix.
 - Rendered code blocks scroll sideways instead of wrapping (a setting, on by default).
 

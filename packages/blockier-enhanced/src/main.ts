@@ -5,6 +5,7 @@ import { runSelectBlock } from "select";
 import { CalloutSuggest, CheckboxSuggest } from "suggest";
 import { FenceSuggest } from "fence-suggest";
 import { codeIndentExtension } from "code-indent";
+import { registerSameAsLanguages } from "code-languages";
 
 export type PluginSettings = {
 	replaceBlocks: boolean;
@@ -60,6 +61,8 @@ export default class BlockierPlugin extends Plugin {
 		this.addSettingTab(new SettingsTab(this.app, this));
 		this.applyCodeWrap();
 		this.register(() => document.body.removeClass(NO_WRAP_CLS));
+		// ```jsonc highlighted as the JSON it is.
+		this.register(registerSameAsLanguages());
 
 		this.addCommand({
 			id: "select-block",
