@@ -519,6 +519,33 @@ interface ClaudianMenuView {
 	render?: (items: readonly { state?: string }[], selected: number) => void;
 	hide?: () => void;
 }
+/**
+ * What a selection reads as. Obsidian 1.15 draws a diagram's label as an SVG <text>, a
+ * <tspan> to a line, which `toString` runs together ("manage_type = 14选择器上下界"): in a
+ * diagram, its lines and labels are each a line of their own.
+ */
+function selectionText(selection: Selection): string {
+	const range = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+	const root = range?.commonAncestorContainer;
+	if (!range || !(root instanceof Element ? root : root?.parentElement)?.closest("svg")) return selection.toString();
+	if (!(root instanceof Element)) return selection.toString();
+	let text = "";
+	let line: Element | null = null;
+	const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		// Not a diagram's <style>, say.
+		const at = node.parentElement?.closest("tspan[y], text, foreignObject") ?? null;
+		if (!at || !range.intersectsNode(node)) continue;
+		const value = node.nodeValue ?? "";
+		const piece = value.slice(node === range.startContainer ? range.startOffset : 0, node === range.endContainer ? range.endOffset : value.length);
+		if (!piece) continue;
+		if (text && at !== line) text += "\n";
+		line = at;
+		text += piece;
+	}
+	return text || selection.toString();
+}
+
 
 /** The note lines a prompt was sent with, as Claude got them. */
 interface SentSelection {
@@ -1614,7 +1641,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** What ⌥K refers to (see registerSelectionReference), worked out; null for nothing. */
 	private selectedReference(): Promise<NoteReference[]> | null {
 		const selection = document.getSelection();
-		const text = selection && !selection.isCollapsed ? selection.toString().trim() : "";
+		const text = selection && !selection.isCollapsed ? selectionText(selection).trim() : "";
 		const anchor = selection?.anchorNode;
 		const anchorEl = anchor instanceof Element ? anchor : (anchor?.parentElement ?? null);
 		// A diagram in the zoom: the text selected in it, else the whole of it.
@@ -1756,7 +1783,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const cm = view.getMode() === "source" ? this.cmOf(view.leaf) : null;
 		const selection = view.containerEl.ownerDocument.getSelection();
 		if (!cm) {
-			const text = selection?.toString().trim();
+			const text = selection ? selectionText(selection).trim() : "";
 			if (!text || !selection?.anchorNode || !view.containerEl.contains(selection.anchorNode)) return null;
 			const found = locateText(view.data, text);
 			if (!found) return null;
@@ -4783,7 +4810,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (view.editor.getSelection().trim()) return null;
 		const cm = (view.editor as unknown as { cm?: EditorView }).cm;
 		const selection = cm?.dom.ownerDocument.getSelection();
-		const text = selection?.toString().trim();
+		const text = selection ? selectionText(selection).trim() : "";
 		if (!cm || !selection || !text || selection.rangeCount === 0) return null;
 		const { anchorNode, focusNode } = selection;
 		if (!anchorNode || !focusNode) return null;
@@ -4807,9 +4834,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/**
 	 * The note lines (1-based) that selected text inside a rendered block came from. The
 	 * block's source runs from the line the editor puts it at to the next blank line — where
-	 * a callout or a table ends. Within it, the first and last selected lines are matched
-	 * against the source with markup and spacing left out, since the rendered text has
-	 * neither; if the first can't be matched, the whole block is the honest answer.
+	 * a callout or a table ends — or, a code block (a diagram), to its closing fence. Within
+	 * it, the text is found as ⌥K finds it (locateText): a label of a diagram is the line it's
+	 * written on, `<br/>` and quotes and all. Failing that, the first and last selected lines
+	 * are matched with markup and spacing left out; if the first can't be, the whole block
+	 * is the honest answer.
 	 */
 	private sourceLinesOf(cm: EditorView, block: HTMLElement, text: string): { start: number; count: number } | null {
 		let pos: number;
@@ -4821,7 +4850,19 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const doc = cm.state.doc;
 		const first = doc.lineAt(pos).number;
 		let last = first;
-		while (last < doc.lines && doc.line(last + 1).text.trim() !== "") last++;
+		const fence = /^[\s>]*(`{3,}|~{3,})/.exec(doc.line(first).text)?.[1];
+		if (fence) {
+			while (last < doc.lines && !doc.line(last + 1).text.replace(/^[\s>]*/, "").startsWith(fence)) last++;
+			last = Math.min(last + 1, doc.lines);
+		} else {
+			while (last < doc.lines && doc.line(last + 1).text.trim() !== "") last++;
+		}
+		const from = doc.line(first).from;
+		const found = locateText(doc.sliceString(from, doc.line(last).to), text);
+		if (found) {
+			const start = doc.lineAt(from + found.from).number;
+			return { start, count: doc.lineAt(from + found.to).number - start + 1 };
+		}
 		const bare = (s: string): string => s.replace(/[\s>*_`~=|#[\]]/g, "");
 		const selected = text.split(/\r?\n/).map(bare).filter(Boolean);
 		const head = selected[0]?.slice(0, 8);
