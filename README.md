@@ -328,6 +328,7 @@ Copies the absolute path of the current file, optionally with the current headin
 - Each note keeps its own conversation: switching notes brings back that note's conversation and reading position. A reply still running carries on in its own tab. A chat opened in the main area isn't bound to any note.
 - `Option/Alt+K` puts a reference to the selection into the composer (`@path#lines`), as Claude Code's VS Code extension does. Selections from rendered tables, Mermaid diagrams, Excalidraw drawings and comments count. References in prompts and replies are links that open the note at those lines.
 - Every prompt is tagged with the note lines it was sent with. The current prompt stays pinned while its reply scrolls, and streaming follows the bottom until you scroll up.
+- Images pasted or dropped into the composer show as thumbnails in their chips, not just "Image 1", "Image 2".
 - `Cmd/Ctrl+N` starts a new session when you're in Claudian, else a new draft. `Cmd/Ctrl+F` finds in the conversation.
 - Long conversations stay light: replies out of sight aren't laid out or painted until you scroll near them, so a streaming reply or a resized panel no longer re-lays out the whole conversation.
 

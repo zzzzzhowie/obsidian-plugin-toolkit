@@ -156,6 +156,9 @@ const DRAWN_DIAGRAM = ".mermaid:not(.mermaid-enhanced-hold) svg";
 const RUN_BREAK = /^(?:P|LI|UL|OL|DIV|TABLE|TR|TD|TH|H[1-6]|PRE|BLOCKQUOTE|BR|HR)$/;
 /** Where references are looked for: a prompt's text, a reply's text. */
 const REFERENCE_TEXT = `${CLAUDIAN_USER_MESSAGE} ${CLAUDIAN_PROMPT_TEXT}, .claudian-message-assistant .claudian-text-block`;
+/** An image's chip in the composer's context row, and the picture put in it (thumbnailImageChips). */
+const IMAGE_CHIP = '.claudian-context-chip--image[data-context-slot="images"]';
+const IMAGE_THUMB_CLS = "claudian-enhanced-image-thumb";
 /** The conversation's session id at the end of the row under the composer; see syncSessionIds. */
 const SESSION_ID_CLS = "claudian-enhanced-session-id";
 /** How long a copied session id says so before showing the id again (ms). */
@@ -333,6 +336,8 @@ interface ClaudianTab {
 	state?: ClaudianTabState;
 	ui?: {
 		linkedContentController?: ClaudianLinkedContent;
+		/** The images pasted or dropped into the composer, each a chip in its context row. */
+		imageContextManager?: { getAttachedImages?: () => { id: string; mediaType?: string; data?: string }[] };
 		/** The composer's `/` and `@` menus; their sources are what composerSources hands out. */
 		composerDropdown?: { slashSource?: unknown; mentionSource?: unknown; controller?: { view?: ClaudianMenuView } };
 	};
@@ -514,11 +519,6 @@ function lineAtOffset(content: string, offset: number): number {
 	return content.slice(0, offset).split("\n").length;
 }
 
-/** The box Claudian's `@` and `/` menus are drawn in; see quietEmptyMenus. */
-interface ClaudianMenuView {
-	render?: (items: readonly { state?: string }[], selected: number) => void;
-	hide?: () => void;
-}
 /**
  * What a selection reads as. Obsidian 1.15 draws a diagram's label as an SVG <text>, a
  * <tspan> to a line, which `toString` runs together ("manage_type = 14选择器上下界"): in a
@@ -546,6 +546,11 @@ function selectionText(selection: Selection): string {
 	return text || selection.toString();
 }
 
+/** The box Claudian's `@` and `/` menus are drawn in; see quietEmptyMenus. */
+interface ClaudianMenuView {
+	render?: (items: readonly { state?: string }[], selected: number) => void;
+	hide?: () => void;
+}
 
 /** The note lines a prompt was sent with, as Claude got them. */
 interface SentSelection {
@@ -3250,6 +3255,23 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return view?.getTabManager?.() ?? null;
 	}
 
+	/**
+	 * An image in the composer shows as itself, small, at the start of its chip: Claudian's
+	 * chips only say "Image 1", "Image 2", so which was which took a click on each to open it.
+	 */
+	private thumbnailImageChips(node: Node): void {
+		if (!(node instanceof HTMLElement)) return;
+		const chips = node.matches(IMAGE_CHIP) ? [node] : Array.from(node.querySelectorAll<HTMLElement>(IMAGE_CHIP));
+		if (chips.length === 0) return;
+		const images = this.allClaudianTabs().flatMap((tab) => tab.ui?.imageContextManager?.getAttachedImages?.() ?? []);
+		for (const chip of chips) {
+			const image = images.find((one) => one.id === chip.dataset.contextId);
+			const main = chip.querySelector<HTMLElement>(".claudian-context-chip-main");
+			if (!image?.data || !image.mediaType || !main || main.querySelector(`.${IMAGE_THUMB_CLS}`)) continue;
+			main.prepend(main.createEl("img", { cls: IMAGE_THUMB_CLS, attr: { src: `data:${image.mediaType};base64,${image.data}`, alt: "" } }));
+		}
+	}
+
 	/** Every conversation tab of every Claudian view: the sidebar's and the chats in tabs of their own. */
 	private allClaudianTabs(): ClaudianTab[] {
 		return this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW).flatMap((leaf) => {
@@ -3852,6 +3874,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				for (const node of Array.from(record.addedNodes)) {
 					breakCellLines(node);
 					tagChangeLabels(node);
+					this.thumbnailImageChips(node);
 				}
 				const added = this.addedUserMessage(record);
 				submitted ??= added;

@@ -921,3 +921,25 @@ th.claudian-enhanced-lit-cell {
 	mix-blend-mode: var(--highlight-mix-blend-mode);
 	border-radius: var(--radius-s);
 }
+
+/* An image's chip in the composer starts with the image (main.ts, thumbnailImageChips), big
+   enough to tell one from another; the chip grows around it. */
+.claudian-context-chip--image:has(.claudian-enhanced-image-thumb) {
+	height: auto;
+	padding: 3px 6px 3px 3px;
+	border-radius: 8px;
+}
+
+.claudian-context-chip--image:has(.claudian-enhanced-image-thumb) .claudian-context-chip-main {
+	height: auto;
+	padding: 0;
+	gap: 6px;
+}
+
+.claudian-context-chip--image .claudian-enhanced-image-thumb {
+	flex: none;
+	width: 44px;
+	height: 44px;
+	object-fit: cover;
+	border-radius: 5px;
+}
