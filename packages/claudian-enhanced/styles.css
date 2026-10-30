@@ -636,6 +636,13 @@ th.claudian-enhanced-lit-cell {
 	background-color: var(--text-muted);
 }
 
+/* With only background work left (the reply done, a turn of Claude Code's own still running):
+   faint, so it doesn't read as a reply still coming; full again on hover. */
+.claudian-input-toolbar > .claudian-enhanced-stop.claudian-enhanced-stop--background:not(:hover) {
+	background-color: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
 .claudian-input-toolbar > .claudian-enhanced-stop svg {
 	width: 10px;
 	height: 10px;

@@ -169,6 +169,8 @@ const SESSION_ID_CLS = "claudian-enhanced-session-id";
 const COPIED_MS = 1200;
 /** The stop button at the end of the composer's toolbar, while Claudian works; see syncStopButtons. */
 const STOP_BTN_CLS = "claudian-enhanced-stop";
+/** On it while only background work is left (isBackgroundOnly): drawn faint. */
+const STOP_BG_CLS = "claudian-enhanced-stop--background";
 /** How often whether Claudian is working is looked at again (ms): a turn ends without a mutation of its own. */
 const STOP_POLL_MS = 300;
 /**
@@ -908,6 +910,15 @@ function isWorking(tab: ClaudianTab): boolean {
 	const side = tab.controllers?.sideChatController;
 	if (side?.destination === "side") return side.runtime?.isWorking ?? false;
 	return !!(tab.state?.isStreaming || tab.controllers?.inputController?.isPreparingMainTurn || tab.session?.hasMainBackgroundWork || tab.session?.runtime?.mailbox?.hasPending);
+}
+
+/**
+ * Whether all Claudian works on in `tab` is background work: no reply coming or being sent,
+ * nothing queued, a turn of Claude Code's own (a background task's, say) still running.
+ */
+function isBackgroundOnly(tab: ClaudianTab): boolean {
+	if (tab.controllers?.sideChatController?.destination === "side") return false;
+	return !!tab.session?.hasMainBackgroundWork && !tab.state?.isStreaming && !tab.controllers?.inputController?.isPreparingMainTurn && !tab.session?.runtime?.mailbox?.hasPending;
 }
 
 /**
@@ -3736,6 +3747,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			// Only on a change: the view observer calls this on every mutation, a class written
 			// over with the same value included, which would call it again, and again.
 			if (button.hasClass("claudian-hidden") === working) button.toggleClass("claudian-hidden", !working);
+			// Faint with only background work left: the reply is done.
+			const background = working && isBackgroundOnly(tab);
+			if (button.hasClass(STOP_BG_CLS) !== background) {
+				button.toggleClass(STOP_BG_CLS, background);
+				button.setAttribute("aria-label", background ? "Stop background work" : "Stop");
+			}
 		}
 	}
 
