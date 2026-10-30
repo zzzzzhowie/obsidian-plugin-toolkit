@@ -148,6 +148,10 @@ const LIT_TEXT_BOX_CLS = "claudian-enhanced-lit-text-box";
 const LIT_SHAPE_CLS = "claudian-enhanced-lit-shape";
 /** What a reference to a range of lines lights in reading view: its blocks or list items. */
 const LIT_BLOCK_CLS = "claudian-enhanced-lit-block";
+/** Where a change list's Removed reference goes: a seam where the lines were (lightSeam), above what follows them. */
+const SEAM_CLS = "claudian-enhanced-removed-seam";
+/** The same under the note's last line, for lines removed from its end. */
+const SEAM_AFTER_CLS = "claudian-enhanced-removed-seam-after";
 /** Something a reference lights (lightTable, lightDiagram, lightLines), held lit by keepLit. */
 type Light = { paint: () => Element[] | null; clear: () => void };
 /** A diagram as drawn, not mermaid-enhanced's copy standing in while it's redrawn. */
@@ -710,6 +714,17 @@ function tagChangeLabels(root: Node): void {
 			label.classList.toggle(`${OWN_CLS_PREFIX}change-${k}`, alone && kind === k);
 		}
 	}
+}
+
+/**
+ * Whether a reference is where something was removed: the first of a bullet under a change
+ * list's Removed label (one after it says where that went, "moved to @…").
+ */
+function isRemovedEntry(link: HTMLElement): boolean {
+	const item = link.closest("li");
+	if (!item || item.querySelector(`.${REFERENCE_CLS}`) !== link) return false;
+	const label = item.parentElement?.previousElementSibling;
+	return !!label?.matches("p") && !!label.querySelector(`.${OWN_CLS_PREFIX}change-removed`);
 }
 
 /**
@@ -4187,7 +4202,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			link.addEventListener("click", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				void this.revealReference(reference);
+				void this.revealReference(reference, isRemovedEntry(link));
 			});
 			links.push({ from, to, link });
 		}
@@ -4217,7 +4232,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * A drawing or a reference without lines just opens. In a table, what it names is lit:
 	 * the columns of those rows it gives, or the text it quotes (lightTable).
 	 */
-	private async revealReference(reference: NoteReference): Promise<void> {
+	private async revealReference(reference: NoteReference, removed = false): Promise<void> {
 		const { path, start, end, quote, columns = [] } = reference;
 		const file = this.app.vault.getFileByPath(path);
 		if (!file) return;
@@ -4244,6 +4259,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		let diagram = this.blockAt(view, line, "code");
 		if (diagram && !/^\s*(?:```|~~~)\s*mermaid\b/.test(lines[diagram.position.start.line] ?? "")) diagram = null;
 		const cm = view.getMode() === "source" ? this.cmOf(leaf) : null;
+		if (removed) {
+			// Lines that are gone: where they were is marked, not the line that follows them now lit,
+			// which read as a jump to the wrong place.
+			if (cm) {
+				const pos = cm.state.doc.line(Math.min(line, cm.state.doc.lines)).from;
+				cm.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }) });
+			} else view.setEphemeralState({ line: line - 1 });
+			const seam = this.lightSeam(view, line, start > lines.length);
+			this.keepLit(view, seam.paint, seam.clear);
+			return;
+		}
 		// A diagram the cursor is already in shows its source: its lines are there to go to.
 		const main = cm?.state.selection.main;
 		if (diagram && main && main.to >= diagram.position.start.offset && main.from <= diagram.position.end.offset) diagram = null;
@@ -4386,6 +4412,65 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				boxes.forEach((box) => box.remove());
 			},
 		};
+	}
+
+	/**
+	 * Mark where lines were removed: a red seam along the top of line `line` (1-based), what
+	 * follows them now — or, `after`, along the bottom of the note's last line, for lines removed
+	 * from its end.
+	 */
+	private lightSeam(view: MarkdownView, line: number, after: boolean): Light {
+		const cls = after ? SEAM_AFTER_CLS : SEAM_CLS;
+		let lit: HTMLElement | null = null;
+		let first = true;
+		const paint = (): HTMLElement[] | null => {
+			const el = this.lineElement(view, line);
+			if (!el) return null;
+			if (lit !== el) {
+				lit?.removeClass(cls);
+				el.addClass(cls);
+				lit = el;
+			}
+			if (first && view.getMode() !== "source") {
+				first = false;
+				view.previewMode.containerEl.querySelectorAll(".is-flashing").forEach((one) => one.removeClass("is-flashing"));
+			}
+			return [el];
+		};
+		return { paint, clear: () => lit?.removeClass(cls) };
+	}
+
+	/**
+	 * What draws line `line` (1-based) of `view`'s note, if it's drawn: in the editor its line,
+	 * or the block drawn in place of it (a table, a callout, a diagram); in reading view the
+	 * list item it starts, else its block.
+	 */
+	private lineElement(view: MarkdownView, line: number): HTMLElement | null {
+		if (view.getMode() === "source") {
+			const cm = this.cmOf(view.leaf);
+			if (!cm) return null;
+			const pos = cm.state.doc.line(Math.min(line, cm.state.doc.lines)).from;
+			if (pos < cm.viewport.from || pos > cm.viewport.to) return null;
+			// Found by where it's drawn, not domAtPos: inside a block drawn in place of its lines,
+			// that gives the line after the block.
+			const top = cm.lineBlockAt(pos).top + cm.documentTop;
+			for (const el of Array.from(cm.contentDOM.children)) {
+				if (el instanceof HTMLElement && Math.abs(el.getBoundingClientRect().top - top) < 1) return el;
+			}
+			return null;
+		}
+		const renderer = (view.previewMode as unknown as { renderer?: { sections?: { el: HTMLElement; lines: number }[] } }).renderer;
+		let at = 1;
+		for (const section of renderer?.sections ?? []) {
+			if (section.lines > 0 && line < at + section.lines) {
+				if (!section.el.isConnected) return null;
+				// A list item's data-line counts from its block's first line.
+				const item = Array.from(section.el.querySelectorAll<HTMLElement>("li[data-line]")).find((li) => at + Number(li.dataset.line) === line);
+				return item ?? section.el;
+			}
+			at += section.lines;
+		}
+		return null;
 	}
 
 	/**

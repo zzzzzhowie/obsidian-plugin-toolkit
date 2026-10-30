@@ -924,6 +924,17 @@ th.claudian-enhanced-lit-cell {
 	border-radius: var(--radius-s);
 }
 
+/* Where a Removed reference of a change list goes (lightSeam in main.ts): the lines are gone, so
+   a red seam where they were, along the top of what follows them now — under the last line, for
+   lines removed from the note's end. A shadow, so nothing moves and nothing it's on is restyled. */
+.claudian-enhanced-removed-seam {
+	box-shadow: 0 -2px 0 0 var(--color-red);
+}
+
+.claudian-enhanced-removed-seam-after {
+	box-shadow: 0 2px 0 0 var(--color-red);
+}
+
 /* An image's chip in the composer starts with the image (main.ts, thumbnailImageChips), big
    enough to tell one from another; the chip grows around it. */
 .claudian-context-chip--image:has(.claudian-enhanced-image-thumb) {
