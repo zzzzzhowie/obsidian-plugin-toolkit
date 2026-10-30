@@ -1043,6 +1043,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private pinnedPrompt: HTMLElement | null = null;
 	/** How far the pinned prompt is pushed up by the next one arriving; see markPinnedPrompt. */
 	private pinnedPush = 0;
+	/** Prompts folded for being pinned: the margin they had, what folding cut, how much of it they fill; see fillSlot. */
+	private keptSlots = new WeakMap<HTMLElement, { base: number; cut: number; fill: number }>();
 	/** Pending frame for the pinned-prompt pass, so scrolling schedules at most one. */
 	private pinnedFrame: number | null = null;
 	/** rAF handle for the next fold pass; see scheduleFold. */
@@ -4090,6 +4092,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				else prompt.removeClass(BURIED_CLS);
 			}
 		}
+		// A long one folded as it pinned opens into the room under it while that's in sight.
+		if (pinned) this.fillSlot(pinned);
 		// A style write, which the observer doesn't watch (it filters on `class`), and only
 		// while the hand-over is under way: in the steady state the push is 0 and stays 0.
 		if (pinned && push !== this.pinnedPush) {
@@ -4628,15 +4632,39 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const base = parseFloat(getComputedStyle(prompt).marginBottom) || 0;
 		const cut = unfolded - prompt.getBoundingClientRect().height;
 		if (cut < 0.5) return;
-		prompt.dataset.foldSlot = "kept";
+		this.keptSlots.set(prompt, { base, cut, fill: 0 });
 		prompt.setCssProps({ "margin-bottom": `${base + cut}px` });
+		this.fillSlot(prompt);
+	}
+
+	/**
+	 * Open a prompt folded for being pinned into the slot it keeps, as far as that's in sight.
+	 * The kept margin is blank: with its reply's top not yet under the prompt, it showed as a
+	 * hole between them, the whole of it just as the prompt pinned. The prompt takes the part
+	 * in sight, back down to its fold as the reply scrolls up under it, and the margin gives up
+	 * what it takes, so nothing in the list moves. Style writes only, and none once it's folded.
+	 */
+	private fillSlot(prompt: HTMLElement): void {
+		const slot = this.keptSlots.get(prompt);
+		const reply = prompt.nextElementSibling;
+		if (!slot || !reply) return;
+		const folded = prompt.getBoundingClientRect().bottom - slot.fill;
+		const fill = Math.min(Math.max(reply.getBoundingClientRect().top - folded, 0), slot.cut);
+		// Under half a pixel is no change, short of fully open or folded.
+		if (fill === slot.fill || (Math.abs(fill - slot.fill) < 0.5 && fill > 0 && fill < slot.cut)) return;
+		slot.fill = fill;
+		prompt.setCssProps({
+			"margin-bottom": `${slot.base + slot.cut - fill}px`,
+			"--claudian-enhanced-fold-fill": `${fill}px`,
+			// Faded only where text is cut off: none with the whole prompt open.
+			"--claudian-enhanced-fold-fade": String(Math.min(1, (slot.cut - fill) / 24)),
+		});
 	}
 
 	/** Give back the room keepSlot kept, as the prompt unfolds. */
 	private releaseSlot(prompt: HTMLElement): void {
-		if (prompt.dataset.foldSlot === undefined) return;
-		delete prompt.dataset.foldSlot;
-		prompt.style.removeProperty("margin-bottom");
+		if (!this.keptSlots.delete(prompt)) return;
+		for (const prop of ["margin-bottom", "--claudian-enhanced-fold-fill", "--claudian-enhanced-fold-fade"]) prompt.style.removeProperty(prop);
 	}
 
 	/** Pin a list to the bottom, marking the move as ours. */

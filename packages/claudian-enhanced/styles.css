@@ -286,7 +286,9 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 /* Fold a long prompt to a readable header (foldLongPrompts decides which — the pinned one,
    and any collapsed by hand — and puts the expand/collapse button in its bubble). The
    pinned box is also the prompt's slot in the list, so what folding it cuts is kept as a
-   bottom margin while it's pinned (keepSlot), and the reply doesn't move.
+   bottom margin while it's pinned (keepSlot), and the reply doesn't move. While that margin
+   is in sight, the prompt opens into it by --claudian-enhanced-fold-fill (fillSlot), its fade
+   going as the whole of it shows (--claudian-enhanced-fold-fade, 1 to 0).
 
    `3lh` is FOLD_LINES in main.ts, measured in the text's own line height, which is what
    the script compares against. The text fades out downwards over the last line it keeps,
@@ -294,10 +296,10 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
    the text block inside the bubble, not the bubble: a mask fades an element's background
    along with its text, and on the bubble that would fade the opaque sticky surface too. */
 .claudian-message-user.claudian-enhanced-folded > .claudian-message-content > .claudian-text-block {
-	max-height: 3lh;
+	max-height: calc(3lh + var(--claudian-enhanced-fold-fill, 0px));
 	overflow: hidden;
-	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5lh), transparent);
-	mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5lh), transparent);
+	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5lh * var(--claudian-enhanced-fold-fade, 1)), transparent);
+	mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5lh * var(--claudian-enhanced-fold-fade, 1)), transparent);
 }
 
 /* The toggle is the bubble's bottom edge (syncFoldToggle): a strip the bubble's width, in a
