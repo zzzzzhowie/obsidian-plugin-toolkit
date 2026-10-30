@@ -56,7 +56,11 @@
 }
 
 /* The pencil on a draft's tab (markTab), among the tab's status icons, in the accent colour
-   so it reads as "not saved yet" rather than as one more icon. */
+   so it reads as "not saved yet" rather than as one more icon. A mark, not a button: themes
+   (Primary) fill a status icon on hover, as the pin is one a click takes off, and the pencil
+   turned into an orange square under the pointer. Out of the pointer's way, it keeps the
+   colour the theme gives the tab's icons. */
 .workspace-tab-header-status-icon.drafts-tab-status {
 	color: var(--text-accent);
+	pointer-events: none;
 }
