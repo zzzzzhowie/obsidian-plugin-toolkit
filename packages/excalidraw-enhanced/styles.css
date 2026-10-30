@@ -30,6 +30,19 @@ body.excalidraw-enhanced-sizing
 	max-width: 100% !important;
 }
 
+/*
+ * Previewed as SVG, the drawing sits in one more div, a flex item of the embed — and a flex
+ * item won't shrink below its content (`min-width: auto`): it stayed as wide as the setting
+ * and the drawing ran out of a narrower note, under the sidebar. Let it shrink, and the
+ * drawing's `max-width: 100%` above follows it to the note's width, as a Mermaid diagram does.
+ */
+body.excalidraw-enhanced-sizing
+	:is(.markdown-rendered, .cm-content)
+	.internal-embed > :has(> .excalidraw-embedded-img) {
+	min-width: 0;
+	max-width: 100%;
+}
+
 /* ── Click-to-zoom overlay (namespaced excalidraw-zoom-*) ───────────────── */
 
 .excalidraw-zoom-overlay {
