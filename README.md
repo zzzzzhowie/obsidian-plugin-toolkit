@@ -29,6 +29,7 @@ flowchart LR
 | | [Note Comments](#note-comments) | Comments on selected text, kept out of the Markdown |
 | | [Sticky Find](#sticky-find) | Find in a note without breaking rendered tables |
 | | [Line Numbers](#line-numbers) | Line numbers on every line |
+| | [Word Count (Enhanced)](#word-count-enhanced) | The status bar's word count says when it counts the selection |
 | Figures | [Caption (Enhanced)](#caption-enhanced) | Captions under images, Mermaid and Excalidraw |
 | | [Mermaid (Enhanced)](#mermaid-enhanced) | Diagrams that fit the screen, zoom overlay |
 | | [Excalidraw (Enhanced)](#excalidraw-enhanced) | Drawings that behave like Mermaid diagrams |
@@ -183,6 +184,10 @@ Find in the current note without collapsing rendered tables. The built-in find m
 ![Line numbers on every line, code block included](docs/images/line-numbers.png)
 
 Whole-document line numbers in the editor gutter, with an option to float them in the left margin. A block Live Preview draws in place of its lines gets them numbered too, not just its first: a table on every row, a callout on every line, level with its text (a folded one's hidden lines stay unnumbered, as a folded heading's do), and a diagram, math or HTML block — a picture, with no place in it for the lines between — its first line at its top and its last at its bottom.
+
+### Word Count (Enhanced)
+
+Obsidian's word count in the status bar counts the selection while text is selected in the editor, else the whole note, and reads the same either way. This adds "selected" to a count of the selection: `5 words selected`, as against `16,392 words`.
 
 ## Figures
 

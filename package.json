@@ -53,7 +53,9 @@
         "dev:drafts": "pnpm --filter @obsidian-plugin-toolkit/drafts dev",
         "build:drafts": "pnpm --filter @obsidian-plugin-toolkit/drafts build",
         "dev:tab-manager": "pnpm --filter @obsidian-plugin-toolkit/tab-manager dev",
-        "build:tab-manager": "pnpm --filter @obsidian-plugin-toolkit/tab-manager build"
+        "build:tab-manager": "pnpm --filter @obsidian-plugin-toolkit/tab-manager build",
+        "dev:word-count-enhanced": "pnpm --filter @obsidian-plugin-toolkit/word-count-enhanced dev",
+        "build:word-count-enhanced": "pnpm --filter @obsidian-plugin-toolkit/word-count-enhanced build"
     },
     "keywords": [
         "obsidian",

@@ -1,0 +1,4 @@
+/* The word count while it counts the selection (src/main.ts): "5 words selected". */
+.status-bar-item.plugin-word-count.yeyan-word-count-selection .status-bar-item-segment:first-child::after {
+	content: " selected";
+}

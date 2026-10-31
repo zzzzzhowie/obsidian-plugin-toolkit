@@ -1,0 +1,9 @@
+{
+	"id": "yeyan-word-count",
+	"name": "Word Count (Enhanced)",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Obsidian's word count in the status bar, telling a count of the selection from the whole note's: \"5 words selected\".",
+	"author": "yeyan1996",
+	"isDesktopOnly": false
+}
