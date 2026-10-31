@@ -153,6 +153,20 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	margin-bottom: 0;
 }
 
+/* Claudian's Quote button over selected reply text: in the accent's fill, not the
+   secondary background, which in a warm theme is the reply's own colour and lost the
+   button among the words. */
+.claudian-messages-wrapper button.claudian-message-quote-btn {
+	border-color: transparent;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: var(--font-semibold);
+}
+
+.claudian-messages-wrapper button.claudian-message-quote-btn:hover {
+	background: var(--interactive-accent-hover);
+}
+
 /* Block math (\[ … \]) renders as a MathJax mjx-container[display="true"], which is a
    block that MathJax centers. A formula wider than the chat panel then overflows — and
    because it's centered, the overflow spills off BOTH sides, leaving the left half at a
