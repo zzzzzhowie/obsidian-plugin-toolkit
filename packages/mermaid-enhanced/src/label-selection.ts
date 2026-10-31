@@ -1,3 +1,4 @@
+import { EditorView } from "@codemirror/view";
 import type { Plugin } from "obsidian";
 
 /** A spot between two characters of a label. */
@@ -21,7 +22,7 @@ interface Line {
  * places the end of a drag in such text by where the pointer is across, not by the line it's
  * on: dragging down a box's label put the end on some other line, the selection jumping about
  * under the pointer. A drag that starts in a label is this plugin's instead: the browser's own
- * is cancelled (`selectstart`), and the selection runs from where it was pressed to the
+ * is cancelled at the press, and the selection runs from where it was pressed to the
  * character nearest the pointer — on the line under it; above the first line, to the label's
  * start; past the last, to its end. Double and triple clicks are still the browser's.
  */
@@ -51,18 +52,41 @@ export class LabelSelection {
 		const selection = text.ownerDocument.getSelection();
 		if (!anchor || !selection) return;
 		this.drag?.off();
-		selection.setBaseAndExtent(anchor.node, anchor.offset, anchor.node, anchor.offset);
+		// No drag of the browser's own at all: cancelling its start (selectstart) still left it
+		// running, collapsing the selection every few milliseconds while the pointer was over the
+		// blank of a box. Without the press, though, the editor isn't focused by it: that's done
+		// here, once the plugin's other press handlers have moved the cursor out of the diagram.
+		event.preventDefault();
+		const editorEl = text.closest<HTMLElement>(".cm-editor");
+		const editor = editorEl ? EditorView.findFromDOM(editorEl) : null;
 		const win = text.ownerDocument.defaultView ?? window;
-		const move = (e: MouseEvent): void => {
-			const focus = caretAt(lines, e.clientX, e.clientY);
-			if (focus) selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
+		let focus: Caret = anchor;
+		const put = (): void => {
+			if (selection.anchorNode === anchor.node && selection.anchorOffset === anchor.offset && selection.focusNode === focus.node && selection.focusOffset === focus.offset) return;
+			selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
 		};
+		const move = (e: MouseEvent): void => {
+			// The browser's own drag goes on under this one: over the blank of a box — no text
+			// under the pointer — it collapsed the selection, which came back over a letter.
+			e.preventDefault();
+			focus = caretAt(lines, e.clientX, e.clientY) ?? focus;
+			put();
+		};
+		// Whatever else moves it while the button is down, it's put back.
+		const keep = (): void => put();
 		const off = (): void => {
 			win.removeEventListener("mousemove", move, true);
 			win.removeEventListener("mouseup", off, true);
 			win.removeEventListener("blur", off);
+			text.ownerDocument.removeEventListener("selectionchange", keep);
 			this.drag = null;
 		};
+		text.ownerDocument.addEventListener("selectionchange", keep);
+		win.setTimeout(() => {
+			if (editor && !editor.hasFocus) editor.focus();
+			put();
+		});
+		put();
 		win.addEventListener("mousemove", move, true);
 		win.addEventListener("mouseup", off, true);
 		win.addEventListener("blur", off);

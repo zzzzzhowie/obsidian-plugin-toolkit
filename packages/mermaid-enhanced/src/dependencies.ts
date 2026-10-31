@@ -46,6 +46,13 @@ export class DiagramDependencies {
 	}
 
 	private onPointerOver(event: PointerEvent): void {
+		// Text selected in a diagram in a note: Live Preview drops it as soon as anything in the
+		// diagram changes, a class included, so a pointer drifting onto another box would clear
+		// it. What is lit stays as it is while the selection lasts. Not in the zoom: that's no editor.
+		const selection = document.getSelection();
+		const selected = selection && !selection.isCollapsed ? selection.anchorNode : null;
+		const anchor = selected instanceof Element ? selected : selected?.parentElement;
+		if (anchor?.closest(".cm-content svg.pele")) return;
 		const target = event.target instanceof Element ? event.target : null;
 		const svg = target?.closest<SVGSVGElement>("svg.pele") ?? null;
 		const diagram = svg ? this.diagramOf(svg) : null;
