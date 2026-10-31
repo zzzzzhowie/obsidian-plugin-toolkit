@@ -617,6 +617,29 @@ th.claudian-enhanced-lit-cell {
 	color: var(--text-normal);
 }
 
+/* The fork button after it (forkToDesktop in main.ts), in the id's colour. The icon is drawn as
+   tall as the id's digits and centred on them, not on its line box: the digits sit above the
+   middle of that, so a centred icon hung low. */
+.claudian-enhanced-session-fork {
+	flex: none;
+	display: flex;
+	/* Most of the row's 12px gap: it belongs with the id, but isn't part of it. */
+	margin-left: -4px;
+	color: var(--text-faint);
+	cursor: pointer;
+	transform: translateY(-0.75px);
+}
+
+.claudian-enhanced-session-fork svg {
+	width: 11px;
+	height: 11px;
+	stroke-width: 1.75px;
+}
+
+.claudian-enhanced-session-fork:hover {
+	color: var(--text-normal);
+}
+
 /* The stop button at the end of the composer's toolbar while Claudian works (syncStopButtons):
    a filled square in a round button, as Claude's own apps show it, the chips' height. */
 .claudian-input-toolbar > .claudian-enhanced-stop {

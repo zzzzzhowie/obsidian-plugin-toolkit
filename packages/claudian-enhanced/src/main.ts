@@ -165,6 +165,8 @@ const IMAGE_CHIP = '.claudian-context-chip--image[data-context-slot="images"]';
 const IMAGE_THUMB_CLS = "claudian-enhanced-image-thumb";
 /** The conversation's session id at the end of the row under the composer; see syncSessionIds. */
 const SESSION_ID_CLS = "claudian-enhanced-session-id";
+/** The button after it that forks the conversation into the Claude desktop app; see forkToDesktop. */
+const SESSION_FORK_CLS = "claudian-enhanced-session-fork";
 /** How long a copied session id says so before showing the id again (ms). */
 const COPIED_MS = 1200;
 /** The stop button at the end of the composer's toolbar, while Claudian works; see syncStopButtons. */
@@ -660,6 +662,15 @@ function decodeAttribute(value: string): string {
 
 function nodeRequire<T>(id: string): T {
 	return (window as unknown as { require: (id: string) => T }).require(id);
+}
+
+/** Where Claude Code keeps the vault's session files: `<config>/projects/<vault path, every other character a dash>`, as Claudian itself locates them. */
+function sessionDir(adapter: FileSystemAdapter): string {
+	const path = nodeRequire<typeof import("path")>("path");
+	const os = nodeRequire<typeof import("os")>("os");
+	const { env } = nodeRequire<typeof import("process")>("process");
+	const config = env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
+	return path.join(config, "projects", path.resolve(adapter.getBasePath()).replace(/[^a-zA-Z0-9]/g, "-"));
 }
 
 /** A `<br>` as it reads once escaped to text. */
@@ -1496,7 +1507,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.pinnedPrompt?.style.removeProperty("transform");
 		// Composers of background tabs sit outside the view, so their labels go tab by tab.
 		for (const tab of this.allClaudianTabs()) {
-			tab.dom?.infoRowEl?.querySelector(`:scope > .${SESSION_ID_CLS}`)?.remove();
+			for (const cls of [SESSION_ID_CLS, SESSION_FORK_CLS]) tab.dom?.infoRowEl?.querySelector(`:scope > .${cls}`)?.remove();
 			tab.dom?.inputWrapper?.querySelector(`.${STOP_BTN_CLS}`)?.remove();
 			const menu = tab.ui?.composerDropdown?.controller?.view;
 			const render = menu && this.quietedMenus.get(menu);
@@ -3613,10 +3624,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (!(adapter instanceof FileSystemAdapter)) return;
 		const { promises: fs } = nodeRequire<typeof import("fs")>("fs");
 		const path = nodeRequire<typeof import("path")>("path");
-		const os = nodeRequire<typeof import("os")>("os");
-		const { env } = nodeRequire<typeof import("process")>("process");
-		const config = env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
-		const dir = path.join(config, "projects", path.resolve(adapter.getBasePath()).replace(/[^a-zA-Z0-9]/g, "-"));
+		const dir = sessionDir(adapter);
 		for (const tab of this.getTabManager()?.getAllTabs?.() ?? []) {
 			const sessionId = this.sessionIdOf(tab);
 			if (!sessionId || !/^[\w-]+$/.test(sessionId)) continue;
@@ -3702,6 +3710,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			let label = row.querySelector<HTMLElement>(`:scope > .${SESSION_ID_CLS}`);
 			if (!id) {
 				label?.remove();
+				row.querySelector(`:scope > .${SESSION_FORK_CLS}`)?.remove();
 				continue;
 			}
 			if (!label) {
@@ -3710,6 +3719,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				created.addEventListener("mousedown", (e) => e.preventDefault());
 				created.addEventListener("click", () => this.copySessionId(created));
 				label = created;
+				if (Platform.isDesktopApp) {
+					const fork = row.createDiv({ cls: SESSION_FORK_CLS, attr: { role: "button", "aria-label": "Fork into Claude desktop" } });
+					setIcon(fork, "git-fork");
+					fork.addEventListener("mousedown", (e) => e.preventDefault());
+					fork.addEventListener("click", () => void this.forkToDesktop(tab));
+				}
 			}
 			if (label.dataset.sessionId !== id) {
 				label.dataset.sessionId = id;
@@ -3778,6 +3793,49 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			};
 			this.quietedMenus.set(view, render);
 		}
+	}
+
+	/**
+	 * Fork the tab's conversation into the Claude desktop app, as `claude --resume
+	 * --fork-session` would: its session file copied under a new id (old lines keep the parent's
+	 * sessionId), titled "<its note> (fork)" (else its own title), then handed to the app's
+	 * `claude://resume` link, which imports it as a Code session in the vault's folder. The app
+	 * nests a fork under its parent only by `forkedFromSessionId` on its own record, which the
+	 * link can't set, and the parent lives in Claudian, not the app: so the fork stands alone.
+	 */
+	private async forkToDesktop(tab: ClaudianTab): Promise<void> {
+		const id = this.sessionIdOf(tab);
+		const adapter = this.app.vault.adapter;
+		if (!id || !/^[\w-]+$/.test(id) || !(adapter instanceof FileSystemAdapter)) return;
+		const { promises: fs } = nodeRequire<typeof import("fs")>("fs");
+		const path = nodeRequire<typeof import("path")>("path");
+		const dir = sessionDir(adapter);
+		const fork = crypto.randomUUID();
+		// Named after the note it's linked to, as the chip beside it shows it; else the conversation's title.
+		const note = tab.ui?.linkedContentController?.getSnapshot?.().path;
+		const view = this.getClaudianLeaf()?.view as unknown as { plugin?: ClaudianPluginApi } | undefined;
+		const conversation = note || !tab.conversationId ? null : view?.plugin?.getCachedConversation?.(tab.conversationId);
+		const name = note ? path.basename(note, path.extname(note)) : (conversation as { title?: string } | null | undefined)?.title;
+		const title = `${name || "Untitled"} (fork)`;
+		const file = path.join(dir, `${fork}.jsonl`);
+		try {
+			await fs.copyFile(path.join(dir, `${id}.jsonl`), file);
+			await fs.appendFile(file, JSON.stringify({ type: "custom-title", customTitle: title, sessionId: fork }) + "\n");
+		} catch (error) {
+			new Notice("Couldn't fork: the session file isn't on this machine");
+			console.warn("Claudian (Enhanced): couldn't fork the session", error);
+			return;
+		}
+		try {
+			await nodeRequire<{ shell: { openExternal(url: string): Promise<void> } }>("electron").shell.openExternal(`claude://resume?session=${fork}`);
+		} catch (error) {
+			// Nothing took the link (no Claude desktop app here): the copy would only lie about.
+			await fs.unlink(file).catch(() => undefined);
+			new Notice("Couldn't fork: no desktop app opened the claude:// link");
+			console.warn("Claudian (Enhanced): couldn't open the fork in Claude", error);
+			return;
+		}
+		new Notice(`Forked into Claude: ${title}`);
 	}
 
 	private copySessionId(label: HTMLElement): void {
