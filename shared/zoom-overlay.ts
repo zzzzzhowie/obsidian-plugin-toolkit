@@ -65,6 +65,14 @@ export interface ZoomOverlayOptions {
 	 */
 	gallery?: (target: ZoomTarget) => Promise<Gallery | null>;
 	/**
+	 * List the gallery as the zoom opens, so the strip, the title and the room they take are
+	 * there in its first frame — when the listing is done before that frame: read from the
+	 * note's metadata (Excalidraw (Enhanced)), or parsed ahead (Mermaid (Enhanced)). Left out,
+	 * it's listed once the zoom is on screen, and the drawing shrinks for the strip then.
+	 * Thumbnails are drawn after the first frame either way.
+	 */
+	listGalleryAtOnce?: boolean;
+	/**
 	 * What to show in place of the clicked element, when it can do better — an inline `<svg>`
 	 * for a drawing the note shows as an `<img>`, so its text is text (see selectableText).
 	 * Null, or a failure, shows the element itself.
@@ -103,17 +111,15 @@ const PINCH_SENSITIVITY = 0.015;
 const NOTE_CONTAINER = '.workspace-leaf-content[data-type="markdown"]';
 
 /**
- * Click-to-zoom for a diagram or drawing in a note (originally the SVG half of the
- * retired image-zoom plugin). A click opens a full-screen overlay holding a clone that
- * can be zoomed (buttons / wheel-pinch / two-finger pinch) and panned (drag /
- * two-finger). Requires Cmd/Ctrl on desktop so it never swallows the plain click that
- * positions the cursor in Live Preview; on mobile a plain tap is enough.
+ * Zoom for a diagram or drawing in a note (originally the SVG half of the retired
+ * image-zoom plugin), opened as an image's own is: a click selects it, a click on it selected
+ * opens it — or Cmd/Ctrl-click, or the zoom-in button (zoomButton); a plain tap on mobile. A
+ * full-screen overlay holding a clone that can be zoomed (buttons / wheel-pinch / two-finger
+ * pinch) and panned (drag / two-finger).
  *
- * The click is claimed in the capture phase and stopped there (see register), so the
- * element never also reaches Obsidian's own handling or another plugin listening on the
- * bubble — one click can only ever produce this one overlay. Where the host plugin's
- * content has its own click behaviour (an Excalidraw embed opens the drawing), the
- * modifier-click is taken over and the plain click is left alone.
+ * The click that opens it is claimed in the capture phase and stopped there (see register),
+ * so the element never also reaches Obsidian's own handling or another plugin listening on
+ * the bubble — Excalidraw opening a drawing, Obsidian's in-place diagram zoom.
  *
  * Shared by Mermaid (Enhanced) and Excalidraw (Enhanced): the behaviour is meant to be
  * identical, and it used to be two copies that drifted the moment either was tuned.
@@ -169,64 +175,168 @@ export class ZoomOverlay {
 	register(): void {
 		this.createOverlay();
 
-		// Capture phase so a click on our content is ours alone; other clicks fall
-		// through untouched.
-		this.plugin.registerDomEvent(
-			document,
-			"click",
-			(event: MouseEvent) => {
-				// Desktop requires Cmd/Ctrl; mobile is a plain tap.
-				if (!this.isMobile && !event.metaKey && !event.ctrlKey) return;
-				const target = this.zoomTargetFor(event.target as HTMLElement);
-				if (!target) return;
-				event.preventDefault();
-				event.stopPropagation();
-				event.stopImmediatePropagation();
-				const inline = this.options.inline;
-				if (!inline) {
-					this.showZoomed(target);
-					return;
-				}
-				inline(target).then(
-					(shown) => this.showZoomed(target, shown ?? target),
-					() => this.showZoomed(target),
-				);
-			},
-			{ capture: true },
-		);
-		// The press before that click is the editor's: in Live Preview, Cmd/Ctrl + mousedown
-		// adds a cursor where it lands — inside the diagram's block, which Live Preview then
-		// shows as source, so closing the zoom found the diagram turned to code. The press
-		// that will zoom is kept from the editor too.
+		// Opened as an image's own zoom is (Obsidian 1.15): a click selects the drawing — a ring
+		// round it, the zoom-in cursor over it, its buttons kept showing — and a click on the
+		// selected one opens it; Cmd/Ctrl-click opens it at once. The zoom-in button a plugin
+		// gives its drawings (zoomButton) opens it too. A plain tap on mobile.
+		if (this.isMobile) {
+			this.plugin.registerDomEvent(
+				document,
+				"click",
+				(event: MouseEvent) => {
+					const target = this.zoomTargetFor(event.target as HTMLElement);
+					if (!target) return;
+					event.preventDefault();
+					event.stopPropagation();
+					event.stopImmediatePropagation();
+					this.open(target);
+				},
+				{ capture: true },
+			);
+			return;
+		}
+		// Where the press went down: a click that ends a drag (text selected in a label) neither
+		// selects nor opens.
+		let downX = 0;
+		let downY = 0;
 		this.plugin.registerDomEvent(
 			document,
 			"mousedown",
 			(event: MouseEvent) => {
-				if (event.button !== 0) return;
-				if (!this.isMobile && !event.metaKey && !event.ctrlKey) return;
-				if (!this.zoomTargetFor(event.target as HTMLElement)) return;
-				event.preventDefault();
-				event.stopPropagation();
-				event.stopImmediatePropagation();
+				downX = event.clientX;
+				downY = event.clientY;
+				if (event.button !== 0 || !this.zoomTargetFor(event.target as HTMLElement)) return;
+				// The press of a Cmd/Ctrl-click is kept from the editor: in Live Preview it adds a
+				// cursor where it lands — inside the diagram's block, which Live Preview then shows
+				// as source, so closing the zoom found the diagram turned to code.
+				if (event.metaKey || event.ctrlKey) {
+					event.preventDefault();
+					event.stopPropagation();
+					event.stopImmediatePropagation();
+					return;
+				}
+				// The second press of a double-click selected the word under it — a label's — in
+				// the moment before the zoom opened. Kept from the browser.
+				if (event.detail >= 2) event.preventDefault();
 			},
 			{ capture: true },
 		);
-
-		// Desktop needs Cmd/Ctrl to zoom, which is undiscoverable on its own — so hint
-		// it: while the modifier is held, a zoomable drawing gets the zoom-in cursor.
-		// Pointless on mobile, where there's no hover and a plain tap works.
-		if (!this.isMobile) {
-			this.plugin.registerDomEvent(document, "mousemove", (event: MouseEvent) => {
+		// Capture phase, and stopped there when it opens the zoom: that click is the zoom's
+		// alone. The one that selects goes on, as a click on an image does.
+		this.plugin.registerDomEvent(
+			document,
+			"click",
+			(event: MouseEvent) => {
+				if (event.button !== 0) return;
 				const target = this.zoomTargetFor(event.target as HTMLElement);
 				if (!target) return;
-				// Cleared (not left set) as soon as the modifier comes back up. A host that
-				// rewrites the whole style attribute when it re-renders (Excalidraw does)
-				// only means the hint is re-applied on the next move.
-				const cursor = event.metaKey || event.ctrlKey ? "zoom-in" : "";
-				// Only when it changes: this runs on every pointer move over a drawing.
-				if (target.style.cursor !== cursor) target.style.cursor = cursor;
-			});
+				const selection = target.ownerDocument.getSelection();
+				const dragged = Math.abs(event.clientX - downX) > 4 || Math.abs(event.clientY - downY) > 4;
+				if (dragged || (selection && !selection.isCollapsed && target.contains(selection.anchorNode))) return;
+				if (event.metaKey || event.ctrlKey || this.selected === target) {
+					event.preventDefault();
+					event.stopPropagation();
+					event.stopImmediatePropagation();
+					this.open(target);
+					return;
+				}
+				this.select(target);
+			},
+			{ capture: true },
+		);
+		// A double-click is a click that selects and one that opens. Its own event goes no
+		// further: Excalidraw opens a drawing on it, and Obsidian's in-place diagram zoom zooms.
+		this.plugin.registerDomEvent(
+			document,
+			"dblclick",
+			(event: MouseEvent) => {
+				if (this.zoomTargetFor(event.target as HTMLElement)) event.stopPropagation();
+			},
+			{ capture: true },
+		);
+		// Unselected by a press anywhere else — but the drawing's own buttons and slider — or Esc.
+		this.plugin.registerDomEvent(
+			document,
+			"pointerdown",
+			(event: PointerEvent) => {
+				const at = event.target instanceof Element ? event.target : null;
+				if (!this.selected || (at && (this.selected.contains(at) || at.closest(".embed-actions, input[type=range]")))) return;
+				this.select(null);
+			},
+			{ capture: true },
+		);
+		this.plugin.registerDomEvent(document, "keydown", (event: KeyboardEvent) => {
+			if (event.key === "Escape" && this.selected && !this.overlay?.isShown()) this.select(null);
+		});
+		this.plugin.register(() => this.select(null));
+
+		// The zoom-in cursor over a drawing while Cmd/Ctrl is held, as over a selected one:
+		// that click opens it too. Followed as the key goes down and up, not only as the
+		// pointer moves (`<prefix>-zoomable`, styled by the plugin).
+		const zoomable = `${this.options.cssPrefix}-zoomable`;
+		let hovered: ZoomTarget | null = null;
+		const hint = (held: boolean): void => {
+			if (hovered && held !== hovered.classList.contains(zoomable)) hovered.classList.toggle(zoomable, held);
+		};
+		this.plugin.registerDomEvent(document, "mousemove", (event: MouseEvent) => {
+			const target = this.zoomTargetFor(event.target as HTMLElement);
+			if (target !== hovered) {
+				hovered?.classList.remove(zoomable);
+				hovered = target;
+			}
+			hint(event.metaKey || event.ctrlKey);
+		});
+		this.plugin.registerDomEvent(document, "keydown", (event: KeyboardEvent) => hint(event.metaKey || event.ctrlKey));
+		this.plugin.registerDomEvent(document, "keyup", (event: KeyboardEvent) => hint(event.metaKey || event.ctrlKey));
+		this.plugin.registerDomEvent(window, "blur", () => hint(false));
+		this.plugin.register(() => hovered?.classList.remove(zoomable));
+	}
+
+	/** The drawing selected by a click, which the next click on it opens; see register. */
+	private selected: ZoomTarget | null = null;
+
+	/** Select `target` (styled by the plugin as `<prefix>-selected`), or nothing. */
+	private select(target: ZoomTarget | null): void {
+		const cls = `${this.options.cssPrefix}-selected`;
+		this.selected?.classList.remove(cls);
+		this.selected = target;
+		target?.classList.add(cls);
+	}
+
+	/** Open the zoom on `target`: the drawing as `inline` gives it, when it can do better. */
+	open(target: ZoomTarget): void {
+		const inline = this.options.inline;
+		if (!inline) {
+			this.showZoomed(target);
+			return;
 		}
+		inline(target).then(
+			(shown) => this.showZoomed(target, shown ?? target),
+			() => this.showZoomed(target),
+		);
+	}
+
+	/**
+	 * The zoom-in button for a drawing's action group, as an image's (Obsidian 1.15): the icon,
+	 * the label and the place — between the caption button and the edit one — the same. A press
+	 * on it is kept from the editor, which would select the embed's markdown, and from
+	 * Excalidraw's own long press on a drawing. `target` is asked for at the click: a drawing
+	 * is drawn again in place now and then.
+	 */
+	zoomButton(target: () => ZoomTarget | null, cls: string): HTMLElement {
+		const button = createDiv(`embed-action ${cls}`);
+		setIcon(button, "zoom-in");
+		button.setAttribute("aria-label", "Zoom in");
+		for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "dblclick"]) {
+			button.addEventListener(type, (event) => event.stopPropagation());
+		}
+		button.addEventListener("click", (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			const shown = target();
+			if (shown) this.open(shown);
+		});
+		return button;
 	}
 
 	/** The element a click over `target` should zoom, or null. */
@@ -358,9 +468,12 @@ export class ZoomOverlay {
 		this.fitToRoom();
 		// Once the zoom is on screen: listing and drawing the others for the strip went in the
 		// click's own task, and the zoom showed only after them — a second or two the first time
-		// after Obsidian starts, every other diagram of a note parsed and drawn cold.
+		// after Obsidian starts, every other diagram of a note parsed and drawn cold. A listing
+		// that costs next to nothing goes now, though: listed after, the strip came a frame late
+		// and the drawing, shown first at the size of the whole screen, shrank under it — a jolt.
 		const gallery = this.options.gallery;
-		if (gallery) {
+		if (gallery && this.options.listGalleryAtOnce) void this.loadGallery(target, shown, gallery);
+		else if (gallery) {
 			const token = this.galleryToken;
 			afterPaint(() => {
 				if (token === this.galleryToken) void this.loadGallery(target, shown, gallery);
@@ -503,12 +616,18 @@ export class ZoomOverlay {
 			const picture = thumb.createDiv(`${prefix}-thumb-picture`);
 			thumb.createDiv({ cls: `${prefix}-thumb-label`, text: label });
 			thumb.addEventListener("click", () => void this.goTo(index));
-			void this.galleryDrawing(index).then((drawing) => {
-				if (!drawing || !picture.isConnected) return;
-				const copy = drawing.cloneNode(true) as ZoomTarget;
-				copy.removeAttribute("style");
-				if (this.drawingFilter) copy.style.filter = this.drawingFilter;
-				picture.appendChild(copy);
+			// Drawn once the zoom is on screen, the strip laid out already: an Excalidraw drawing
+			// is drawn cold, fonts and all, the first time after Obsidian starts, and held the
+			// zoom's first frame back.
+			afterPaint(() => {
+				if (!picture.isConnected) return;
+				void this.galleryDrawing(index).then((drawing) => {
+					if (!drawing || !picture.isConnected) return;
+					const copy = drawing.cloneNode(true) as ZoomTarget;
+					copy.removeAttribute("style");
+					if (this.drawingFilter) copy.style.filter = this.drawingFilter;
+					picture.appendChild(copy);
+				});
 			});
 		});
 		this.markCurrent();

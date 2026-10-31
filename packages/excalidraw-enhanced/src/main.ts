@@ -1,15 +1,19 @@
-import { Menu, type PaneType, Platform, Plugin, setIcon, setTooltip, type TFile } from "obsidian";
+import { Menu, type PaneType, Platform, Plugin, setIcon, setTooltip, type TFile, type View, type WorkspaceLeaf } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	ExcalidrawEnhancedSettings,
 	ExcalidrawEnhancedSettingTab,
 } from "./settings";
 import { type Gallery, type ZoomTarget, ZoomOverlay } from "../../../shared/zoom-overlay";
+import { LabelSelection } from "../../../shared/label-selection";
 import { createDrawingFromFence } from "./fence-drawing";
+import { DrawingFit } from "./fit-slider";
 import { DrawingGallery } from "./gallery";
 
 /** Class on the button that opens a drawing in Live Preview to be edited. */
 const EDIT_BTN_CLS = "excalidraw-edit-btn";
+/** Class on the zoom-in button beside it. */
+const ZOOM_BTN_CLS = "excalidraw-zoom-btn";
 
 /** An image in a Claudian reply — a drawing's PNG, a pasted screenshot — and the view it's in. */
 const CLAUDIAN_IMAGE = ".claudian-embedded-image > img";
@@ -22,18 +26,20 @@ const WIDTH_VAR = "--excalidraw-enhanced-width";
 
 export default class ExcalidrawEnhancedPlugin extends Plugin {
 	settings: ExcalidrawEnhancedSettings;
+	/** The zoom a drawing in a note opens in. */
+	private zoom: ZoomOverlay | null = null;
 
 	async onload() {
 		await this.loadSettings();
 		this.addSettingTab(new ExcalidrawEnhancedSettingTab(this.app, this));
 
-		// Cmd/Ctrl-click a drawing to open a zoomable/pannable overlay; plain tap on
-		// mobile. The overlay itself is shared with Mermaid (Enhanced); only the two
-		// lines below are ours. `excalidraw-embedded-img` is the class Excalidraw
-		// stamps on whatever it rendered, so it covers all three preview types.
+		// Double-click a drawing — or its zoom-in button — to open a zoomable/pannable overlay, as
+		// an image's own zoom opens; plain tap on mobile. The overlay itself is shared with
+		// Mermaid (Enhanced); only the options below are ours. `excalidraw-embedded-img` is the
+		// class Excalidraw stamps on whatever it rendered, so it covers all three preview types.
 		const gallery = new DrawingGallery(this.app);
 		this.register(() => gallery.destroy());
-		new ZoomOverlay(this, {
+		this.zoom = new ZoomOverlay(this, {
 			target: ".excalidraw-embedded-img",
 			cssPrefix: "excalidraw-zoom",
 			// Text in the zoom is text, to select and copy, as Mermaid (Enhanced)'s labels are:
@@ -45,8 +51,11 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			rasterWhileZooming: true,
 			// Every drawing in the note, to page through from the one clicked.
 			gallery: gallery.around,
+			// Read from the note's embeds: nothing drawn to list them.
+			listGalleryAtOnce: true,
 			sourceOf: gallery.sourceOf,
-		}).register();
+		});
+		this.zoom.register();
 		// Images in Claudian's replies get the same zoom, as Mermaid (Enhanced) gives its
 		// diagrams there, paging through every image of the conversation.
 		new ZoomOverlay(this, {
@@ -55,6 +64,25 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			cssPrefix: "excalidraw-zoom",
 			gallery: (target) => Promise.resolve(claudianImagesAround(target)),
 		}).register();
+
+		// A drag in a drawing's text selects line by line, as in a Mermaid diagram's labels
+		// (shared/label-selection.ts): the browser's own drag lost the selection over the blank
+		// between letters and lines. In a note shown as SVG and in the zoom.
+		new LabelSelection({ label: drawingTextOf }).register(this);
+		// Excalidraw opens a drawing on a long press: a timer from the press, stopped only by a
+		// move of 10px — a drag selecting a word or two, held a moment, opened the drawing and
+		// the selection was gone. A press on its text is kept from it; the edit button, the menu
+		// and a long press anywhere else still open it.
+		this.registerDomEvent(
+			document,
+			"pointerdown",
+			(event: PointerEvent) => {
+				if (event.button !== 0 || !(event.target instanceof Element)) return;
+				const text = event.target.closest(".excalidraw-embedded-img svg text");
+				if (text?.closest(".markdown-source-view, .markdown-preview-view")) event.stopPropagation();
+			},
+			{ capture: true },
+		);
 
 		// Typing ```excalidraw embeds a new drawing (fence-drawing.ts). After the change, not
 		// inside it: the edit that finished the fence is still being applied.
@@ -74,8 +102,8 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		// leave be (its embeds' click handler, when the click's default isn't prevented) —
 		// Live Preview then shows it as source; a right-click's default puts the caret there
 		// too. Neither press is the editor's here: their defaults are kept from it, while the
-		// events go on as before — Excalidraw's own double-click, Cmd/Ctrl-click to zoom, and
-		// the menu (the `contextmenu` event) still work.
+		// events go on as before — a double-click to zoom, and the menu (the `contextmenu`
+		// event) still work.
 		const onDrawing = (event: MouseEvent): boolean => {
 			if (!(event.target instanceof Element)) return false;
 			const embed = event.target.closest(".markdown-source-view .cm-content .internal-embed");
@@ -113,8 +141,9 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			},
 			{ capture: true },
 		);
-		// A double-click on a drawing in a note doesn't open it — Excalidraw's own does; its edit
-		// button and menu are the way in. Kept from the drawing before it gets there.
+		// A double-click on a drawing in a note doesn't open it — Excalidraw's own does; it zooms
+		// it (ZoomOverlay), and its edit button and menu are the way in. Kept from the drawing
+		// before it gets there.
 		this.registerDomEvent(
 			document,
 			"dblclick",
@@ -146,21 +175,51 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		// Each drawing in Live Preview gets an edit button in its action group, as a Mermaid
 		// diagram has — the pencil beside the caption button. Drawings come and go with Live
 		// Preview's rendering, so they're looked for whenever the page changes (once a frame).
+		// The same goes for each drawing's size slider (fit-slider.ts) and the size it keeps — that
+		// one as soon as a drawing arrives, before it's painted: a frame later the drawing had been
+		// drawn at the settings' width and then jumped to its own.
+		const fit = new DrawingFit(this.app);
+		fit.register(this);
 		let frame: number | null = null;
-		const observer = new MutationObserver(() => {
+		const observer = new MutationObserver((mutations) => {
+			if (mutations.some(bringsDrawing)) fit.pass();
 			if (frame !== null) return;
 			frame = window.requestAnimationFrame(() => {
 				frame = null;
 				this.addEditButtons();
+				fit.pass();
 			});
 		});
 		observer.observe(document.body, { childList: true, subtree: true });
 		this.register(() => {
 			observer.disconnect();
 			if (frame !== null) window.cancelAnimationFrame(frame);
-			document.querySelectorAll(`.${EDIT_BTN_CLS}`).forEach((button) => button.remove());
+			document.querySelectorAll(`.${EDIT_BTN_CLS}, .${ZOOM_BTN_CLS}`).forEach((button) => button.remove());
 		});
-		this.app.workspace.onLayoutReady(() => this.addEditButtons());
+		this.app.workspace.onLayoutReady(() => {
+			this.addEditButtons();
+			fit.pass();
+		});
+
+		// A drawing opened in the main area gets the window's width: the right sidebar folds away
+		// as it opens (fitSidebar).
+		// Looked at a moment after the tabs change, once a tab just opened is what it'll be: as
+		// the event comes, a drawing opening in a new tab is still an empty one.
+		let sidebarTimer: number | null = null;
+		const fitSidebarSoon = (): void => {
+			if (sidebarTimer !== null) window.clearTimeout(sidebarTimer);
+			sidebarTimer = window.setTimeout(() => {
+				sidebarTimer = null;
+				this.fitSidebar();
+			}, 50);
+		};
+		this.registerEvent(this.app.workspace.on("active-leaf-change", fitSidebarSoon));
+		this.registerEvent(this.app.workspace.on("file-open", fitSidebarSoon));
+		this.registerEvent(this.app.workspace.on("layout-change", fitSidebarSoon));
+		this.register(() => {
+			if (sidebarTimer !== null) window.clearTimeout(sidebarTimer);
+		});
+		this.app.workspace.onLayoutReady(() => this.fitSidebar(true));
 
 		this.applySizing();
 		// Leave the DOM as we found it.
@@ -198,9 +257,36 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 				const file = this.drawingFileOf(img);
 				if (!file) return;
 				const from = this.app.workspace.getActiveFile()?.path ?? "";
-				void this.app.workspace.openLinkText(file.path, from, "tab");
+				// Gone to, not opened behind: the button is pressed to draw.
+				void this.app.workspace.openLinkText(file.path, from, "tab", { active: true });
 			});
+			// The zoom-in button before it, as an image has between its caption and edit buttons.
+			// The drawing is looked for at the click: Excalidraw draws it again in place now and then.
+			const zoom = this.zoom?.zoomButton(() => embed.querySelector<HTMLElement>(".excalidraw-embedded-img") as ZoomTarget | null, ZOOM_BTN_CLS);
+			if (zoom) actions.appendChild(zoom);
 			actions.appendChild(button);
+		}
+	}
+
+	/** The drawing each tab last showed; see fitSidebar. */
+	private readonly drawingShown = new WeakMap<WorkspaceLeaf, string>();
+
+	/**
+	 * The right sidebar folded as a drawing is opened in the main area — at that moment only:
+	 * coming back to a drawing's tab, opening the sidebar over it, going back to a note, all
+	 * leave it as it is. A tab still opening (empty) is waited for. Tabs a drawing is restored
+	 * in as Obsidian starts are noted, not folded for. Only the main window's: a drawing in a
+	 * popout has the sidebar of no window.
+	 */
+	private fitSidebar(starting = false): void {
+		if (Platform.isMobile) return;
+		const { workspace } = this.app;
+		for (const leaf of workspace.getLeavesOfType("excalidraw")) {
+			const path = (leaf.view as View & { file?: TFile | null }).file?.path;
+			if (!path || this.drawingShown.get(leaf) === path) continue;
+			this.drawingShown.set(leaf, path);
+			if (starting || !this.settings.foldSidebarForDrawing || leaf.getRoot() !== workspace.rootSplit) continue;
+			if (!workspace.rightSplit.collapsed) workspace.rightSplit.collapse();
 		}
 	}
 
@@ -223,10 +309,10 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		menu.addItem((item) =>
 			item.setSection("open").setTitle("Open to the right").setIcon("separator-vertical").onClick(() => open("split")),
 		);
-		// The zoom opens on Cmd/Ctrl-click (ZoomOverlay); the same click, made here.
+		// The zoom a double-click or its zoom-in button opens.
 		menu.addItem((item) =>
 			item.setSection("action-primary").setTitle("Zoom").setIcon("zoom-in").onClick(() => {
-				img.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, metaKey: true, ctrlKey: true }));
+				this.zoom?.open(img as unknown as ZoomTarget);
 			}),
 		);
 		// Caption (Enhanced)'s button, on the drawing's action group, when it's there.
@@ -297,6 +383,25 @@ async function inlineSvgOf(target: ZoomTarget): Promise<ZoomTarget | null> {
 	const svg = doc.documentElement;
 	if (svg.nodeName.toLowerCase() !== "svg" || doc.querySelector("parsererror")) return null;
 	return target.doc.importNode(svg, true) as unknown as SVGSVGElement;
+}
+
+/**
+ * The text a press on `target` selects in: an Excalidraw text element is a <g> holding a <text>
+ * to a line, so a drag runs across its lines. Null off a drawing's text.
+ */
+function drawingTextOf(target: Element): Element | null {
+	const text = target.closest(".excalidraw-embedded-img svg text, .excalidraw-zoom-container svg text");
+	const group = text?.parentElement;
+	if (!text || !group) return text;
+	return group.localName === "g" && Array.from(group.children).every((child) => child.localName === "text") ? group : text;
+}
+
+/** Whether a change to the page put a drawing on it. */
+function bringsDrawing(mutation: MutationRecord): boolean {
+	for (const node of Array.from(mutation.addedNodes)) {
+		if (node instanceof Element && (node.matches(".excalidraw-embedded-img") || node.querySelector(".excalidraw-embedded-img"))) return true;
+	}
+	return false;
 }
 
 /** Every image of the Claudian conversation the clicked one is in, for the zoom to page through. */

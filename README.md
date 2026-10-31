@@ -51,6 +51,8 @@ Every package lives in `packages/<name>/`. Shared runtime code lives in `shared/
 flowchart LR
     ZO["shared/zoom-overlay.ts"] --> ME["Mermaid (Enhanced)"]
     ZO --> EX["Excalidraw (Enhanced)"]
+    DC["shared/drawing-corner.ts<br/>shared/label-selection.ts"] --> ME
+    DC --> EX
     CA["shared/caption.ts"] --> CE["Caption (Enhanced)"]
     CA --> ME
     CA --> ZO
@@ -205,17 +207,19 @@ Captions under images, Mermaid diagrams and Excalidraw drawings, in Live Preview
 
 - Tall diagrams fit one screen, with a per-diagram size slider saved as `%% fit: … %%`, and are never wider than the note.
 - Captions as `%% caption: … %%`, edited and rendered like image captions.
-- In Live Preview a diagram stays a diagram: the cursor stays out of it unless you press its edit button or type in it. Its action group looks like an image's.
+- In Live Preview a diagram stays a diagram: the cursor stays out of it unless you press its edit button or type in it. Its action group (caption, zoom in, edit) sits on the diagram's own top-right corner and shows on hovering the diagram, as an image's does.
 - Dragging across a label selects it line by line, the way text does; Chromium put the end of a drag in a multi-line label by how far across the pointer was, on whichever line.
-- `Cmd/Ctrl`-click opens a zoomable, pannable overlay that pages through every diagram of the note (thumbnails, ←/→; ones with a syntax error are skipped), with selectable labels and the caption as its title.
+- It zooms as an image does: a click selects it (ring, zoom-in cursor), a second click — or `Cmd/Ctrl`-click, or the zoom-in button — opens a zoomable, pannable overlay that pages through every diagram of the note (thumbnails, ←/→; ones with a syntax error are skipped), with selectable labels and the caption as its title.
 
 ### Excalidraw (Enhanced)
 
 ![An embedded Excalidraw drawing with its caption, and the caption and edit buttons on hover](docs/images/excalidraw.png)
 
-- Embedded drawings render at their own size in the note, with a height cap.
-- Clicking one opens the same zoom overlay as Mermaid. While zooming, a bitmap stands in for a heavy SVG and the vector comes back once you stop, so large hand-drawn drawings zoom smoothly.
-- An edit button (like Mermaid's) opens the drawing in a new tab. Single clicks, double clicks and right-clicks no longer open the drawing by accident; right-click shows a menu for the drawing.
+- Embedded drawings render centred at the width in settings, never wider than the note. A size slider by the drawing's buttons, as on a Mermaid diagram, sizes one to a share of the window's height or the note's full width, kept in the drawing's `excalidraw-enhanced-fit` property.
+- It zooms as Mermaid does: click to select, click again, `Cmd/Ctrl`-click or the zoom-in button to open the same overlay. While zooming, a bitmap stands in for a heavy SVG and the vector comes back once you stop, so large hand-drawn drawings zoom smoothly.
+- Text in a drawing (shown as SVG) can be selected by dragging, line by line, as in a Mermaid label.
+- An edit button (like Mermaid's) opens the drawing in a new tab and goes to it. Single clicks, double clicks and right-clicks no longer open the drawing by accident; right-click shows a menu for the drawing.
+- Opening a drawing folds the right sidebar away, once; after that the sidebar is left as you set it. Excalidraw's hints under its toolbar are hidden, and the keys it names take the drawing's colours, not Obsidian's dark ones.
 - Typing ```` ```excalidraw ```` makes a new drawing and embeds it.
 - Images in Claudian's replies zoom too.
 

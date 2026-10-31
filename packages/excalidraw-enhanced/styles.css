@@ -43,6 +43,162 @@ body.excalidraw-enhanced-sizing
 	max-width: 100%;
 }
 
+/*
+ * A drawing with a size of its own (its `excalidraw-enhanced-fit` property, set with the slider
+ * below; fit-slider.ts): the width that comes to, in place of the settings' — still a length,
+ * held to the note by the `max-width: 100%` above.
+ */
+body.excalidraw-enhanced-sizing
+	:is(.markdown-rendered, .cm-content)
+	.internal-embed.excalidraw-enhanced-fitted
+	.excalidraw-embedded-img {
+	width: var(--excalidraw-enhanced-fit) !important;
+}
+
+/*
+ * A drawing's embed as wide as the note, the drawing in its middle, as a Mermaid diagram's block
+ * is: its buttons (caption, edit) and size slider stay at the note's top-right whatever size the
+ * drawing is. Caption (Enhanced) makes an image's embed only as wide as the image, its buttons
+ * on the image's corner; on a drawing they moved as the slider resized it, out from beside the
+ * slider being dragged.
+ */
+body.excalidraw-enhanced-sizing
+	:is(.markdown-rendered, .cm-content)
+	.internal-embed.image-embed:has(.excalidraw-embedded-img) {
+	display: flex;
+	width: 100%;
+	align-items: center;
+}
+
+/*
+ * Its buttons on the drawing's own top-right corner, as an image's are — not the embed's, which
+ * is as wide as the note. Where that corner is, fit-slider.ts works out (shared/drawing-corner.ts).
+ */
+body.excalidraw-enhanced-sizing
+	:is(.markdown-rendered, .cm-content)
+	.internal-embed:has(.excalidraw-embedded-img)
+	> .embed-actions {
+	top: var(--drawing-corner-top, 8px);
+	inset-inline-end: var(--drawing-corner-right, 8px);
+	/* Eased to the corner a drawing comes to once its slider is let go (shared/drawing-corner.ts). */
+	transition:
+		opacity 0.07s ease-out,
+		top 0.15s ease-out,
+		inset-inline-end 0.15s ease-out;
+}
+
+/*
+ * Selected by a click, as an image is (a click on it selected opens the zoom; ZoomOverlay): an
+ * image's own selected look, rule for rule (Obsidian's `.image-embed.is-selected .image-wrapper`
+ * and its `:after`) — the corners rounded, the ring drawn inside the edge over the drawing — on
+ * the box the drawing is in, which is the drawing's size. Obsidian's own class can't be borrowed:
+ * it's set and taken off as the editor's selection goes.
+ */
+.internal-embed > :has(> .excalidraw-embedded-img.excalidraw-zoom-selected) {
+	position: relative;
+	border-radius: 8px;
+}
+
+.excalidraw-embedded-img.excalidraw-zoom-selected {
+	border-radius: 8px;
+	overflow: hidden;
+}
+
+.internal-embed > :has(> .excalidraw-embedded-img.excalidraw-zoom-selected)::after {
+	pointer-events: none;
+	content: "";
+	position: absolute;
+	top: 0;
+	inset-inline-start: 0;
+	width: 100%;
+	height: 100%;
+	border-radius: 8px;
+	box-shadow:
+		inset 0 0 0 2px var(--text-muted),
+		inset 0 0 0 4px var(--background-primary);
+}
+
+/* The same cursor while Cmd/Ctrl is held over it, which opens it at a click. */
+.excalidraw-embedded-img:is(.excalidraw-zoom-selected, .excalidraw-zoom-zoomable),
+.excalidraw-embedded-img:is(.excalidraw-zoom-selected, .excalidraw-zoom-zoomable) * {
+	cursor: zoom-in !important;
+}
+
+/* Out of sight while the slider is dragged: they go with the drawing's corner, which moves as
+   it's sized, and the slider stays under the pointer (shared/drawing-corner.ts). */
+.internal-embed.drawing-fit-dragging > .embed-actions {
+	opacity: 0 !important;
+}
+
+.internal-embed:has(.excalidraw-zoom-selected) > .embed-actions {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+/*
+ * The buttons (and the slider, below) show while the pointer is on the drawing, as an image's
+ * do on the image — not anywhere along the embed, which is as wide as the note: Obsidian shows
+ * them on hovering that. On them, on the slider, or with the drawing selected, they stay.
+ */
+.cm-content
+	.internal-embed.image-embed:has(.excalidraw-embedded-img):not(
+		.is-selected,
+		.is-resizing,
+		:has(.excalidraw-embedded-img:hover, > .embed-actions:hover, > .excalidraw-fit-slider:hover, .excalidraw-zoom-selected)
+	)
+	> .embed-actions {
+	opacity: 0;
+}
+
+/* ── Size slider (as Mermaid (Enhanced)'s), left of the drawing's buttons ── */
+
+.excalidraw-fit-slider {
+	position: absolute;
+	z-index: 1;
+	width: 110px;
+	height: 18px;
+	margin: 0;
+	cursor: ew-resize;
+	accent-color: var(--interactive-accent);
+	opacity: 0;
+	transition:
+		opacity 100ms ease-in-out,
+		right 0.15s ease-out,
+		top 0.15s ease-out,
+		width 0.15s ease-out;
+	touch-action: none;
+}
+
+.internal-embed:has(.excalidraw-embedded-img:hover, > .embed-actions:hover) > .excalidraw-fit-slider,
+.excalidraw-fit-slider:hover,
+.excalidraw-fit-slider:active,
+.excalidraw-fit-slider:focus-visible {
+	opacity: 1;
+}
+
+/* Its value, over the thumb while it's dragged. */
+.excalidraw-fit-slider-tip {
+	position: absolute;
+	z-index: 2;
+	transform: translateX(-50%);
+	padding: 2px 6px;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.2;
+	white-space: nowrap;
+	color: var(--text-normal);
+	background-color: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	box-shadow: var(--shadow-s);
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 80ms ease-in-out;
+}
+
+.excalidraw-fit-slider-tip.is-visible {
+	opacity: 1;
+}
+
 /* ── Click-to-zoom overlay (namespaced excalidraw-zoom-*) ───────────────── */
 
 .excalidraw-zoom-overlay {
@@ -255,4 +411,24 @@ body.excalidraw-enhanced-sizing
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+
+/* ── Inside a drawing's view ────────────────────────────────────────────── */
+
+/*
+ * A key named in Excalidraw's hints ("hold Space while dragging") in the drawing's own colours.
+ * The note's `kbd` style reached it: Obsidian's dark one, a black chip, on a white canvas when
+ * Obsidian is dark and the drawing isn't. Doubled to outrank the theme's.
+ */
+.excalidraw.excalidraw kbd {
+	color: var(--text-primary-color);
+	background-color: var(--island-bg-color);
+	border: 1px solid var(--default-border-color);
+	box-shadow: none;
+}
+
+/* Excalidraw's hints under the toolbar ("To move canvas, hold Space…", "Click to start a
+   line…"): out of sight, the canvas left clear. */
+.excalidraw .HintViewer {
+	display: none;
 }

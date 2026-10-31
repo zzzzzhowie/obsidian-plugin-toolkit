@@ -13,12 +13,15 @@ export interface ExcalidrawEnhancedSettings {
 	fenceCreatesDrawing: boolean;
 	/** Where that drawing opens to be drawn in. */
 	fenceOpenIn: FenceOpenIn;
+	/** The right sidebar folds away as a drawing is opened. */
+	foldSidebarForDrawing: boolean;
 }
 
 export const DEFAULT_SETTINGS: ExcalidrawEnhancedSettings = {
 	widthPx: 900,
 	fenceCreatesDrawing: true,
 	fenceOpenIn: "adjacent",
+	foldSidebarForDrawing: true,
 };
 
 export class ExcalidrawEnhancedSettingTab extends PluginSettingTab {
@@ -61,6 +64,19 @@ export class ExcalidrawEnhancedSettingTab extends PluginSettingTab {
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.fenceCreatesDrawing).onChange(async (value) => {
 					this.plugin.settings.fenceCreatesDrawing = value;
+					await this.plugin.saveSettings();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Fold the right sidebar when a drawing opens")
+			.setDesc(
+				"A drawing opened in the main area takes the window's width: the right sidebar folds " +
+					"away as it opens. Otherwise the sidebar is left as it is.",
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.foldSidebarForDrawing).onChange(async (value) => {
+					this.plugin.settings.foldSidebarForDrawing = value;
 					await this.plugin.saveSettings();
 				}),
 			);

@@ -16,13 +16,17 @@
 	cursor: ew-resize;
 	accent-color: var(--interactive-accent);
 	opacity: 0;
-	transition: opacity 100ms ease-in-out;
+	transition:
+		opacity 100ms ease-in-out,
+		right 0.15s ease-out,
+		top 0.15s ease-out,
+		width 0.15s ease-out;
 	/* Mobile: claim the touch so the browser doesn't read the drag as a scroll
 	   or an Obsidian edge-swipe (which would draw out the left/right sidebar). */
 	touch-action: none;
 }
 
-.cm-preview-code-block:hover > .mermaid-fit-slider,
+.cm-preview-code-block:has(.mermaid svg:hover, > .embed-actions:hover) > .mermaid-fit-slider,
 .mermaid-fit-slider:hover,
 .mermaid-fit-slider:active,
 .mermaid-fit-slider:focus-visible {
@@ -357,6 +361,60 @@
 
 .mermaid > svg :is(text, text *, foreignObject, foreignObject *) {
 	cursor: text;
+}
+
+/* Its buttons — caption, zoom, edit — on the diagram's own top-right corner, as an image's are,
+   not the block's, which is as wide as the note; main.ts works out where that corner is
+   (followCorner). */
+.markdown-source-view.mod-cm6 .cm-preview-code-block:has(.mermaid svg) > .embed-actions {
+	top: var(--drawing-corner-top, var(--size-2-2));
+	inset-inline-end: var(--drawing-corner-right, var(--size-2-2));
+	/* Eased to the corner a diagram comes to once its slider is let go (shared/drawing-corner.ts). */
+	transition:
+		opacity 0.07s ease-out,
+		top 0.15s ease-out,
+		inset-inline-end 0.15s ease-out;
+}
+
+/* Selected by a click, as an image is (a click on it selected opens the zoom; ZoomOverlay): an
+   image's own selected look — Obsidian's `.image-embed.is-selected .image-wrapper:after`, its
+   corners rounded and a ring inside its edge, 2px of --text-muted then 2px of the background —
+   the zoom-in cursor over it, its labels too, and its buttons showing. An <svg> has no `:after`:
+   the outer ring is an outline drawn in over it, the inner one a shadow inside it. Obsidian's
+   own class can't be borrowed: it's set and taken off as the editor's selection goes. */
+.mermaid > svg.mermaid-zoom-selected {
+	border-radius: 8px;
+	outline: 2px solid var(--text-muted);
+	outline-offset: -2px;
+	box-shadow: inset 0 0 0 4px var(--background-primary);
+}
+
+/* The same cursor while Cmd/Ctrl is held over it, which opens it at a click. */
+.mermaid > svg:is(.mermaid-zoom-selected, .mermaid-zoom-zoomable),
+.mermaid > svg:is(.mermaid-zoom-selected, .mermaid-zoom-zoomable) * {
+	cursor: zoom-in !important;
+}
+
+/* Out of sight while the slider is dragged: they go with the diagram's corner, which moves as
+   it's sized, and the slider stays under the pointer (shared/drawing-corner.ts). */
+.cm-preview-code-block.drawing-fit-dragging > .embed-actions {
+	opacity: 0 !important;
+}
+
+.cm-preview-code-block:has(svg.mermaid-zoom-selected) > .embed-actions {
+	opacity: 1;
+}
+
+/* The buttons (and the slider) show while the pointer is on the diagram, as an image's do on
+   the image — not anywhere along the block, which is as wide as the note: Obsidian shows them on
+   hovering that. On them, on the slider, or with the diagram selected, they stay. A block whose
+   diagram didn't render keeps Obsidian's own: its edit button is the way to its code. */
+.markdown-source-view.mod-cm6
+	.cm-preview-code-block:has(.mermaid svg):not(
+		:has(.mermaid svg:hover, > .embed-actions:hover, > .mermaid-fit-slider:hover, svg.mermaid-zoom-selected)
+	)
+	> .embed-actions {
+	opacity: 0;
 }
 
 /* Its zoom buttons: zooming is this plugin's overlay. Inline display set by the renderer. */

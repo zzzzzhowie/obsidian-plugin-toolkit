@@ -1,5 +1,19 @@
-import { EditorView } from "@codemirror/view";
-import type { Plugin } from "obsidian";
+import { MarkdownView, type Plugin } from "obsidian";
+
+/*
+ * Selecting a drawing's text by dragging, line by line: a Mermaid diagram's labels (Mermaid
+ * (Enhanced)), an Excalidraw drawing's text (Excalidraw (Enhanced)) — SVG <text>, in a note and
+ * in the zoom.
+ *
+ * Chromium places the end of a drag in SVG text by where the pointer is across, not by the line
+ * it's on: dragging down a label put the end on some other line, the selection jumping about
+ * under the pointer; and over the blank of a box — no text under the pointer — its drag
+ * collapsed the selection, which came back over a letter. A drag that starts in a label is this
+ * one's instead: the browser's own is cancelled at the press, and the selection runs from where
+ * it was pressed to the character nearest the pointer — on the line under it; above the first
+ * line, to the label's start; past the last, to its end. Double and triple clicks are still the
+ * browser's.
+ */
 
 /** A spot between two characters of a label. */
 interface Caret {
@@ -15,22 +29,22 @@ interface Line {
 	chars: { node: Text; offset: number; end: number; left: number; right: number }[];
 }
 
-/**
- * Selecting a label's text by dragging, line by line.
- *
- * Obsidian 1.15 draws a diagram's labels as SVG <text>, a <tspan> to a line, and Chromium
- * places the end of a drag in such text by where the pointer is across, not by the line it's
- * on: dragging down a box's label put the end on some other line, the selection jumping about
- * under the pointer. A drag that starts in a label is this plugin's instead: the browser's own
- * is cancelled at the press, and the selection runs from where it was pressed to the
- * character nearest the pointer — on the line under it; above the first line, to the label's
- * start; past the last, to its end. Double and triple clicks are still the browser's.
- */
+export interface LabelSelectionOptions {
+	/**
+	 * The label a press on `target` starts selecting in — its lines are the <tspan y> or <text>
+	 * in it (a Mermaid label is one <text>, an Excalidraw text a <g> of them) — or null when the
+	 * press isn't on one.
+	 */
+	label: (target: Element) => Element | null;
+}
+
 export class LabelSelection {
-	private drag: { anchor: Caret; lines: Line[]; off: () => void } | null = null;
+	private drag: { off: () => void } | null = null;
+
+	constructor(private readonly options: LabelSelectionOptions) {}
 
 	register(plugin: Plugin): void {
-		plugin.registerDomEvent(document, "mousedown", (event) => this.start(event), { capture: true });
+		plugin.registerDomEvent(document, "mousedown", (event) => this.start(plugin, event), { capture: true });
 		plugin.registerDomEvent(
 			document,
 			"selectstart",
@@ -42,24 +56,23 @@ export class LabelSelection {
 		plugin.register(() => this.drag?.off());
 	}
 
-	private start(event: MouseEvent): void {
+	private start(plugin: Plugin, event: MouseEvent): void {
 		if (event.button !== 0 || event.detail > 1 || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return;
 		const target = event.target instanceof Element ? event.target : null;
-		const text = target?.closest("svg.pele text");
-		if (!text) return;
-		const lines = linesOf(text);
+		const label = target ? this.options.label(target) : null;
+		if (!label) return;
+		const lines = linesOf(label);
 		const anchor = caretAt(lines, event.clientX, event.clientY);
-		const selection = text.ownerDocument.getSelection();
+		const selection = label.ownerDocument.getSelection();
 		if (!anchor || !selection) return;
 		this.drag?.off();
 		// No drag of the browser's own at all: cancelling its start (selectstart) still left it
 		// running, collapsing the selection every few milliseconds while the pointer was over the
 		// blank of a box. Without the press, though, the editor isn't focused by it: that's done
-		// here, once the plugin's other press handlers have moved the cursor out of the diagram.
+		// here, once the plugins' other press handlers have moved the cursor out of the drawing.
 		event.preventDefault();
-		const editorEl = text.closest<HTMLElement>(".cm-editor");
-		const editor = editorEl ? EditorView.findFromDOM(editorEl) : null;
-		const win = text.ownerDocument.defaultView ?? window;
+		const editor = editorOf(plugin, label);
+		const win = label.ownerDocument.defaultView ?? window;
 		let focus: Caret = anchor;
 		const put = (): void => {
 			if (selection.anchorNode === anchor.node && selection.anchorOffset === anchor.offset && selection.focusNode === focus.node && selection.focusOffset === focus.offset) return;
@@ -78,30 +91,40 @@ export class LabelSelection {
 			win.removeEventListener("mousemove", move, true);
 			win.removeEventListener("mouseup", off, true);
 			win.removeEventListener("blur", off);
-			text.ownerDocument.removeEventListener("selectionchange", keep);
+			label.ownerDocument.removeEventListener("selectionchange", keep);
 			this.drag = null;
 		};
-		text.ownerDocument.addEventListener("selectionchange", keep);
+		label.ownerDocument.addEventListener("selectionchange", keep);
 		win.setTimeout(() => {
-			if (editor && !editor.hasFocus) editor.focus();
+			if (editor && !editor.hasFocus()) editor.focus();
 			put();
 		});
 		put();
 		win.addEventListener("mousemove", move, true);
 		win.addEventListener("mouseup", off, true);
 		win.addEventListener("blur", off);
-		this.drag = { anchor, lines, off };
+		this.drag = { off };
 	}
 }
 
+/** The editor of the note `el` is drawn in, in Live Preview; null in the zoom, or reading view. */
+function editorOf(plugin: Plugin, el: Element): MarkdownView["editor"] | null {
+	if (!el.closest(".markdown-source-view")) return null;
+	for (const leaf of plugin.app.workspace.getLeavesOfType("markdown")) {
+		const view = leaf.view;
+		if (view instanceof MarkdownView && view.contentEl.contains(el)) return view.editor;
+	}
+	return null;
+}
+
 /** The lines of a label, each character measured once for the whole drag. */
-function linesOf(text: Element): Line[] {
-	const doc = text.ownerDocument;
+function linesOf(label: Element): Line[] {
+	const doc = label.ownerDocument;
 	const range = doc.createRange();
 	const lines: Line[] = [];
-	const walker = doc.createTreeWalker(text, NodeFilter.SHOW_TEXT);
+	const walker = doc.createTreeWalker(label, NodeFilter.SHOW_TEXT);
 	for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
-		const owner = node.parentElement?.closest("tspan[y]") ?? text;
+		const owner = node.parentElement?.closest("tspan[y]") ?? node.parentElement?.closest("text") ?? label;
 		let line = lines[lines.length - 1];
 		if (!line || line.owner !== owner) {
 			line = { owner, top: Infinity, bottom: -Infinity, chars: [] };

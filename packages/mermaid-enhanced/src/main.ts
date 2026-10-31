@@ -16,8 +16,9 @@ import {
 } from "./settings";
 import { CaptionModal, createCaptionButton, followCaptionLink, renderCaption } from "../../../shared/caption";
 import { type Gallery, ZoomOverlay, type ZoomSource, type ZoomTarget } from "../../../shared/zoom-overlay";
+import { DrawingCorner, dragFitSlider, placeSlider } from "../../../shared/drawing-corner";
+import { LabelSelection } from "../../../shared/label-selection";
 import { DiagramDependencies } from "./dependencies";
-import { LabelSelection } from "./label-selection";
 
 /** Attribute stamped on a reading-view block naming the note line its diagram starts on. */
 const LINE_ATTR = "data-mermaid-line";
@@ -37,8 +38,12 @@ const CAPTION_CLS = "mermaid-caption";
 
 /** Class on the copy of a diagram shown while its block is redrawn; see holdDiagram. */
 const HOLD_CLS = "mermaid-enhanced-hold";
-/** A drawn diagram, not the copy standing in for one. */
-const DIAGRAM_SVG = `.mermaid:not(.${HOLD_CLS}) svg`;
+/**
+ * A drawn diagram, not the copy standing in for one — the diagram's own <svg>, not one inside
+ * it, nor the icons of Obsidian's (hidden) in-place zoom buttons beside it: matched too, a
+ * button's icon was fitted as a diagram, and was what a diagram's buttons were kept by.
+ */
+const DIAGRAM_SVG = `.mermaid:not(.${HOLD_CLS}) > svg`;
 /** Class taking a redrawn block's code out of sight while the copy stands in (styles.css). */
 const HELD_CODE_CLS = "mermaid-enhanced-held-code";
 /** How long a redrawn block may show the copy before its own code is shown again. */
@@ -46,6 +51,8 @@ const HOLD_MS = 4000;
 
 /** Class on the button that edits a diagram's caption. */
 const CAPTION_BTN_CLS = "mermaid-caption-btn";
+/** Class on the zoom-in button beside it. */
+const ZOOM_BTN_CLS = "mermaid-zoom-btn";
 
 /** Class on the injected fit-size slider. */
 const SLIDER_CLS = "mermaid-fit-slider";
@@ -62,6 +69,8 @@ interface EditorViewLike {
 
 export default class MermaidEnhancedPlugin extends Plugin {
 	settings: MermaidEnhancedSettings;
+	/** The zoom a diagram in a note opens in. */
+	private zoom: ZoomOverlay | null = null;
 
 	/** Watches the workspace for newly rendered Mermaid SVGs. */
 	private observer: MutationObserver | null = null;
@@ -87,18 +96,28 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new MermaidEnhancedSettingTab(this.app, this));
 
-		// Click a diagram to open a zoomable/pannable overlay: Cmd/Ctrl-click on
-		// desktop, plain tap on mobile. The overlay itself is shared with Excalidraw
-		// Enhanced; only the options below are ours.
-		new ZoomOverlay(this, {
+		// Double-click a diagram — or its zoom-in button — to open a zoomable/pannable overlay,
+		// as an image's own zoom opens; plain tap on mobile. The overlay itself is shared with
+		// Excalidraw (Enhanced); only the options below are ours.
+		this.zoom = new ZoomOverlay(this, {
 			target: DIAGRAM_SVG,
 			cssPrefix: "mermaid-zoom",
 			// Node and edge labels stay text in the zoom, to select and copy.
 			selectableText: "foreignObject, text",
 			// Every diagram in the note, to page through from the one clicked.
 			gallery: (target) => this.diagramsAround(target),
+			// Listed as the zoom opens, its strip there in the first frame — listed after, the
+			// diagram shrank under the strip a frame later. Listing parses the note's diagrams;
+			// they're parsed ahead, as the pointer comes onto one (prepareGallery), so it's done
+			// in no time by the double-click.
+			listGalleryAtOnce: true,
 			sourceOf: (target) => this.sourceOf(target),
-		}).register();
+		});
+		this.zoom.register();
+		this.registerDomEvent(document, "pointerover", (event: PointerEvent) => {
+			const svg = event.target instanceof Element ? event.target.closest<SVGSVGElement>(DIAGRAM_SVG) : null;
+			if (svg) this.prepareGallery(svg);
+		});
 		// Claudian's replies draw their diagrams themselves, as an <img> of the SVG. The same
 		// zoom, on the SVG put back inline so its labels are text, paging through every
 		// diagram of the conversation.
@@ -113,8 +132,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 
 		// Hovering a box or an edge lights what it connects (dependencies.ts), in a note and the zoom.
 		new DiagramDependencies().register(this);
-		// A drag in a label selects line by line (label-selection.ts).
-		new LabelSelection().register(this);
+		// A drag in a label selects line by line (shared/label-selection.ts).
+		new LabelSelection({ label: (target) => target.closest("svg.pele text") }).register(this);
 
 		// A diagram shows as code only once its edit button is pressed.
 		this.registerEditorExtension([
@@ -296,9 +315,11 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		if (this.rafHandle !== null) cancelAnimationFrame(this.rafHandle);
 		if (this.resizeTimer !== null) window.clearTimeout(this.resizeTimer);
 		// Leave the DOM as we found it.
+		for (const corner of this.corners.values()) corner.disconnect();
+		this.corners.clear();
 		this.clearAll();
 		document
-			.querySelectorAll(`.${CAPTION_CLS}, .${CAPTION_BTN_CLS}`)
+			.querySelectorAll(`.${CAPTION_CLS}, .${CAPTION_BTN_CLS}, .${ZOOM_BTN_CLS}`)
 			.forEach((el) => el.remove());
 	}
 
@@ -529,6 +550,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		svgs.forEach((svg) => {
 			try {
 				this.injectCaptionButton(svg);
+				this.injectZoomButton(svg);
+				this.followCorner(svg);
 			} catch (e) {
 				console.error("mermaid-enhanced: failed to add the caption button", e);
 			}
@@ -661,13 +684,6 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		if (!block) return;
 		if (block.querySelector(`:scope > .${SLIDER_CLS}`)) return;
 
-		// Left of the whole action group, not just the edit button: the caption button
-		// sits in that group too, and anchoring to the edit button would land the
-		// slider on top of it.
-		const editBtn =
-			block.querySelector<HTMLElement>(".embed-actions") ??
-			block.querySelector<HTMLElement>(".edit-block-button");
-
 		const slider = document.createElement("input");
 		slider.type = "range";
 		slider.min = String(SLIDER_MIN);
@@ -679,37 +695,33 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		// button into an `.embed-actions` wrapper, so it is no longer a direct child of
 		// the block — `insertBefore` then threw NotFoundError, which aborted the whole
 		// processAll pass and took the slider (and fitting) down with it. DOM order
-		// doesn't matter here anyway: the slider is positioned absolutely by
-		// positionControl, which measures the button wherever it now lives. Appending
-		// also keeps it a direct child, which the `:hover >` reveal rule needs.
+		// doesn't matter here anyway: the slider is placed by the buttons, wherever they
+		// are. Appending also keeps it a direct child, which the `:hover >` reveal rule needs.
 		block.appendChild(slider);
-		this.positionControl(slider, block, editBtn);
+		const actions = (): HTMLElement | null => block.querySelector<HTMLElement>(":scope > .embed-actions");
 
 		// Value tooltip, shown only while actively dragging (no aria-label, so no
-		// native hover tooltip). Follows the thumb.
+		// native hover tooltip). Follows the thumb, in the box the slider is placed in.
 		const tip = block.createDiv({ cls: `${SLIDER_CLS}-tip` });
+		let dragging = false;
 		const showTip = () => {
 			const v = Number(slider.value);
 			tip.setText(this.sliderLabel(v));
-			const bRect = block.getBoundingClientRect();
-			const sRect = slider.getBoundingClientRect();
-			const frac = (v - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN);
-			tip.style.left = `${Math.round(
-				sRect.left - bRect.left + frac * sRect.width
-			)}px`;
-			tip.style.top = `${Math.round(sRect.top - bRect.top - 24)}px`;
+			tip.style.left = `${Math.round(slider.offsetLeft + ((v - SLIDER_MIN) / (SLIDER_MAX - SLIDER_MIN)) * slider.offsetWidth)}px`;
+			tip.style.top = `${Math.round(slider.offsetTop - 24)}px`;
 			tip.classList.add("is-visible");
 		};
-		const hideTip = () => tip.classList.remove("is-visible");
+		// Left of the action group — the caption, zoom and edit buttons — which sits on the
+		// diagram's corner (followCorner), and moves with it.
+		this.sliderPlacers.set(block, () => {
+			placeSlider(slider, actions(), block.querySelector(DIAGRAM_SVG));
+			if (dragging) showTip();
+		});
+		placeSlider(slider, actions(), svg);
 
 		// Keep clicks/drags from bubbling into the editor / edit-block handler.
-		slider.addEventListener("pointerdown", (e) => {
-			e.stopPropagation();
-			this.draggingSvg = svg;
-			this.draggingValue = null;
-			showTip();
-		});
 		slider.addEventListener("click", (e) => e.stopPropagation());
+		slider.addEventListener("mousedown", (e) => e.stopPropagation());
 		// Mobile: Obsidian's edge-swipe gesture (open the left/right sidebar) and
 		// the page scroll both listen on touch events higher up the tree. Without
 		// this, dragging the thumb flings a sidebar out and the tap leaks through
@@ -720,26 +732,59 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		slider.addEventListener("touchstart", stopTouch, { passive: true });
 		slider.addEventListener("touchmove", stopTouch, { passive: true });
 		slider.addEventListener("touchend", stopTouch, { passive: true });
-		// Live preview while dragging — style the SVG only, don't touch source.
-		slider.addEventListener("input", () => {
-			this.draggingValue = Number(slider.value);
-			this.applyLiveSize(svg, this.draggingValue);
-			if (this.draggingSvg === svg) showTip();
+		// The diagram follows the drag (SVG only, the source untouched), sized about its middle,
+		// the slider staying under the pointer and the buttons out of sight (dragFitSlider). Let
+		// go, they come back on its corner, and the size is written to the block.
+		slider.addEventListener("pointerdown", (e) => {
+			e.stopPropagation();
+			// The diagram as it is now: Obsidian draws it again in place, a new <svg> under the
+			// same slider — the one the slider was made for is gone, and the drag did nothing.
+			const svg = block.querySelector<SVGSVGElement>(DIAGRAM_SVG);
+			if (!svg) return;
+			this.draggingSvg = svg;
+			this.draggingValue = null;
+			dragging = true;
+			showTip();
+			dragFitSlider(slider, e, {
+				corner: this.corners.get(block) ?? null,
+				apply: (value) => {
+					this.draggingValue = value;
+					this.applyLiveSize(svg, value);
+					showTip();
+				},
+				done: (value) => {
+					this.draggingSvg = null;
+					dragging = false;
+					tip.classList.remove("is-visible");
+					this.persistFit(block, this.valueToDirective(value));
+				},
+			});
 		});
-		// Persist and hide the tooltip on release.
-		slider.addEventListener("change", () => {
-			this.draggingSvg = null;
-			this.persistFit(block, this.valueToDirective(Number(slider.value)));
-			hideTip();
-		});
-		slider.addEventListener("pointerup", () => {
-			this.draggingSvg = null;
-			hideTip();
-		});
-		slider.addEventListener("blur", () => {
-			this.draggingSvg = null;
-			hideTip();
-		});
+	}
+
+	/** Each block's diagram corner, its buttons kept on it (shared/drawing-corner.ts). */
+	private readonly corners = new Map<HTMLElement, DrawingCorner>();
+	/** Each block's slider, placed again as the buttons move; see injectSlider. */
+	private readonly sliderPlacers = new WeakMap<HTMLElement, () => void>();
+
+	/**
+	 * Keep a diagram's buttons on its own top-right corner, as an image's are, not the block's
+	 * — the block is as wide as the note, the diagram often narrower.
+	 */
+	private followCorner(svg: SVGSVGElement) {
+		const block = svg.closest<HTMLElement>(".cm-preview-code-block");
+		if (!block) return;
+		let corner = this.corners.get(block);
+		if (!corner) {
+			corner = new DrawingCorner(block, () => this.sliderPlacers.get(block)?.());
+			this.corners.set(block, corner);
+		}
+		corner.follow(svg);
+		for (const [other, c] of this.corners) {
+			if (other.isConnected) continue;
+			c.disconnect();
+			this.corners.delete(other);
+		}
 	}
 
 	/** Directive string for a slider value (`full` at the max = fill the window). */
@@ -1010,6 +1055,38 @@ export default class MermaidEnhancedPlugin extends Plugin {
 				block.querySelector<HTMLElement>(".edit-block-button")
 			);
 		}
+	}
+
+	/**
+	 * The zoom-in button, between the caption button and the edit one, as an image has
+	 * (shared/zoom-overlay.ts). The diagram is looked for at the click: Live Preview draws it
+	 * again in place now and then.
+	 */
+	private injectZoomButton(svg: SVGSVGElement) {
+		const block = svg.closest<HTMLElement>(".cm-preview-code-block");
+		const actions = block?.querySelector<HTMLElement>(".embed-actions");
+		if (!block || !actions || !this.zoom || actions.querySelector(`.${ZOOM_BTN_CLS}`)) return;
+		const button = this.zoom.zoomButton(() => block.querySelector<SVGSVGElement>(DIAGRAM_SVG), ZOOM_BTN_CLS);
+		const edit = actions.querySelector(":scope > .edit-block-button");
+		if (edit) actions.insertBefore(button, edit);
+		else actions.appendChild(button);
+	}
+
+	/** The note text whose diagrams were last parsed ahead; see prepareGallery. */
+	private preparedText = "";
+
+	/**
+	 * Parse the note's diagrams ahead of a zoom, as the pointer comes onto one: listing them
+	 * for its strip parses each (a diagram that doesn't parse isn't paged to), and the strip
+	 * is to be there in the zoom's first frame. Each is parsed once (parses).
+	 */
+	private prepareGallery(svg: SVGSVGElement) {
+		const text = this.noteViewOf(svg)?.getViewData();
+		if (!text || text === this.preparedText) return;
+		this.preparedText = text;
+		const blocks = mermaidSources(text);
+		if (blocks.length < 2) return;
+		for (const block of blocks) void parses(block.code);
 	}
 
 	/**
