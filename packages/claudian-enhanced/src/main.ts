@@ -1,5 +1,7 @@
-import { FileSystemAdapter, MarkdownView, Notice, parseLinktext, Platform, Plugin, Scope, type SectionCache, setIcon, TextFileView, TFile, WorkspaceLeaf } from "obsidian";
+import { editorInfoField, FileSystemAdapter, MarkdownView, Notice, parseLinktext, Platform, Plugin, Scope, type SectionCache, setIcon, TextFileView, TFile, WorkspaceLeaf } from "obsidian";
+import { Text as DocText } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { LineTracker } from "./line-tracker";
 
 import { CommentSelection, type CommentSelectionTab } from "./comment-selection";
 import { ConversationFind } from "./conversation-find";
@@ -673,6 +675,11 @@ function sessionDir(adapter: FileSystemAdapter): string {
 	return path.join(config, "projects", path.resolve(adapter.getBasePath()).replace(/[^a-zA-Z0-9]/g, "-"));
 }
 
+/** A reference's target as its tooltip shows it: `Notes/a.md#12-14`. */
+function linesPath(path: string, start: number, end: number): string {
+	return `${path}#${start}${end > start ? `-${end}` : ""}`;
+}
+
 /** A `<br>` as it reads once escaped to text. */
 const BR_TEXT = /<br\s*\/?>/i;
 
@@ -1131,6 +1138,16 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private readonly provisionallyTagged = new WeakSet<HTMLElement>();
 	/** Claude Code session files already read for sentSelections, with the mtime read. */
 	private readSessions = new Map<string, number>();
+	/** The lines of the references shown, kept on their text as the notes are edited; see linkReferencesIn. */
+	private readonly lineTracker = new LineTracker();
+	/** How each followed reference reads for given lines, to label it again as they move. */
+	private readonly referenceLabels = new WeakMap<HTMLElement, (start: number, end: number) => string>();
+	private relabelTimer: number | null = null;
+	private relinkTimer: number | null = null;
+	/** Tabs streaming a reply at the last syncStopButtons. */
+	private readonly wasStreaming = new WeakSet<ClaudianTab>();
+	/** Claudians in a tab of the main area, each watched for references to link; see watchTabbedClaudians. */
+	private readonly tabbedObservers = new Map<HTMLElement, MutationObserver>();
 	private tagFrame: number | null = null;
 	private dedupeFrame: number | null = null;
 	/** See StoredData.clearedNotes. */
@@ -1186,6 +1203,22 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// silently start a fresh session instead, which is the behavior we're replacing.
 		// It reads one small file, plus Claudian's conversation metas on first run only.
 		await this.loadMemory();
+		// Every edit of a note, for the references following its lines.
+		this.registerEditorExtension(
+			EditorView.updateListener.of((update) => {
+				const path = update.docChanged ? update.state.field(editorInfoField, false)?.file?.path : undefined;
+				if (!path) return;
+				this.lineTracker.edited(path, update.startState.doc, update.state.doc, update.changes);
+				this.relabelTimer ??= window.setTimeout(() => {
+					this.relabelTimer = null;
+					this.relabelReferences();
+				}, 150);
+			}),
+		);
+		this.register(() => {
+			if (this.relabelTimer !== null) window.clearTimeout(this.relabelTimer);
+			if (this.relinkTimer !== null) window.clearTimeout(this.relinkTimer);
+		});
 		this.addCommand({
 			id: "toggle-claudian",
 			// "Claudian" is a proper noun (the plugin's name), so it stays capitalized.
@@ -1347,8 +1380,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				// A deferred/collapsed Claudian leaf can swap in a new view (new
 				// containerEl) when revealed — re-bind the submit-scroll observer to it.
 				this.ensureSubmitScrollObserver();
+				this.watchTabbedClaudians();
 			}),
 		);
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.watchTabbedClaudians()));
+		this.registerDomEvent(document, "copy", (event) => this.copyReferences(event));
+		this.app.workspace.onLayoutReady(() => this.watchTabbedClaudians());
 		// Opening a note fires this immediately and exactly once, so it needs none of the
 		// debounce above — that exists to absorb active-leaf churn, and paying it here just
 		// delayed every conversation restore by the full window. This is the path a normal
@@ -1397,6 +1434,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		);
 		this.registerEvent(
 			this.app.vault.on("delete", (file) => this.forgetNote(file.path)),
+		);
+		// A note Claude just wrote can reach the vault after the reply naming it is drawn, its
+		// reference left as text: linked once the note is there. After the start-up burst of creates.
+		this.app.workspace.onLayoutReady(() =>
+			this.registerEvent(
+				this.app.vault.on("create", () => this.scheduleRelink()),
+			),
 		);
 		// Where the reader is when Obsidian closes is what the next start comes back to.
 		this.registerEvent(
@@ -1512,6 +1556,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			const menu = tab.ui?.composerDropdown?.controller?.view;
 			const render = menu && this.quietedMenus.get(menu);
 			if (menu && render) menu.render = render;
+		}
+		for (const observer of this.tabbedObservers.values()) observer.disconnect();
+		// Their links go too, as the sidebar's below do.
+		for (const container of this.tabbedObservers.keys()) {
+			container.querySelectorAll<HTMLElement>(`.${REFERENCE_CLS}`).forEach((el) => el.replaceWith(el.dataset.source ?? ""));
 		}
 		// Leave Claudian's view as it draws itself: what we added goes, what we marked is unmarked.
 		const view = this.getClaudianLeaf()?.view.containerEl;
@@ -3740,6 +3789,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private syncStopButtons(): void {
 		for (const tab of this.allClaudianTabs()) {
+			// A reply done streaming: its references linked now (linkReferences leaves one streaming).
+			const streaming = !!tab.state?.isStreaming;
+			if (this.wasStreaming.has(tab) && !streaming) this.scheduleRelink();
+			if (streaming) this.wasStreaming.add(tab);
+			else this.wasStreaming.delete(tab);
 			const toolbar = tab.dom?.inputWrapper?.querySelector<HTMLElement>(":scope > .claudian-input-toolbar");
 			if (!toolbar) continue;
 			let button = toolbar.querySelector<HTMLElement>(`:scope > .${STOP_BTN_CLS}`);
@@ -4202,8 +4256,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 */
 	private linkReferences(root: HTMLElement): void {
 		const blocks = root.matches(".claudian-message-assistant") ? root.querySelectorAll<HTMLElement>(".claudian-text-block") : root.querySelectorAll<HTMLElement>(REFERENCE_TEXT);
+		// Not a reply still streaming in: Claudian draws it afresh with each piece, and its links
+		// put back each time — `@path#12-14` turning into `排期 L12–14`, a different width — made
+		// its lines wrap back and forth. It's linked once the turn is over (syncStopButtons).
+		const streaming = this.streamingReplies();
 		for (const block of Array.from(blocks)) {
 			if (!block.textContent?.includes("@")) continue;
+			const reply = block.closest(".claudian-message-assistant");
+			if (reply && streaming.has(reply)) continue;
 			const walker = block.ownerDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
 			const run: (Text | null)[] = [];
 			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -4264,20 +4324,34 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			}
 			const section = `${path}#${this.sectionAt(file, start)}`;
 			const name = section.slice(path.length + 1);
-			const lines = linesLabel(start, end);
+			const sameSection = !!item && section === previous.get(item);
+			const label = (first: number, last: number): string => {
+				const lines = linesLabel(first, last);
+				if (prompt && lines) return referenceLabel({ ...reference, start: first, end: last });
+				return sameSection && lines ? lines : [name, lines].filter(Boolean).join(" ");
+			};
 			const link = from.node.ownerDocument.createElement("span");
 			link.className = REFERENCE_CLS;
-			if (prompt && lines) link.setText(referenceLabel(reference));
-			else link.setText(item && section === previous.get(item) && lines ? lines : [name, lines].filter(Boolean).join(" "));
+			// Followed by the message it's in and what it says: shown again, it's the same lines.
+			const message = from.node.parentElement?.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+			const key = message && start ? `${message}|${source}` : null;
+			if (key) {
+				this.lineTracker.follow(key, path, start, end, () => this.noteText(file));
+				link.dataset.track = key;
+				link.dataset.path = path;
+				this.referenceLabels.set(link, label);
+			}
+			const now = key ? this.lineTracker.lines(key, path) : null;
+			link.setText(label(now?.start ?? start, now?.end ?? end));
 			link.dataset.section = section;
 			previous.set(item, section);
 			link.setAttribute("role", "link");
-			link.setAttribute("aria-label", source.slice(1));
+			link.setAttribute("aria-label", now ? linesPath(path, now.start, now.end) : source.slice(1));
 			link.dataset.source = source;
 			link.addEventListener("click", (event) => {
 				event.preventDefault();
 				event.stopPropagation();
-				void this.revealReference(reference, isRemovedEntry(link));
+				void this.revealReference(reference, isRemovedEntry(link), key);
 			});
 			links.push({ from, to, link });
 		}
@@ -4289,6 +4363,120 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			range.deleteContents();
 			range.insertNode(link);
 		}
+	}
+
+	/** Link the references in Claudian's view again shortly, once for a burst of reasons. */
+	private scheduleRelink(): void {
+		this.relinkTimer ??= window.setTimeout(() => {
+			this.relinkTimer = null;
+			for (const leaf of this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW)) this.linkReferences(leaf.view.containerEl);
+		}, 100);
+	}
+
+	/**
+	 * A Claudian opened in a tab of the main area, not the sidebar: everything else here follows
+	 * the sidebar's, but its replies' references are linked too. Each such view is watched, and
+	 * linked once a burst of changes — a reply streaming in — has settled.
+	 */
+	private watchTabbedClaudians(): void {
+		const sidebar = this.getClaudianLeaf()?.view.containerEl;
+		const containers = new Set(
+			this.app.workspace
+				.getLeavesOfType(CLAUDIAN_VIEW)
+				.map((leaf) => leaf.view.containerEl)
+				.filter((container) => container !== sidebar),
+		);
+		for (const [container, observer] of this.tabbedObservers) {
+			if (containers.has(container) && container.isConnected) continue;
+			observer.disconnect();
+			this.tabbedObservers.delete(container);
+		}
+		for (const container of containers) {
+			if (this.tabbedObservers.has(container)) continue;
+			let timer: number | null = null;
+			const observer = new MutationObserver(() => {
+				if (timer !== null) window.clearTimeout(timer);
+				timer = window.setTimeout(() => {
+					timer = null;
+					this.linkReferences(container);
+				}, 150);
+			});
+			observer.observe(container, { childList: true, subtree: true, characterData: true });
+			this.tabbedObservers.set(container, observer);
+			this.linkReferences(container);
+		}
+	}
+
+	/** The reply each conversation is streaming in now: the last of its list while it streams. */
+	private streamingReplies(): Set<Element> {
+		const replies = new Set<Element>();
+		for (const tab of this.allClaudianTabs()) {
+			if (!tab.state?.isStreaming) continue;
+			const last = Array.from(tab.dom?.messagesEl?.querySelectorAll(".claudian-message-assistant") ?? []).pop();
+			if (last) replies.add(last);
+		}
+		return replies;
+	}
+
+	/**
+	 * Copying from a conversation, a reference goes as what it stands for — `@path#12-14`, at the
+	 * lines it points at now — not its label (`排期 L12–14`), which, pasted back into a prompt,
+	 * names no note and lines that may have moved. Only a selection with a reference in it; a
+	 * reference partly selected is taken whole.
+	 */
+	private copyReferences(event: ClipboardEvent): void {
+		const selection = document.getSelection();
+		if (!event.clipboardData || !selection || selection.isCollapsed || selection.rangeCount === 0) return;
+		const range = selection.getRangeAt(0).cloneRange();
+		const linkAt = (node: Node): HTMLElement | null => (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>(`.${REFERENCE_CLS}`) ?? null;
+		const first = linkAt(range.startContainer);
+		const last = linkAt(range.endContainer);
+		if (first) range.setStartBefore(first);
+		if (last) range.setEndAfter(last);
+		const root = range.commonAncestorContainer;
+		const scope = root instanceof Element ? root : root.parentElement;
+		if (!scope?.closest(`.workspace-leaf-content[data-type="${CLAUDIAN_VIEW}"]`)) return;
+		const holder = document.body.createDiv();
+		holder.setCssStyles({ position: "fixed", left: "-10000px", top: "0", whiteSpace: "pre-wrap" });
+		holder.append(range.cloneContents());
+		const links = Array.from(holder.querySelectorAll<HTMLElement>(`.${REFERENCE_CLS}`));
+		if (links.length === 0) {
+			holder.remove();
+			return;
+		}
+		for (const link of links) {
+			const { source = "", track: key, path } = link.dataset;
+			const now = key && path ? this.lineTracker.lines(key, path) : null;
+			link.replaceWith(now ? source.replace(/#\d+(?:-\d+)?/, `#${now.start}${now.end > now.start ? `-${now.end}` : ""}`) : source);
+		}
+		event.clipboardData.setData("text/plain", holder.innerText);
+		event.clipboardData.setData("text/html", holder.innerHTML);
+		holder.remove();
+		event.preventDefault();
+	}
+
+	/** Label each followed reference again with the lines it points at now, where they've moved. */
+	private relabelReferences(): void {
+		for (const link of Array.from(document.querySelectorAll<HTMLElement>(`.${REFERENCE_CLS}[data-track]`))) {
+			const { track: key, path } = link.dataset;
+			const label = this.referenceLabels.get(link);
+			const now = key && path ? this.lineTracker.lines(key, path) : null;
+			if (!label || !path || !now) continue;
+			const text = label(now.start, now.end);
+			if (link.textContent !== text) link.setText(text);
+			const aria = linesPath(path, now.start, now.end);
+			if (link.getAttribute("aria-label") !== aria) link.setAttribute("aria-label", aria);
+		}
+	}
+
+	/** A note's text as an open editor holds it, else as the file has it. */
+	private noteText(file: TFile): DocText | Promise<DocText> {
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			if ((leaf.view as { file?: TFile | null }).file?.path !== file.path) continue;
+			const cm = this.cmOf(leaf);
+			if (cm) return cm.state.doc;
+		}
+		return this.app.vault.cachedRead(file).then((data) => DocText.of(data.split(/\r?\n/)));
 	}
 
 	/** The deepest heading above line `line` (1-based) of `file`, else the note's own name. */
@@ -4307,8 +4495,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * A drawing or a reference without lines just opens. In a table, what it names is lit:
 	 * the columns of those rows it gives, or the text it quotes (lightTable).
 	 */
-	private async revealReference(reference: NoteReference, removed = false): Promise<void> {
-		const { path, start, end, quote, columns = [] } = reference;
+	private async revealReference(reference: NoteReference, removed = false, key: string | null = null): Promise<void> {
+		const { path, quote, columns = [] } = reference;
+		let { start, end } = reference;
 		const file = this.app.vault.getFileByPath(path);
 		if (!file) return;
 		let existing: WorkspaceLeaf | null = null;
@@ -4321,6 +4510,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.app.workspace.setActiveLeaf(leaf, { focus: true });
 		const view = leaf.view;
 		if (!start || !(view instanceof MarkdownView)) return;
+		// Where its lines are now, the note edited since; changed where that couldn't be seen, as written.
+		const now = key ? this.lineTracker.lines(key, path, this.cmOf(leaf)?.state.doc ?? DocText.of(view.data.split(/\r?\n/))) : null;
+		if (now?.stale) new Notice("The note changed outside the editor since: these lines may be off");
+		else if (now) ({ start, end } = now);
 		const lines = view.data.split("\n");
 		let line = Math.min(start, lines.length);
 		// Only its start, should it be shortened: the part before the ellipsis is its own text.
