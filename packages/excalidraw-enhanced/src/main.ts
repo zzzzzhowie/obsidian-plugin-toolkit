@@ -1,4 +1,4 @@
-import { type App, Menu, type PaneType, Platform, Plugin, setIcon, setTooltip, type TFile, type View, type WorkspaceLeaf } from "obsidian";
+import { type App, type ItemView, Menu, type PaneType, Platform, Plugin, setIcon, setTooltip, TFile, type View, type WorkspaceLeaf } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	ExcalidrawEnhancedSettings,
@@ -9,11 +9,14 @@ import { LabelSelection } from "../../../shared/label-selection";
 import { createDrawingFromFence } from "./fence-drawing";
 import { DrawingFit } from "./fit-slider";
 import { DrawingGallery } from "./gallery";
+import { type ExcalidrawView, isDrawing, openOnWeb } from "./open-on-web";
 
 /** Class on the button that opens a drawing in Live Preview to be edited. */
 const EDIT_BTN_CLS = "excalidraw-edit-btn";
 /** Class on the zoom-in button beside it. */
 const ZOOM_BTN_CLS = "excalidraw-zoom-btn";
+/** Class on the title-bar button of a drawing's view that opens it on excalidraw.com. */
+const WEB_BTN_CLS = "excalidraw-enhanced-web-btn";
 
 /** An image in a Claudian reply — a drawing's PNG, a pasted screenshot — and the view it's in. */
 const CLAUDIAN_IMAGE = ".claudian-embedded-image > img";
@@ -200,6 +203,40 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			this.addEditButtons();
 			fit.pass();
 		});
+
+		// A drawing opens on excalidraw.com (open-on-web.ts): from the command palette, any menu
+		// for the file — the view's "…", the file list, a drawing in a note — and a globe in the
+		// drawing's title bar, beside Excalidraw's own buttons.
+		this.addCommand({
+			id: "open-on-excalidraw-com",
+			name: "Open drawing in Excalidraw web",
+			checkCallback: (checking) => {
+				const file = this.app.workspace.getActiveFile();
+				if (!isDrawing(this.app, file)) return false;
+				if (!checking) void openOnWeb(this.app, file);
+				return true;
+			},
+		});
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file) => {
+				if (!(file instanceof TFile) || !isDrawing(this.app, file)) return;
+				menu.addItem((item) =>
+					item.setSection("open").setTitle("Open in Excalidraw web").setIcon("globe").onClick(() => void openOnWeb(this.app, file)),
+				);
+			}),
+		);
+		const addWebButtons = (): void => {
+			for (const leaf of this.app.workspace.getLeavesOfType("excalidraw")) {
+				const view = leaf.view as ExcalidrawView & { addAction: ItemView["addAction"] };
+				if (view.containerEl.querySelector(`.${WEB_BTN_CLS}`) || typeof view.addAction !== "function") continue;
+				view.addAction("globe", "Open in Excalidraw web", () => {
+					if (view.file) void openOnWeb(this.app, view.file);
+				}).addClass(WEB_BTN_CLS);
+			}
+		};
+		this.registerEvent(this.app.workspace.on("layout-change", addWebButtons));
+		this.app.workspace.onLayoutReady(addWebButtons);
+		this.register(() => document.querySelectorAll(`.${WEB_BTN_CLS}`).forEach((button) => button.remove()));
 
 		// A drawing in front in the main area gets the window's width: the right sidebar folds
 		// away while one is in front, and is put back as it was after (fitSidebar).
