@@ -5,6 +5,8 @@ import {
 	PluginSettingTab,
 	Setting,
 	Menu,
+	setIcon,
+	setTooltip,
 	TAbstractFile,
 	TFolder,
 	TFile,
@@ -17,6 +19,9 @@ import { FileCountManager } from "./file-count";
 import { FileHiderManager } from "./hider";
 import { registerReuseTab } from "./reuse-tab";
 import { openInBrowserSupported, openInDefaultBrowser, placeAfterSectionStart } from "./open-in-browser";
+
+/** Class on the button by the vault's name that shows or hides the hidden items. */
+const HIDDEN_BTN_CLS = "file-explorer-hidden-toggle";
 
 /** The `file-menu` sources that get "Open in default browser". */
 const BROWSER_MENU_SOURCES = new Set(["file-explorer-context-menu", "tab-header", "more-options"]);
@@ -55,9 +60,7 @@ export default class FileExplorerPlugin extends Plugin {
 			id: "toggle-hidden-visibility",
 			name: "Toggle hidden file visibility",
 			callback: () => {
-				this.settings.hideFiles = !this.settings.hideFiles;
-				void this.saveSettings();
-				this.fileHiderManager.refreshStyles();
+				this.toggleHiddenFiles();
 				new Notice(
 					this.settings.hideFiles
 						? "Hidden files: invisible"
@@ -65,6 +68,10 @@ export default class FileExplorerPlugin extends Plugin {
 				);
 			},
 		});
+		// The same switch as a button by the vault's name, beside its help and settings buttons.
+		this.app.workspace.onLayoutReady(() => this.addHiddenFilesButton());
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.addHiddenFilesButton()));
+		this.register(() => document.querySelectorAll(`.${HIDDEN_BTN_CLS}`).forEach((button) => button.remove()));
 
 		// Register context menu event for files and folders
 		this.registerEvent(
@@ -332,6 +339,46 @@ export default class FileExplorerPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	/** Show the hidden items, or hide them again: the command's and the vault bar's button's. */
+	private toggleHiddenFiles(): void {
+		this.settings.hideFiles = !this.settings.hideFiles;
+		void this.saveSettings();
+		this.fileHiderManager.refreshStyles();
+		this.showHiddenFilesButton();
+	}
+
+	/** The eye by the vault's name (bottom of the left sidebar) that shows or hides hidden items. */
+	private addHiddenFilesButton(): void {
+		for (const actions of Array.from(document.querySelectorAll<HTMLElement>(".workspace-drawer-vault-actions"))) {
+			if (actions.querySelector(`.${HIDDEN_BTN_CLS}`)) continue;
+			const button = actions.doc.createElement("div");
+			button.className = `clickable-icon ${HIDDEN_BTN_CLS}`;
+			button.addEventListener("click", (event) => {
+				event.stopPropagation();
+				this.toggleHiddenFiles();
+			});
+			actions.prepend(button);
+		}
+		this.showHiddenFilesButton();
+	}
+
+	private showHiddenFilesButton(): void {
+		const shown = !this.settings.hideFiles;
+		document.querySelectorAll<HTMLElement>(`.${HIDDEN_BTN_CLS}`).forEach((button) => {
+			button.toggleClass("is-active", shown);
+			setIcon(button, shown ? "eye" : "eye-off");
+			setTooltip(button, shown ? "Hide hidden files" : "Show hidden files");
+		});
+	}
+
+	/**
+	 * For other plugins — Quick Open can leave hidden items out of its search: whether `path` is
+	 * a hidden item or inside one, whether they're on show in the file list or not.
+	 */
+	isPathHidden(path: string): boolean {
+		return this.fileHiderManager.covers(path);
 	}
 }
 

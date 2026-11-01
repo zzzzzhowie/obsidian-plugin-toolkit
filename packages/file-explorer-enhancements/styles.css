@@ -293,3 +293,8 @@
 	transform: none;
 	margin-right: 8px;
 }
+
+/* The eye by the vault's name that shows or hides the hidden items: lit while they're on show. */
+.file-explorer-hidden-toggle.is-active {
+	color: var(--text-accent);
+}

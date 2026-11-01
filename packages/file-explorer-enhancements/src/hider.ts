@@ -88,6 +88,22 @@ export class FileHiderManager {
 		return this.plugin.settings.hiddenPaths.includes(path);
 	}
 
+	/**
+	 * Whether `path` is one of the hidden items, or inside a hidden folder — by its exact path,
+	 * or a pattern naming it or a folder it's in, at any depth (as refreshStyles hides them).
+	 * Whether hidden items are hidden right now (`hideFiles`) is left to the caller.
+	 */
+	covers(path: string): boolean {
+		const { hiddenPaths, hiddenPatterns } = this.plugin.settings;
+		if (hiddenPaths.length === 0 && hiddenPatterns.length === 0) return false;
+		const names = hiddenPatterns.map((pattern) => (pattern.startsWith("**/") ? pattern.slice(3) : pattern));
+		for (let at = path; at; at = at.slice(0, Math.max(0, at.lastIndexOf("/")))) {
+			if (hiddenPaths.includes(at)) return true;
+			if (names.some((name) => at === name || at.endsWith(`/${name}`))) return true;
+		}
+		return false;
+	}
+
 	/** Add a path to the hidden list */
 	async hidePath(path: string): Promise<void> {
 		if (this.plugin.settings.hiddenPaths.includes(path)) return;

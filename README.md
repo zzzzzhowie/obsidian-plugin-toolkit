@@ -293,7 +293,7 @@ flowchart LR
 
 <img src="docs/images/file-explorer.png" width="300" alt="File tree with a pinned section, folder notes and file counts">
 
-Pinned items, folder notes, file counts and hiding files or folders (right-click, wildcard patterns, a toggle-visibility command). An open folder note highlights its folder, and "Reveal current file in navigation" (`Cmd/Ctrl+Shift+E`) flashes the folder. "Reveal in Finder" shows the row last clicked in the tree. `Cmd/Ctrl+B` in the tree toggles the left sidebar.
+Pinned items, folder notes, file counts and hiding files or folders (right-click, wildcard patterns, a toggle-visibility command and an eye by the vault's name). An open folder note highlights its folder, and "Reveal current file in navigation" (`Cmd/Ctrl+Shift+E`) flashes the folder. "Reveal in Finder" shows the row last clicked in the tree. `Cmd/Ctrl+B` in the tree toggles the left sidebar.
 
 ### Hide UI Elements
 
