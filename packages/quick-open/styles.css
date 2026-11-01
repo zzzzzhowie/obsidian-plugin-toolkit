@@ -263,3 +263,23 @@ body:not(.is-mobile) .quick-open-item:hover .quick-open-action {
 	border-bottom-width: 2px;
 	border-radius: var(--radius-s);
 }
+
+/* The eye by the input that leaves File Explorer (Enhanced)'s hidden files out, or brings them
+   back (modal.ts): lit while they're in the list. */
+.quick-open-hidden-toggle {
+	/* Left of the input's clear button, which Obsidian pins 16px from the right, 28px wide. */
+	position: absolute;
+	top: 50%;
+	inset-inline-end: calc(16px + 28px + var(--size-2-2));
+	transform: translateY(-50%);
+	color: var(--text-faint);
+}
+
+/* The query runs short of both buttons, not under the eye. */
+.quick-open-modal .prompt-input-container:has(.quick-open-hidden-toggle) .prompt-input {
+	padding-inline-end: calc(16px + 28px + var(--size-2-2) + 28px + var(--size-2-2));
+}
+
+.quick-open-hidden-toggle.is-active {
+	color: var(--text-accent);
+}

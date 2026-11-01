@@ -1,5 +1,6 @@
-import { type App, type Hotkey, Keymap, MarkdownView, Platform, SuggestModal } from "obsidian";
+import { type App, type Hotkey, Keymap, MarkdownView, Platform, setIcon, setTooltip, SuggestModal } from "obsidian";
 
+import { hiddenFiles, leavesHiddenOut, setLeavesHiddenOut } from "./hidden";
 import type { FileHistory } from "./history";
 import { goToLine, openFile, type OpenIn } from "./open";
 import { renderItem } from "./rows";
@@ -14,6 +15,9 @@ import { type Item, Search } from "./search";
  *   removing it from the list.
  * - Cmd/Ctrl+P again moves down the list; letting go of Cmd/Ctrl then opens what's selected,
  *   so holding Cmd and tapping P switches between recent files in one gesture.
+ * - An eye by the input, and Cmd/Ctrl+Shift+. as in the Finder, leave the files hidden with
+ *   File Explorer (Enhanced) out of the list, or bring them back; they're in it to begin with
+ *   (hidden.ts).
  */
 
 const MOD = Platform.isMacOS ? "⌘" : "Ctrl";
@@ -91,9 +95,11 @@ export class QuickOpenModal extends SuggestModal<Item> {
 				{ command: "↵", purpose: "to open" },
 				{ command: `${MOD} ↵`, purpose: "to open in new tab" },
 				{ command: `${MOD} P`, purpose: `next — release ${MOD} to open` },
+				...(hiddenFiles(app) ? [{ command: `${MOD} ⇧ .`, purpose: "to toggle hidden files" }] : []),
 				{ command: "esc", purpose: "to dismiss" },
 			]);
 		}
+		this.addHiddenToggle();
 		this.modalEl.addClass("quick-open-modal");
 
 		this.scope.register(["Mod"], "Enter", (evt) => {
@@ -117,6 +123,44 @@ export class QuickOpenModal extends SuggestModal<Item> {
 				return false;
 			});
 		}
+	}
+
+	/** The eye by the input that shows or hides File Explorer (Enhanced)'s hidden files; none without it. */
+	private hiddenToggle: HTMLElement | null = null;
+
+	private addHiddenToggle(): void {
+		if (!hiddenFiles(this.app)) return;
+		const toggle = this.inputEl.doc.createElement("div");
+		toggle.className = "clickable-icon quick-open-hidden-toggle";
+		this.inputEl.parentElement?.insertBefore(toggle, this.inputEl.parentElement.querySelector(".search-input-clear-button"));
+		// Kept from the input losing focus to it: the query is still being typed.
+		toggle.addEventListener("mousedown", (evt) => evt.preventDefault());
+		toggle.addEventListener("click", () => this.toggleHidden());
+		this.hiddenToggle = toggle;
+		this.showHiddenToggle();
+		// Shift+. is ">" on most layouts: either is taken.
+		for (const key of [".", ">"]) {
+			this.scope.register(["Mod", "Shift"], key, () => {
+				this.toggleHidden();
+				return false;
+			});
+		}
+	}
+
+	private showHiddenToggle(): void {
+		const toggle = this.hiddenToggle;
+		if (!toggle) return;
+		const shown = !leavesHiddenOut(this.app);
+		toggle.toggleClass("is-active", shown);
+		setIcon(toggle, shown ? "eye" : "eye-off");
+		setTooltip(toggle, shown ? `Leave hidden files out (${MOD}⇧.)` : `Include hidden files (${MOD}⇧.)`);
+	}
+
+	/** Leave the hidden files out of the list, or bring them back, and search again. */
+	private toggleHidden(): void {
+		setLeavesHiddenOut(this.app, !leavesHiddenOut(this.app));
+		this.showHiddenToggle();
+		this.refresh();
 	}
 
 	/**

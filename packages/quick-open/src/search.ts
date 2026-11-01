@@ -8,6 +8,7 @@ import {
 } from "obsidian";
 
 import { displayName, folderOf } from "./files";
+import { hiddenFiles, leavesHiddenOut } from "./hidden";
 import type { FileHistory } from "./history";
 
 /**
@@ -20,6 +21,7 @@ import type { FileHistory } from "./history";
  * - `name:42` or `name:42:7` opens at that line (and column); `:42` goes to a line in the
  *   current note; `@` lists the current note's headings — unless `filesOnly`, for a place
  *   with no current note.
+ * - Files hidden with File Explorer (Enhanced) are found too, unless left out (hidden.ts).
  */
 
 export type Item = FileItem | LineItem | HeadingItem;
@@ -82,8 +84,10 @@ export class Search {
 	}
 
 	private recentItems(limit: number): FileItem[] {
+		const hidden = this.hidden();
 		return this.history
 			.files()
+			.filter((file) => !hidden(file))
 			.slice(0, limit)
 			.map((file, index) => ({
 				kind: "file",
@@ -98,9 +102,12 @@ export class Search {
 	private searchItems(query: string, limit: number): FileItem[] {
 		const match = matcher(query);
 		const matchAliases = aliasMatcher(query, (file) => this.aliasesOf(file));
-		const recentFiles = this.history.files();
+		const hidden = this.hidden();
+		const recentFiles = this.history.files().filter((file) => !hidden(file));
 		const order = new Map(recentFiles.map((file, index) => [file.path, index]));
-		const otherFiles = this.app.vault.getFiles().filter((file) => !order.has(file.path) && !this.isExcluded(file));
+		const otherFiles = this.app.vault
+			.getFiles()
+			.filter((file) => !order.has(file.path) && !this.isExcluded(file) && !hidden(file));
 
 		// An alias row sits in the same section as its note and is ranked with the file rows,
 		// as a name match: it is what the note is also called.
@@ -120,6 +127,13 @@ export class Search {
 	private aliasesOf(file: TFile): string[] {
 		if (file.extension !== "md") return [];
 		return parseFrontMatterAliases(this.app.metadataCache.getFileCache(file)?.frontmatter) ?? [];
+	}
+
+	/** Hidden with File Explorer (Enhanced), once the switch leaves them out (hidden.ts). */
+	private hidden(): (file: TFile) => boolean {
+		const files = hiddenFiles(this.app);
+		if (!files || !leavesHiddenOut(this.app)) return () => false;
+		return (file) => files.isPathHidden(file.path);
 	}
 
 	/** In Settings → Files and links → Excluded files: kept out of search, as VS Code's files.exclude. */
@@ -161,7 +175,9 @@ interface Scored {
 /**
  * How a file is scored against `query`. A query with a `/` in it is a path and matches the
  * whole path; otherwise the file name is tried first, falling back to the full path so a
- * folder name still finds what's in it.
+ * folder name still finds what's in it. A note is shown without its `.md`, but a query that
+ * has it (`业务字段解释.md`) is matched against the name with it — the extension, past the
+ * name shown, isn't marked.
  */
 function matcher(query: string): (file: TFile) => Match | null {
 	const fuzzy = prepareFuzzySearch(query);
@@ -169,16 +185,22 @@ function matcher(query: string): (file: TFile) => Match | null {
 	return (file) => {
 		const name = displayName(file);
 		if (!pathOnly) {
-			const onName = fuzzy(name);
-			if (onName) return { score: onName.score, onName: true, nameMatches: onName.matches, pathMatches: null };
+			const onName = fuzzy(name) ?? (name !== file.name ? fuzzy(file.name) : null);
+			if (onName) return { score: onName.score, onName: true, nameMatches: within(onName.matches, name.length), pathMatches: null };
 		}
 		const folder = folderOf(file);
 		const full = folder ? `${folder}/${name}` : name;
-		const onPath = fuzzy(full);
+		const onPath = fuzzy(full) ?? (name !== file.name ? fuzzy(folder ? `${folder}/${file.name}` : file.name) : null);
 		if (!onPath) return null;
 		const cut = folder ? folder.length + 1 : 0;
-		return { score: onPath.score, onName: false, ...splitMatches(onPath.matches, folder.length, cut) };
+		const split = splitMatches(onPath.matches, folder.length, cut);
+		return { score: onPath.score, onName: false, ...split, nameMatches: within(split.nameMatches, name.length) };
 	};
+}
+
+/** Ranges cut to the first `length` characters: a match on the extension isn't in the name shown. */
+function within(matches: SearchMatches, length: number): SearchMatches {
+	return matches.flatMap(([from, to]) => (from < length ? [[from, Math.min(to, length)] as [number, number]] : []));
 }
 
 /**
