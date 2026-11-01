@@ -1,4 +1,4 @@
-import { Menu, type PaneType, Platform, Plugin, setIcon, setTooltip, type TFile, type View, type WorkspaceLeaf } from "obsidian";
+import { type App, Menu, type PaneType, Platform, Plugin, setIcon, setTooltip, type TFile, type View, type WorkspaceLeaf } from "obsidian";
 import {
 	DEFAULT_SETTINGS,
 	ExcalidrawEnhancedSettings,
@@ -201,8 +201,8 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			fit.pass();
 		});
 
-		// A drawing opened in the main area gets the window's width: the right sidebar folds away
-		// as it opens (fitSidebar).
+		// A drawing in front in the main area gets the window's width: the right sidebar folds
+		// away while one is in front, and is put back as it was after (fitSidebar).
 		// Looked at a moment after the tabs change, once a tab just opened is what it'll be: as
 		// the event comes, a drawing opening in a new tab is still an empty one.
 		let sidebarTimer: number | null = null;
@@ -268,25 +268,47 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		}
 	}
 
-	/** The drawing each tab last showed; see fitSidebar. */
-	private readonly drawingShown = new WeakMap<WorkspaceLeaf, string>();
+	/** The main area's tab last seen in front, and what it showed; see fitSidebar. */
+	private frontTab: { leaf: WorkspaceLeaf; shows: string } | null = null;
+	/** Whether the right sidebar was folded before a drawing came to the front; null with none in front. */
+	private sidebarBefore: boolean | null = null;
 
 	/**
-	 * The right sidebar folded as a drawing is opened in the main area — at that moment only:
-	 * coming back to a drawing's tab, opening the sidebar over it, going back to a note, all
-	 * leave it as it is. A tab still opening (empty) is waited for. Tabs a drawing is restored
-	 * in as Obsidian starts are noted, not folded for. Only the main window's: a drawing in a
-	 * popout has the sidebar of no window.
+	 * The right sidebar folded while a drawing is in front of the main area: as its tab comes to
+	 * the front (switched to, or a drawing opened), and as it was put back once another tab
+	 * comes to the front — open if it was open before the drawing. From one drawing to another
+	 * it stays folded. Nothing else touches it: opened by hand over a drawing, it stays open
+	 * there. A tab still opening (empty) is waited for. The tab in front as Obsidian starts is
+	 * noted, not folded for. Only the main window's: a drawing in a popout has the sidebar of no
+	 * window.
 	 */
 	private fitSidebar(starting = false): void {
 		if (Platform.isMobile) return;
 		const { workspace } = this.app;
-		for (const leaf of workspace.getLeavesOfType("excalidraw")) {
-			const path = (leaf.view as View & { file?: TFile | null }).file?.path;
-			if (!path || this.drawingShown.get(leaf) === path) continue;
-			this.drawingShown.set(leaf, path);
-			if (starting || !this.settings.foldSidebarForDrawing || leaf.getRoot() !== workspace.rootSplit) continue;
-			if (!workspace.rightSplit.collapsed) workspace.rightSplit.collapse();
+		const leaf = workspace.getMostRecentLeaf(workspace.rootSplit);
+		const type = leaf?.view.getViewType();
+		if (!leaf || type === "empty") return;
+		const file = (leaf.view as View & { file?: TFile | null }).file ?? null;
+		const shows = `${type}:${file?.path ?? ""}`;
+		if (this.frontTab?.leaf === leaf && this.frontTab.shows === shows) return;
+		this.frontTab = { leaf, shows };
+		if (starting) return;
+		const right = workspace.rightSplit;
+		// A drawing's file shown as a note counts as the drawing: a tab put back as Obsidian
+		// started opens it as one on its way to the drawing, the first time it's switched to — so
+		// the sidebar, folded as it came to the front, was put back, and stayed so.
+		if (type === "excalidraw" || (file && isDrawingFile(this.app, file))) {
+			if (!this.settings.foldSidebarForDrawing) return;
+			if (this.sidebarBefore === null) this.sidebarBefore = right.collapsed;
+			if (!right.collapsed) right.collapse();
+			return;
+		}
+		if (this.sidebarBefore === null) return;
+		const before = this.sidebarBefore;
+		this.sidebarBefore = null;
+		if (before !== right.collapsed) {
+			if (before) right.collapse();
+			else right.expand();
 		}
 	}
 
@@ -394,6 +416,12 @@ function drawingTextOf(target: Element): Element | null {
 	const group = text?.parentElement;
 	if (!text || !group) return text;
 	return group.localName === "g" && Array.from(group.children).every((child) => child.localName === "text") ? group : text;
+}
+
+/** Whether `file` is an Excalidraw drawing: its own extension, or a note Excalidraw keeps one in. */
+function isDrawingFile(app: App, file: TFile): boolean {
+	if (file.extension === "excalidraw" || file.path.endsWith(".excalidraw.md")) return true;
+	return file.extension === "md" && app.metadataCache.getFileCache(file)?.frontmatter?.["excalidraw-plugin"] !== undefined;
 }
 
 /** Whether a change to the page put a drawing on it. */

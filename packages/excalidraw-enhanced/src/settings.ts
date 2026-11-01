@@ -13,7 +13,7 @@ export interface ExcalidrawEnhancedSettings {
 	fenceCreatesDrawing: boolean;
 	/** Where that drawing opens to be drawn in. */
 	fenceOpenIn: FenceOpenIn;
-	/** The right sidebar folds away as a drawing is opened. */
+	/** The right sidebar folds away while a drawing's tab is in front, and comes back after. */
 	foldSidebarForDrawing: boolean;
 }
 
@@ -69,10 +69,10 @@ export class ExcalidrawEnhancedSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Fold the right sidebar when a drawing opens")
+			.setName("Fold the right sidebar while on a drawing")
 			.setDesc(
-				"A drawing opened in the main area takes the window's width: the right sidebar folds " +
-					"away as it opens. Otherwise the sidebar is left as it is.",
+				"A drawing takes the window's width: the right sidebar folds away as a drawing's tab " +
+					"comes to the front, and is put back as it was when you go to another tab.",
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.foldSidebarForDrawing).onChange(async (value) => {
