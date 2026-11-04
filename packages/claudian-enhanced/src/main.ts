@@ -55,6 +55,8 @@ const PINNED_CLS = "claudian-enhanced-pinned";
  * end of an older one showing, which reads as two titles overlapping.
  */
 const BURIED_CLS = "claudian-enhanced-buried";
+/** Marks a reply table's header held at the top of the list while its rows scroll by; see stickTableHeads. */
+const STUCK_HEAD_CLS = "claudian-enhanced-stuck-head";
 /** Marks a prompt long enough to fold; it carries the fold toggle. See foldLongPrompts. */
 const FOLDABLE_CLS = "claudian-enhanced-foldable";
 /** Marks a foldable prompt that is currently collapsed. */
@@ -1091,6 +1093,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	private keptSlots = new WeakMap<HTMLElement, { base: number; cut: number; fill: number }>();
 	/** Pending frame for the pinned-prompt pass, so scrolling schedules at most one. */
 	private pinnedFrame: number | null = null;
+	/** Reply table headers moved down to stay in sight; see stickTableHeads. */
+	private stuckHeads = new Set<HTMLElement>();
 	/** rAF handle for the next fold pass; see scheduleFold. */
 	private foldFrame: number | null = null;
 	/** rAF handle for linking a streaming reply's references; see scheduleReplyLinks. */
@@ -1550,6 +1554,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			if (frame !== null) cancelAnimationFrame(frame);
 		}
 		this.pinnedPrompt?.style.removeProperty("transform");
+		for (const head of this.stuckHeads) {
+			head.removeClass(STUCK_HEAD_CLS);
+			head.style.removeProperty("transform");
+			head.style.removeProperty("--claudian-enhanced-strip");
+		}
+		this.stuckHeads.clear();
 		// Composers of background tabs sit outside the view, so their labels go tab by tab.
 		for (const tab of this.allClaudianTabs()) {
 			for (const cls of [SESSION_ID_CLS, SESSION_FORK_CLS]) tab.dom?.infoRowEl?.querySelector(`:scope > .${cls}`)?.remove();
@@ -4200,7 +4210,49 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.pinnedFrame = requestAnimationFrame(() => {
 			this.pinnedFrame = null;
 			this.markPinnedPrompt(scroller);
+			this.stickTableHeads(scroller);
 		});
+	}
+
+	/**
+	 * Keep a reply table's header in sight while its rows scroll by, as Sticky Table Header
+	 * does in a note: held under the pinned prompt (else at the list's top) until the table's
+	 * end pushes it out. CSS sticky can't: a reply's content scrolls sideways for wide tables
+	 * and code, and that makes it the scroller a sticky header sticks in — one that never
+	 * scrolls down, so the header never stuck. A translate isn't bound by it and leaves the
+	 * sideways scroll alone. Run after markPinnedPrompt in the same frame, its edge settled;
+	 * every rect is read before any is written.
+	 */
+	private stickTableHeads(scroller: HTMLElement): void {
+		if (!scroller.isConnected) return;
+		const pinned = this.pinnedPrompt?.isConnected && scroller.contains(this.pinnedPrompt) ? this.pinnedPrompt : null;
+		const top = scroller.getBoundingClientRect().top;
+		const edge = pinned ? pinned.getBoundingClientRect().bottom : top;
+		// The pinned prompt is only as wide as its text, so the rows already passed showed
+		// beside it, above the header; the header's fill reaches up over them (styles.css).
+		const strip = `${Math.max(0, edge - top)}px`;
+		const moves = new Map<HTMLElement, number>();
+		for (const table of Array.from(scroller.querySelectorAll<HTMLTableElement>(".claudian-message-assistant table"))) {
+			const head = table.tHead;
+			if (!head) continue;
+			const box = table.getBoundingClientRect();
+			const room = box.height - head.getBoundingClientRect().height;
+			if (box.top >= edge || box.bottom <= edge || room <= 0) continue;
+			moves.set(head, Math.min(edge - box.top, room));
+		}
+		for (const head of this.stuckHeads) {
+			if (moves.has(head)) continue;
+			head.removeClass(STUCK_HEAD_CLS);
+			head.style.removeProperty("transform");
+			head.style.removeProperty("--claudian-enhanced-strip");
+			this.stuckHeads.delete(head);
+		}
+		for (const [head, by] of moves) {
+			head.addClass(STUCK_HEAD_CLS);
+			head.style.transform = `translateY(${by}px)`;
+			head.style.setProperty("--claudian-enhanced-strip", strip);
+			this.stuckHeads.add(head);
+		}
 	}
 
 	/**

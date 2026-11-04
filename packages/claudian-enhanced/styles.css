@@ -1000,3 +1000,38 @@ th.claudian-enhanced-lit-cell {
 	object-fit: cover;
 	border-radius: 5px;
 }
+
+/* ── A reply table's header held in sight while its rows scroll by (stickTableHeads) ──
+   Moved by a translate, so it paints over the rows it's held above: an opaque fill (the
+   theme's header colour may be see-through, so over the surface the reply sits on), and a
+   line under it — collapsed borders stay with the row a translate moved the header off.
+   Held under the pinned prompt, which is only as wide as its text: the strip between the
+   list's top and the header takes the reply's surface too, so the rows already passed
+   don't show beside the prompt, above the header. The prompt (z-index 1) stays on top. */
+.claudian-message-assistant thead.claudian-enhanced-stuck-head {
+	--claudian-enhanced-head-surface: var(--background-secondary);
+}
+
+.workspace-split.mod-root .claudian-message-assistant thead.claudian-enhanced-stuck-head {
+	--claudian-enhanced-head-surface: var(--background-primary);
+}
+
+.claudian-message-assistant thead.claudian-enhanced-stuck-head th {
+	position: relative;
+	background:
+		linear-gradient(var(--table-header-background, transparent), var(--table-header-background, transparent)),
+		var(--claudian-enhanced-head-surface);
+	box-shadow: inset 0 -1px 0 var(--table-border-color);
+}
+
+.claudian-message-assistant thead.claudian-enhanced-stuck-head th::before {
+	content: "";
+	position: absolute;
+	/* Past the cell's own border, so neighbouring strips meet with no seam. */
+	left: -1px;
+	right: -1px;
+	bottom: 100%;
+	height: var(--claudian-enhanced-strip, 0px);
+	background: var(--claudian-enhanced-head-surface);
+	pointer-events: none;
+}
