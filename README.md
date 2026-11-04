@@ -240,7 +240,7 @@ VS Code's Go to File on `Cmd/Ctrl+P` (the command palette moves to `Cmd/Ctrl+Shi
 
 - With nothing typed it lists recently opened files. Typing fuzzy-matches file names (or whole paths once the query has a `/`) and notes' `aliases`, recent matches first.
 - `name:42` opens at a line, `:42` goes to a line in the current note, `@` lists its headings.
-- Files hidden with File Explorer (Enhanced) are found like any other. The eye by the input, or `Cmd/Ctrl+Shift+.` as in the Finder, leaves them out, or brings them back; the file list is left as it is.
+- Files hidden with File Explorer (Enhanced) are left out while the file list hides them. The eye by the input, or `Cmd/Ctrl+Shift+.` as in the Finder, is the same switch as the eye by the vault's name: it brings them back, or leaves them out, in both.
 - Enter opens in the tab the file already has, or a new tab, never over the note you're in. `Cmd/Ctrl+Enter` always opens a new tab. Holding `Cmd/Ctrl` and pressing `P` again moves down the list; letting go opens the selection.
 - The recent list syncs between devices through `data.json`, merged entry by entry, so one device never overwrites another's.
 - An empty new tab becomes the same search inline. On mobile it takes over the navbar's search button.

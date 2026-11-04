@@ -1,6 +1,6 @@
 import { type App, type Hotkey, Keymap, MarkdownView, Platform, setIcon, setTooltip, SuggestModal } from "obsidian";
 
-import { hiddenFiles, leavesHiddenOut, setLeavesHiddenOut } from "./hidden";
+import { hiddenFiles, leavesHiddenOut } from "./hidden";
 import type { FileHistory } from "./history";
 import { goToLine, openFile, type OpenIn } from "./open";
 import { renderItem } from "./rows";
@@ -125,7 +125,7 @@ export class QuickOpenModal extends SuggestModal<Item> {
 		}
 	}
 
-	/** The eye by the input that shows or hides File Explorer (Enhanced)'s hidden files; none without it. */
+	/** The eye by the input that shows or hides File Explorer (Enhanced)'s hidden files, its switch by the vault's name; none without it. */
 	private hiddenToggle: HTMLElement | null = null;
 
 	private addHiddenToggle(): void {
@@ -156,9 +156,9 @@ export class QuickOpenModal extends SuggestModal<Item> {
 		setTooltip(toggle, shown ? `Leave hidden files out (${MOD}⇧.)` : `Include hidden files (${MOD}⇧.)`);
 	}
 
-	/** Leave the hidden files out of the list, or bring them back, and search again. */
+	/** Leave the hidden files out of the list, or bring them back — in the file list too — and search again. */
 	private toggleHidden(): void {
-		setLeavesHiddenOut(this.app, !leavesHiddenOut(this.app));
+		hiddenFiles(this.app)?.toggleHiddenFiles();
 		this.showHiddenToggle();
 		this.refresh();
 	}

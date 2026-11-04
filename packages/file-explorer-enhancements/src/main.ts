@@ -341,8 +341,8 @@ export default class FileExplorerPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	/** Show the hidden items, or hide them again: the command's and the vault bar's button's. */
-	private toggleHiddenFiles(): void {
+	/** Show the hidden items, or hide them again: the command's, the vault bar's button's and Quick Open's eye's. */
+	toggleHiddenFiles(): void {
 		this.settings.hideFiles = !this.settings.hideFiles;
 		void this.saveSettings();
 		this.fileHiderManager.refreshStyles();
@@ -379,6 +379,11 @@ export default class FileExplorerPlugin extends Plugin {
 	 */
 	isPathHidden(path: string): boolean {
 		return this.fileHiderManager.covers(path);
+	}
+
+	/** For other plugins — Quick Open's eye follows it: whether the hidden items are kept out of sight. */
+	hidesFiles(): boolean {
+		return this.settings.hideFiles;
 	}
 }
 
