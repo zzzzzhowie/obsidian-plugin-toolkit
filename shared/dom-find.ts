@@ -51,19 +51,25 @@ export function highlightApiAvailable(): boolean {
 	return Boolean(highlightCtor() && registry());
 }
 
+/** Elements whose text reads as a run of its own: a line, a cell, a paragraph. */
+const BLOCK = "div, p, li, td, th, pre, blockquote, h1, h2, h3, h4, h5, h6";
+
 /**
  * Flatten every rendered text node under `root` into one string, remembering where
  * each node landed so offsets can be turned back into `Range`s.
  *
- * A newline is inserted whenever consecutive text nodes have different parents. Without
+ * A newline is inserted whenever consecutive text nodes sit in different blocks. Without
  * it, adjacent table cells concatenate ("Traffic" + "Layer") and produce matches that
- * span a cell boundary — text the user never sees as one run.
+ * span a cell boundary — text the user never sees as one run. Inline spans don't count:
+ * one line is split into several by any decoration (a kept selection, a comment's mark),
+ * and a separator at each made a longer query, counted in the note, find nothing to paint.
  */
 export function collectDomText(root: HTMLElement): DomText {
 	const pieces: TextPiece[] = [];
 	const parts: string[] = [];
 	let length = 0;
-	let lastParent: HTMLElement | null = null;
+	let lastBlock: Element | null = null;
+	const blocks = new Map<Element | null, Element | null>();
 
 	const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
 	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -71,11 +77,16 @@ export function collectDomText(root: HTMLElement): DomText {
 		if (text.data.length === 0) continue;
 
 		const parent = text.parentElement;
-		if (lastParent !== null && parent !== lastParent) {
+		let block = blocks.get(parent);
+		if (block === undefined) {
+			block = parent?.closest(BLOCK) ?? null;
+			blocks.set(parent, block);
+		}
+		if (pieces.length > 0 && block !== lastBlock) {
 			parts.push("\n");
 			length += 1;
 		}
-		lastParent = parent;
+		lastBlock = block;
 
 		pieces.push({ node: text, start: length, end: length + text.data.length });
 		parts.push(text.data);
