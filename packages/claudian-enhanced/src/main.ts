@@ -1149,6 +1149,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/** Claudians in a tab of the main area, each watched for references to link; see watchTabbedClaudians. */
 	private readonly tabbedObservers = new Map<HTMLElement, MutationObserver>();
 	private tagFrame: number | null = null;
+	private quoteFrame: number | null = null;
 	private dedupeFrame: number | null = null;
 	/** See StoredData.clearedNotes. */
 	private clearedNotes: Record<string, number> = {};
@@ -1545,7 +1546,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.dropKept();
 		for (const [presentation, original] of this.visibilityChecks) presentation.isVisible = original;
 		this.visibilityChecks.clear();
-		for (const frame of [this.pinnedFrame, this.foldFrame, this.tagFrame, this.replyLinkFrame]) {
+		for (const frame of [this.pinnedFrame, this.foldFrame, this.tagFrame, this.replyLinkFrame, this.quoteFrame]) {
 			if (frame !== null) cancelAnimationFrame(frame);
 		}
 		this.pinnedPrompt?.style.removeProperty("transform");
@@ -4133,6 +4134,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (!scroller?.matches?.(CLAUDIAN_MESSAGES)) return;
 		this.schedulePinnedPrompt(scroller);
 		this.syncJumpButton(scroller);
+		this.scheduleQuoteButton(scroller);
 		const top = scroller.scrollTop;
 		const previous = this.lastScrollTop.get(scroller) ?? top;
 		this.lastScrollTop.set(scroller, top);
@@ -4143,6 +4145,44 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const distance = scroller.scrollHeight - top - scroller.clientHeight;
 		if (distance <= REATTACH_PX) this.detached.delete(scroller);
 	};
+
+	/** Bring Claudian's Quote button back after a scroll of `scroller` (showQuoteButton), at most once a frame. */
+	private scheduleQuoteButton(scroller: HTMLElement): void {
+		if (this.quoteFrame !== null) return;
+		this.quoteFrame = requestAnimationFrame(() => {
+			this.quoteFrame = null;
+			this.showQuoteButton(scroller);
+		});
+	}
+
+	/**
+	 * Claudian hides its Quote button at any scroll of the messages, though the reply text is
+	 * still selected: shown again where Claudian puts it — under the selection's end, else above
+	 * its start — while that end is in sight, so a scroll to read on doesn't lose it.
+	 */
+	private showQuoteButton(scroller: HTMLElement): void {
+		const holder = scroller.parentElement;
+		const button = holder?.querySelector<HTMLElement>(":scope > .claudian-message-quote-btn");
+		const selection = scroller.doc.getSelection();
+		if (!holder || !button || !selection || selection.isCollapsed || selection.rangeCount === 0 || !selection.toString().trim()) return;
+		const range = selection.getRangeAt(0);
+		const inReply = (node: Node): boolean => {
+			const message = (node instanceof Element ? node : node.parentElement)?.closest(".claudian-message");
+			return !!message && scroller.contains(message);
+		};
+		if (!inReply(range.startContainer) || !inReply(range.endContainer)) return;
+		const rects = Array.from(range.getClientRects());
+		const first = rects[0];
+		const last = rects[rects.length - 1];
+		const view = scroller.getBoundingClientRect();
+		if (!first || !last || last.bottom <= view.top || last.top >= view.bottom) return;
+		button.hidden = false;
+		const box = holder.getBoundingClientRect();
+		let top = last.bottom - box.top + 6;
+		if (top + button.offsetHeight > box.height - 8) top = first.top - box.top - button.offsetHeight - 6;
+		const left = Math.min(Math.max(last.right - box.left - button.offsetWidth / 2, 8), Math.max(8, box.width - button.offsetWidth - 8));
+		button.setCssProps({ "--claudian-quote-btn-top": `${Math.round(Math.max(top, 8))}px`, "--claudian-quote-btn-left": `${Math.round(left)}px` });
+	}
 
 	/**
 	 * Flag the prompt currently stuck to the top of `scroller`, at most once a frame.
