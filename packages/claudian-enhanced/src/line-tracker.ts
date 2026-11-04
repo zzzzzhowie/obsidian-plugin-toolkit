@@ -14,8 +14,13 @@ interface Span {
 interface Version {
 	/** Null while the note is still being read. */
 	doc: Text | null;
+	/** The texts it stood on before, latest last: what a second pane of the note catches up to. */
+	past: Text[];
 	spans: Set<Span>;
 }
+
+/** How many of those are kept: more edits than a second pane lags behind by. */
+const PAST = 50;
 
 /**
  * Keep the lines a reply's references point at on the same text while the note is edited
@@ -56,7 +61,7 @@ export class LineTracker {
 			return;
 		}
 		if (!version) {
-			version = { doc: null, spans: new Set() };
+			version = { doc: null, past: [], spans: new Set() };
 			this.versions.set(path, version);
 		}
 		const pending = version;
@@ -87,8 +92,10 @@ export class LineTracker {
 
 	/**
 	 * An edit to the note at `path`, from `before` to `after`. Mapped only when it starts from
-	 * the text the spans stand on; the same edit seen again — the note open in a second pane,
-	 * which is handed it too — is already in. Anything else, and the spans can't follow: stale.
+	 * the text the spans stand on. A second pane of the note is handed the edits too, but late —
+	 * Obsidian brings it up to the first pane's text a moment after, by then maybe edited further
+	 * — so an edit ending on that text, or on one it stood on before, is already in. Anything
+	 * else, and the spans can't follow: stale.
 	 */
 	edited(path: string, before: Text, after: Text, changes: ChangeDesc): void {
 		const version = this.versions.get(path);
@@ -99,12 +106,15 @@ export class LineTracker {
 				span.from = changes.mapPos(span.from, 1);
 				span.to = Math.max(span.from, changes.mapPos(span.to, -1));
 			}
+			version.past.push(version.doc);
+			if (version.past.length > PAST) version.past.shift();
 			version.doc = after;
 			return;
 		}
-		if (version.doc === after || version.doc.eq(after)) return;
+		const caughtUp = (text: Text): boolean => text === after || text.eq(after);
+		if (caughtUp(version.doc) || version.past.some(caughtUp)) return;
 		for (const span of version.spans) span.stale = true;
 		// Lines followed from now on stand on the note as it is.
-		this.versions.set(path, { doc: after, spans: new Set() });
+		this.versions.set(path, { doc: after, past: [], spans: new Set() });
 	}
 }
