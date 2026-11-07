@@ -97,8 +97,11 @@ export default class PasteEnhancedPlugin extends Plugin {
 					inCodeBlock
 				);
 
-				// Insert processed text
-				editor.replaceSelection(processedText);
+				// Insert processed text, its no-break spaces (U+00A0) made plain ones. A page or a
+				// Feishu doc puts them round inline code and between words; in a note they look
+				// like spaces but aren't, and an edit quoting the text with spaces — Claude's —
+				// found nothing to replace.
+				editor.replaceSelection(processedText.replace(/\u00a0/g, " "));
 			})
 		);
 	}
