@@ -6,6 +6,7 @@ import {
 } from "./settings";
 import { type Gallery, type ZoomTarget, ZoomOverlay } from "../../../shared/zoom-overlay";
 import { LabelSelection } from "../../../shared/label-selection";
+import { holdFolded, releaseFolded } from "../../../shared/sidebar-fold";
 import { createDrawingFromFence } from "./fence-drawing";
 import { DrawingFit } from "./fit-slider";
 import { DrawingGallery } from "./gallery";
@@ -21,6 +22,9 @@ const WEB_BTN_CLS = "excalidraw-enhanced-web-btn";
 /** An image in a Claudian reply — a drawing's PNG, a pasted screenshot — and the view it's in. */
 const CLAUDIAN_IMAGE = ".claudian-embedded-image > img";
 const CLAUDIAN_VIEW = '.workspace-leaf-content[data-type="claudian-view"]';
+
+/** Who holds the sidebars folded while a drawing is in front (shared/sidebar-fold.ts). */
+const SIDEBAR_OWNER = "excalidraw-enhanced";
 
 /** Body class the note-sizing rule in styles.css hangs off. */
 const SIZING_CLASS = "excalidraw-enhanced-sizing";
@@ -312,8 +316,6 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 
 	/** The main area's tab last seen in front, and what it showed; see fitSidebar. */
 	private frontTab: { leaf: WorkspaceLeaf; shows: string } | null = null;
-	/** Whether each sidebar was folded before a drawing came to the front; null with none in front. */
-	private sidebarBefore: { left: boolean; right: boolean } | null = null;
 
 	/**
 	 * Both sidebars folded while a drawing is in front of the main area: as its tab comes to
@@ -335,25 +337,17 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		if (this.frontTab?.leaf === leaf && this.frontTab.shows === shows) return;
 		this.frontTab = { leaf, shows };
 		if (starting) return;
-		const { leftSplit: left, rightSplit: right } = workspace;
 		// A drawing's file shown as a note counts as the drawing: a tab put back as Obsidian
 		// started opens it as one on its way to the drawing, the first time it's switched to — so
 		// the sidebar, folded as it came to the front, was put back, and stayed so.
 		if (type === "excalidraw" || (file && isDrawingFile(this.app, file))) {
 			if (!this.settings.foldSidebarForDrawing) return;
-			if (this.sidebarBefore === null) this.sidebarBefore = { left: left.collapsed, right: right.collapsed };
-			if (!left.collapsed) left.collapse();
-			if (!right.collapsed) right.collapse();
+			holdFolded(this.app, "left", SIDEBAR_OWNER);
+			holdFolded(this.app, "right", SIDEBAR_OWNER);
 			return;
 		}
-		if (this.sidebarBefore === null) return;
-		const before = this.sidebarBefore;
-		this.sidebarBefore = null;
-		for (const [split, folded] of [[left, before.left], [right, before.right]] as const) {
-			if (folded === split.collapsed) continue;
-			if (folded) split.collapse();
-			else split.expand();
-		}
+		releaseFolded(this.app, "left", SIDEBAR_OWNER);
+		releaseFolded(this.app, "right", SIDEBAR_OWNER);
 	}
 
 	/** The drawing a drawing's image shows: Excalidraw stamps its path on it. */
