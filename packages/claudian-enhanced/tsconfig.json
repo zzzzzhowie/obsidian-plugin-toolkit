@@ -2,6 +2,7 @@
 	"extends": "../../build-tools/tsconfig.base.json",
 	"include": [
 		"src/**/*.ts",
-		"../../shared/dom-find.ts"
+		"../../shared/dom-find.ts",
+		"../../shared/sidebar-fold.ts"
 	]
 }

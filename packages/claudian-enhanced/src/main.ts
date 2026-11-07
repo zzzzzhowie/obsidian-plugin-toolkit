@@ -24,9 +24,12 @@ import {
 	selectionReference,
 	tableRowCells,
 } from "./note-reference";
+import { holdFolded, releaseFolded } from "../../../shared/sidebar-fold";
 
 /** The chat leaf registered by the Claudian plugin (id: realclaudian). */
 const CLAUDIAN_VIEW = "claudian-view";
+/** Who holds the right sidebar folded while a chat tab is in front (shared/sidebar-fold.ts). */
+const SIDEBAR_OWNER = "claudian-enhanced";
 /**
  * The main chat composer inside that leaf, one per conversation tab. Since Claudian 2.3 it is
  * a CodeMirror host `<div>`, not a `<textarea>`: focusing the host hands focus on to the
@@ -1448,6 +1451,23 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.register(() => {
 			if (this.chipRedraw !== null) window.clearTimeout(this.chipRedraw);
 		});
+		// A chat open as a tab in the main area gets the window's width: the right sidebar folds
+		// while it's in front and is put back as it was after (foldForChat).
+		let foldTimer: number | null = null;
+		const foldSoon = (): void => {
+			if (foldTimer !== null) window.clearTimeout(foldTimer);
+			foldTimer = window.setTimeout(() => {
+				foldTimer = null;
+				this.foldForChat();
+			}, 50);
+		};
+		this.registerEvent(this.app.workspace.on("active-leaf-change", foldSoon));
+		this.registerEvent(this.app.workspace.on("layout-change", foldSoon));
+		this.app.workspace.onLayoutReady(foldSoon);
+		this.register(() => {
+			if (foldTimer !== null) window.clearTimeout(foldTimer);
+			releaseFolded(this.app, "right", SIDEBAR_OWNER);
+		});
 		this.registerEvent(
 			this.app.vault.on("delete", (file) => this.forgetNote(file.path)),
 		);
@@ -1478,6 +1498,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerDomEvent(document, "scroll", this.onScrollCapture, {
 			capture: true,
 		});
+		this.registerInterval(window.setInterval(() => this.recheckJumpButtons(), 400));
 		// MutationObserver isn't auto-cleaned by Obsidian's register* helpers.
 		this.register(() => this.submitScrollObserver?.disconnect());
 		this.watchImagePreview();
@@ -1571,6 +1592,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			head.style.removeProperty("--claudian-enhanced-strip");
 		}
 		this.stuckHeads.clear();
+		// The jump-to-latest buttons, which a reload otherwise left behind shown, stuck over a
+		// list already at its end: the next instance makes its own.
+		for (const button of Array.from(document.querySelectorAll(`.${JUMP_BTN_CLS}`))) button.remove();
+		this.shownJumps.clear();
 		// Composers of background tabs sit outside the view, so their labels go tab by tab.
 		for (const tab of this.allClaudianTabs()) {
 			for (const cls of [SESSION_ID_CLS, SESSION_FORK_CLS]) tab.dom?.infoRowEl?.querySelector(`:scope > .${cls}`)?.remove();
@@ -2931,6 +2956,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return tab ? this.tabWorking(manager, tab) : false;
 	}
 
+	/** Whether a Claudian tab, in any of its views, holds `id` with a reply still running. */
+	private conversationWorking(id: string): boolean {
+		for (const leaf of this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW)) {
+			const manager = (leaf.view as unknown as { getTabManager?: () => ClaudianTabManager | null }).getTabManager?.() ?? null;
+			for (const tab of manager?.getAllTabs?.() ?? []) {
+				if (tab.conversationId === id && this.tabWorking(manager, tab)) return true;
+			}
+		}
+		return false;
+	}
+
 	private tabWorking(manager: ClaudianTabManager | null, tab: ClaudianTab): boolean {
 		if (tab.id && typeof manager?.isTabWorking === "function") return manager.isTabWorking(tab.id);
 		return Boolean(tab.state?.isStreaming);
@@ -3067,6 +3103,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * note's creation time, so its own conversations stay newer than it.
 	 */
 	private predatesNote(conversation: ClaudianConversationSummary, notePath: string): boolean {
+		// One at work now is no earlier note's: it's what made this one — Claude writing the note,
+		// or moving it, mid-reply. Its last activity is saved only as the turn ends, before the
+		// note it made until then, and the note was met with a fresh draft beside it.
+		if (conversation.id && this.conversationWorking(conversation.id)) return false;
 		const created = this.app.vault.getFileByPath(notePath)?.stat.ctime;
 		const at = conversation.lastActivityAt ?? conversation.createdAt;
 		return typeof created === "number" && typeof at === "number" && at < created;
@@ -4475,13 +4515,16 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 					: undefined;
 				previous.set(item, before?.dataset.section ?? null);
 			}
-			const section = `${path}#${this.sectionAt(file, start)}`;
+			// A drawing reads as its name alone: its file's lines are Excalidraw's data, nothing the
+			// reader can look for, and its headings ("Text Elements") are Excalidraw's too.
+			const drawing = /\.excalidraw(?:\.md)?$/.test(path);
+			const section = `${path}#${drawing ? file.basename.replace(/\.excalidraw$/, "") : this.sectionAt(file, start)}`;
 			const heading = section.slice(path.length + 1);
 			// `报告生成 › LibraCM 四层任务 L197–415` when the note has to be named (noteShownIn).
-			const name = !prompt && noteShown(path) && heading !== file.basename ? `${file.basename} › ${heading}` : heading;
+			const name = !prompt && !drawing && noteShown(path) && heading !== file.basename ? `${file.basename} › ${heading}` : heading;
 			const sameSection = !!item && section === previous.get(item);
 			const label = (first: number, last: number): string => {
-				const lines = linesLabel(first, last);
+				const lines = drawing ? "" : linesLabel(first, last);
 				if (prompt && lines) return referenceLabel({ ...reference, start: first, end: last });
 				return sameSection && lines ? lines : [name, lines].filter(Boolean).join(" ");
 			};
@@ -5661,6 +5704,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		if (!button) {
 			const wrapper = scroller.parentElement;
 			if (!show || !wrapper) return;
+			// One an earlier instance of the plugin made, never told of a scroll again.
+			wrapper.querySelector(`:scope > .${JUMP_BTN_CLS}`)?.remove();
 			const jump = (event: Event): void => {
 				event.preventDefault();
 				this.detached.delete(scroller);
@@ -5678,6 +5723,23 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			this.jumpButtons.set(scroller, button);
 		}
 		if (button.hasClass("is-shown") !== show) button.toggleClass("is-shown", show);
+		if (show) this.shownJumps.add(scroller);
+		else this.shownJumps.delete(scroller);
+	}
+
+	/**
+	 * Lists whose jump button is up, looked at again now and then (see onload): the end can
+	 * come back into sight with no scroll — a reply finishing, a block drawn shorter — and in a
+	 * chat opened as a tab, which the mutation observer doesn't watch, nothing else asked again.
+	 * At the bottom, the button stayed.
+	 */
+	private readonly shownJumps = new Set<HTMLElement>();
+
+	private recheckJumpButtons(): void {
+		for (const scroller of Array.from(this.shownJumps)) {
+			if (!scroller.isConnected) this.shownJumps.delete(scroller);
+			else if (scroller.clientHeight > 0) this.syncJumpButton(scroller);
+		}
 	}
 
 	/**
@@ -6070,6 +6132,47 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * changed, the pointer over the chat, focus, any key or click, a new conversation, a
 	 * question about to go.
 	 */
+	/**
+	 * The right sidebar folded while the main area's tab in front is a Claudian chat, and put
+	 * back as it was once another tab is (shared/sidebar-fold.ts, shared with Excalidraw
+	 * (Enhanced)'s folding for a drawing). The sidebar's own Claudian is no tab of the main area.
+	 */
+	private foldForChat(): void {
+		if (Platform.isMobile) return;
+		const { workspace } = this.app;
+		const leaf = workspace.getMostRecentLeaf(workspace.rootSplit);
+		const zen = this.zenMode();
+		if (leaf?.view.getViewType() === CLAUDIAN_VIEW) {
+			holdFolded(this.app, "right", SIDEBAR_OWNER);
+			// Claudian's zen mode puts a folded sidebar's chat over the main area — its last reply
+			// and a composer — which over a chat of its own is only in the way: hidden while one
+			// is in front. Claudian's own hide, the one ⌘-toggling zen mode does.
+			const side = workspace.getLeavesOfType(CLAUDIAN_VIEW).find((l) => l.getRoot() !== workspace.rootSplit);
+			if (zen && side) {
+				zen.hide(side);
+				this.zenHidden = true;
+			}
+			return;
+		}
+		releaseFolded(this.app, "right", SIDEBAR_OWNER);
+		// Hidden by us and the sidebar still folded (it was before the chat): shown again.
+		// Unfolded, Claudian lets go of the hide itself.
+		if (this.zenHidden) {
+			this.zenHidden = false;
+			if (zen && !zen.getActiveLeaf()) zen.toggleVisibility();
+		}
+	}
+
+	/** Whether foldForChat hid Claudian's zen mode, for it to show it again. */
+	private zenHidden = false;
+
+	/** Claudian's zen mode controller, or null if absent / renamed. */
+	private zenMode(): { hide(leaf: WorkspaceLeaf): void; toggleVisibility(): boolean; getActiveLeaf(): WorkspaceLeaf | null } | null {
+		const plugins = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins?.plugins;
+		const zen = (plugins?.realclaudian as { zenMode?: unknown } | undefined)?.zenMode as ReturnType<ClaudianEnhancedPlugin["zenMode"]> | undefined;
+		return zen && typeof zen.hide === "function" && typeof zen.toggleVisibility === "function" && typeof zen.getActiveLeaf === "function" ? zen : null;
+	}
+
 	private chipRedraw: number | null = null;
 
 	/**

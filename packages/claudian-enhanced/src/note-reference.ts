@@ -11,7 +11,7 @@
  * A reference as insertReference writes it: `@path`, its lines (`#12` or `#12-14`), then
  * which columns and what text, if it says.
  */
-export const REFERENCE = /@([^\s@][^@\n]*?\.(?:md|canvas|excalidraw))(?:#(\d+)(?:-(\d+))?)?(?: \((?:column|columns) ([^)\n]*)\))?(?: "([^"\n]*)")?/g;
+export const REFERENCE = /@([^\s@][^@\n]*?\.(?:md|canvas|excalidraw(?:\.md)?))(?:#(\d+)(?:-(\d+))?)?(?: \((?:column|columns) ([^)\n]*)\))?(?: "([^"\n]*)")?/g;
 
 /** Lines of a note, 1-based and inclusive. */
 export interface NoteLines {
