@@ -2,6 +2,7 @@ import { EditorState, type Text, type Transaction, type TransactionSpec } from "
 import { EditorView, type ViewUpdate } from "@codemirror/view";
 import {
 	App,
+	type Editor,
 	editorLivePreviewField,
 	loadMermaid,
 	MarkdownView,
@@ -57,7 +58,7 @@ const ZOOM_BTN_CLS = "mermaid-zoom-btn";
 /** Class on the injected fit-size slider. */
 const SLIDER_CLS = "mermaid-fit-slider";
 
-/** Slider range (as viewport-height percentages). */
+/** Slider range (as percentages of the block's width). */
 const SLIDER_MIN = 20;
 const SLIDER_MAX = 100;
 const SLIDER_STEP = 5;
@@ -612,6 +613,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	 * growing or shrinking it to the requested size via `width`:
 	 *   - `none` / `off` — leave the diagram alone (theme sizing)
 	 *   - `full` / `100%` — fill the container width, no height cap
+	 *   - `<n>%` — render at n% of the container width (what the slider writes)
 	 *   - `<n>vh` — render at n% of the viewport height
 	 *   - `<n>px` — render at n pixels tall
 	 */
@@ -630,6 +632,13 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		if (override === "full" || override === "100%") {
 			// Explicitly fill the width (grows small diagrams), no height cap.
 			svg.setCssStyles({ width: "100%", maxWidth: "100%", height: "auto" });
+			svg.dataset.mermaidFit = "1";
+			return;
+		}
+
+		const share = this.widthShare(override);
+		if (share !== null) {
+			svg.setCssStyles({ width: `${share}%`, maxWidth: "100%", height: "auto" });
 			svg.dataset.mermaidFit = "1";
 			return;
 		}
@@ -654,6 +663,12 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		svg.dataset.mermaidFit = "1";
 	}
 
+	/** The share of the block's width a `<n>%` directive asks for, else null. */
+	private widthShare(override: string | null | undefined): number | null {
+		const m = override?.match(/^(\d+(?:\.\d+)?)%$/);
+		return m ? Math.min(100, parseFloat(m[1]!)) : null;
+	}
+
 	/** True when the directive is an explicit `<n>vh` or `<n>px` size. */
 	private isExplicitHeight(override: string | null | undefined): boolean {
 		return !!override && /^\d+(?:\.\d+)?(?:px|vh)$/.test(override);
@@ -676,7 +691,10 @@ export default class MermaidEnhancedPlugin extends Plugin {
 	/**
 	 * Add a size slider next to Obsidian's edit-block button. Dragging previews
 	 * the size live (SVG only) and shows a value tooltip that tracks the thumb;
-	 * releasing persists it (`<n>vh`, or `full` at the max = fill the window).
+	 * releasing persists it (`<n>%` of the block's width, `full` at the max). One measure
+	 * end to end: a share of the screen's height below the max and the block's width at it
+	 * made the last step a jump — a tall diagram at 95% of the height is narrow, at full
+	 * width several screens tall.
 	 * Live Preview only (needs an editable source). Idempotent.
 	 */
 	private injectSlider(svg: SVGSVGElement) {
@@ -711,13 +729,13 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			tip.style.top = `${Math.round(slider.offsetTop - 24)}px`;
 			tip.classList.add("is-visible");
 		};
-		// Left of the action group — the caption, zoom and edit buttons — which sits on the
-		// diagram's corner (followCorner), and moves with it.
+		// Left of the action group — the caption, zoom and edit buttons — on the block's corner
+		// (followCorner), at its full width: the diagram doesn't bound it there.
 		this.sliderPlacers.set(block, () => {
-			placeSlider(slider, actions(), block.querySelector(DIAGRAM_SVG));
+			placeSlider(slider, actions(), null);
 			if (dragging) showTip();
 		});
-		placeSlider(slider, actions(), svg);
+		placeSlider(slider, actions(), null);
 
 		// Keep clicks/drags from bubbling into the editor / edit-block handler.
 		slider.addEventListener("click", (e) => e.stopPropagation());
@@ -733,8 +751,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		slider.addEventListener("touchmove", stopTouch, { passive: true });
 		slider.addEventListener("touchend", stopTouch, { passive: true });
 		// The diagram follows the drag (SVG only, the source untouched), sized about its middle,
-		// the slider staying under the pointer and the buttons out of sight (dragFitSlider). Let
-		// go, they come back on its corner, and the size is written to the block.
+		// the slider staying under the pointer (dragFitSlider). Let go, the size is written to
+		// the block.
 		slider.addEventListener("pointerdown", (e) => {
 			e.stopPropagation();
 			// The diagram as it is now: Obsidian draws it again in place, a new <svg> under the
@@ -762,21 +780,21 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		});
 	}
 
-	/** Each block's diagram corner, its buttons kept on it (shared/drawing-corner.ts). */
+	/** Each block's corner, the slider kept by its buttons (shared/drawing-corner.ts). */
 	private readonly corners = new Map<HTMLElement, DrawingCorner>();
 	/** Each block's slider, placed again as the buttons move; see injectSlider. */
 	private readonly sliderPlacers = new WeakMap<HTMLElement, () => void>();
 
 	/**
-	 * Keep a diagram's buttons on its own top-right corner, as an image's are, not the block's
-	 * — the block is as wide as the note, the diagram often narrower.
+	 * Keep the slider by a diagram's buttons, which stay on the block's top-right corner, at the
+	 * note's right edge — on the diagram's own, as an image's are, they sat over the diagram.
 	 */
 	private followCorner(svg: SVGSVGElement) {
 		const block = svg.closest<HTMLElement>(".cm-preview-code-block");
 		if (!block) return;
 		let corner = this.corners.get(block);
 		if (!corner) {
-			corner = new DrawingCorner(block, () => this.sliderPlacers.get(block)?.());
+			corner = new DrawingCorner(block, () => this.sliderPlacers.get(block)?.(), true);
 			this.corners.set(block, corner);
 		}
 		corner.follow(svg);
@@ -787,14 +805,14 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		}
 	}
 
-	/** Directive string for a slider value (`full` at the max = fill the window). */
+	/** Directive string for a slider value: a share of the block's width (`full` at the max). */
 	private valueToDirective(value: number): string {
-		return value >= SLIDER_MAX ? "full" : `${value}vh`;
+		return value >= SLIDER_MAX ? "full" : `${value}%`;
 	}
 
 	/** Value label shown in the drag tooltip. */
 	private sliderLabel(value: number): string {
-		return value >= SLIDER_MAX ? "100%" : `${value}%`;
+		return `${value}%`;
 	}
 
 	/** Initial slider position derived from the diagram's current fit. */
@@ -802,31 +820,28 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const clamp = (n: number) =>
 			Math.min(SLIDER_MAX, Math.max(SLIDER_MIN, Math.round(n)));
 		const override = this.resolveOverride(svg);
-		if (override) {
-			if (override === "full" || override === "100%") return SLIDER_MAX;
-			const vh = override.match(/^(\d+(?:\.\d+)?)vh$/);
-			if (vh) return clamp(parseFloat(vh[1]!));
-			const px = override.match(/^(\d+(?:\.\d+)?)px$/);
-			if (px)
-				return clamp((parseFloat(px[1]!) / window.innerHeight) * 100);
-		}
-		return clamp(this.settings.maxHeightVh);
+		if (override === "full" || override === "100%") return SLIDER_MAX;
+		const share = this.widthShare(override);
+		if (share !== null) return clamp(share);
+		// A height (a `vh`/`px` directive, or the default fit to one screen): the share of the
+		// block's width the diagram is drawn at for it.
+		const vb = svg.viewBox.baseVal;
+		const blockW = svg.closest<HTMLElement>(".cm-preview-code-block")?.clientWidth ?? 0;
+		if (!vb || vb.width === 0 || vb.height === 0 || blockW === 0) return SLIDER_MAX;
+		const width = this.resolveTargetHeight(override) * (vb.width / vb.height);
+		// The default only caps: a diagram smaller than that is at its own width.
+		const drawn = this.isExplicitHeight(override) ? width : Math.min(width, svg.getBoundingClientRect().width || width);
+		return clamp((drawn / blockW) * 100);
 	}
 
 	/**
-	 * Size a single diagram live (SVG only). At the slider max, fill the
-	 * container width (100% of the window); otherwise cap at `value`% of the
-	 * viewport height, preserving aspect and never overflowing the width.
+	 * Size a single diagram live (SVG only): `value`% of the block's width,
+	 * preserving aspect.
 	 */
 	private applyLiveSize(svg: SVGSVGElement, value: number) {
 		const vb = svg.viewBox.baseVal;
 		if (!vb || vb.width === 0 || vb.height === 0) return;
-		const aspect = vb.width / vb.height;
-		// As fitSvg sizes it: never wider than the block, by CSS rather than a measured width.
-		svg.style.width =
-			value >= SLIDER_MAX
-				? "100%"
-				: `min(${Math.round(window.innerHeight * (value / 100) * aspect)}px, 100%)`;
+		svg.style.width = `${Math.min(value, SLIDER_MAX)}%`;
 		svg.style.maxWidth = "100%";
 		svg.style.height = "auto";
 		svg.dataset.mermaidFit = "1";
@@ -844,8 +859,12 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const text = `%% fit: ${value} %%`;
 		// The directive belongs on the first line inside the block, where Mermaid treats
 		// it as a comment and it travels with the diagram's own source.
-		const insideLine = fence + 1;
+		const fitLines = this.fitLinesIn(editor, fence);
+		const insideLine = fitLines[0] ?? fence + 1;
 		const inside = editor.getLine(insideLine) ?? "";
+		// A second `%% fit %%` further down (the slider wrote one above a hand-written one
+		// it didn't read): only the first counts, so the others go.
+		const extra = fitLines.slice(1);
 		// An earlier build briefly wrote it above the fence; clean that up when we see it
 		// so a note doesn't end up carrying the value in two places.
 		const aboveLine = fence - 1;
@@ -853,7 +872,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const stray = fence > 0 && this.parseFitLine(above) !== null;
 
 		// Already at this value with nothing to tidy: skip the write entirely.
-		if (this.parseFitLine(inside) === value && !stray) return;
+		if (this.parseFitLine(inside) === value && !stray && extra.length === 0) return;
 
 		// Editing the block's source means Obsidian cannot reuse the rendered widget
 		// (`eq: e.lang === this.lang && e.code === this.code`), so it tears the block down
@@ -871,6 +890,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const scroll = editor.getScrollInfo();
 
 		// Bottom-up, so the earlier edit doesn't shift the line the later one targets.
+		for (const line of extra.reverse()) editor.replaceRange("", { line, ch: 0 }, { line: line + 1, ch: 0 });
 		if (this.parseFitLine(inside) !== null) {
 			editor.replaceRange(
 				text,
@@ -1217,9 +1237,30 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		const fence = this.locateFenceLine(view, block);
 		if (fence === null) return null;
 		const editor = view.editor;
-		const inside = this.parseFitLine(editor.getLine(fence + 1) ?? "");
-		if (inside !== null) return inside;
+		const line = this.fitLineIn(editor, fence);
+		if (line !== null) return this.parseFitLine(editor.getLine(line));
 		return fence > 0 ? this.parseFitLine(editor.getLine(fence - 1) ?? "") : null;
+	}
+
+	/**
+	 * The line of a block's `%% fit %%` among the `%%` lines it opens with, or null. Not only
+	 * the first: a `%% caption %%` written above it (by hand, or by Claude) left `fit: full`
+	 * on the second line unread, and the diagram drawn at the default size.
+	 */
+	private fitLineIn(editor: Editor, fence: number): number | null {
+		return this.fitLinesIn(editor, fence)[0] ?? null;
+	}
+
+	/** Every `%% fit %%` line among those a block opens with, in order. */
+	private fitLinesIn(editor: Editor, fence: number): number[] {
+		const found: number[] = [];
+		const last = editor.lastLine();
+		for (let i = fence + 1; i <= last; i++) {
+			const line = editor.getLine(i);
+			if (!/^\s*%%/.test(line)) break;
+			if (this.parseFitLine(line) !== null) found.push(i);
+		}
+		return found;
 	}
 
 	/**

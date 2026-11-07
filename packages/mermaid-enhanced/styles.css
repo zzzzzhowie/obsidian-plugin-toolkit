@@ -26,7 +26,7 @@
 	touch-action: none;
 }
 
-.cm-preview-code-block:has(.mermaid svg:hover, > .embed-actions:hover) > .mermaid-fit-slider,
+.cm-preview-code-block:hover > .mermaid-fit-slider,
 .mermaid-fit-slider:hover,
 .mermaid-fit-slider:active,
 .mermaid-fit-slider:focus-visible {
@@ -363,19 +363,6 @@
 	cursor: text;
 }
 
-/* Its buttons — caption, zoom, edit — on the diagram's own top-right corner, as an image's are,
-   not the block's, which is as wide as the note; main.ts works out where that corner is
-   (followCorner). */
-.markdown-source-view.mod-cm6 .cm-preview-code-block:has(.mermaid svg) > .embed-actions {
-	top: var(--drawing-corner-top, var(--size-2-2));
-	inset-inline-end: var(--drawing-corner-right, var(--size-2-2));
-	/* Eased to the corner a diagram comes to once its slider is let go (shared/drawing-corner.ts). */
-	transition:
-		opacity 0.07s ease-out,
-		top 0.15s ease-out,
-		inset-inline-end 0.15s ease-out;
-}
-
 /* Selected by a click, as an image is (a click on it selected opens the zoom; ZoomOverlay): an
    image's own selected look — Obsidian's `.image-embed.is-selected .image-wrapper:after`, its
    corners rounded and a ring inside its edge, 2px of --text-muted then 2px of the background —
@@ -395,26 +382,8 @@
 	cursor: zoom-in !important;
 }
 
-/* Out of sight while the slider is dragged: they go with the diagram's corner, which moves as
-   it's sized, and the slider stays under the pointer (shared/drawing-corner.ts). */
-.cm-preview-code-block.drawing-fit-dragging > .embed-actions {
-	opacity: 0 !important;
-}
-
 .cm-preview-code-block:has(svg.mermaid-zoom-selected) > .embed-actions {
 	opacity: 1;
-}
-
-/* The buttons (and the slider) show while the pointer is on the diagram, as an image's do on
-   the image — not anywhere along the block, which is as wide as the note: Obsidian shows them on
-   hovering that. On them, on the slider, or with the diagram selected, they stay. A block whose
-   diagram didn't render keeps Obsidian's own: its edit button is the way to its code. */
-.markdown-source-view.mod-cm6
-	.cm-preview-code-block:has(.mermaid svg):not(
-		:has(.mermaid svg:hover, > .embed-actions:hover, > .mermaid-fit-slider:hover, svg.mermaid-zoom-selected)
-	)
-	> .embed-actions {
-	opacity: 0;
 }
 
 /* Its zoom buttons: zooming is this plugin's overlay. Inline display set by the renderer. */

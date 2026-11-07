@@ -1,8 +1,9 @@
 /*
- * A drawing's buttons on its own top-right corner, as an image's are (Obsidian 1.15): a Mermaid
- * diagram's (Mermaid (Enhanced)) and an Excalidraw drawing's (Excalidraw (Enhanced)), whose
- * blocks are as wide as the note while the drawing may be narrower. And the size slider left of
- * those buttons, dragged while the drawing — and its corner — change size under it.
+ * A drawing's buttons on its own top-right corner, as an image's are (Obsidian 1.15): an
+ * Excalidraw drawing's (Excalidraw (Enhanced)), whose block is as wide as the note while the
+ * drawing may be narrower — or left on the block's, as a Mermaid diagram's (Mermaid (Enhanced)).
+ * And the size slider left of those buttons, dragged while the drawing — and its corner — change
+ * size under it.
  */
 
 /** How far in from the drawing's corner its buttons sit, as an image's. */
@@ -49,9 +50,14 @@ export class DrawingCorner {
 	private held = false;
 	private frame: number | null = null;
 
+	/**
+	 * `onBlock`: the buttons stay on the block's corner, Obsidian's place for them; the slider is
+	 * still placed by them as they're filled in, and as the block changes width.
+	 */
 	constructor(
 		private readonly host: HTMLElement,
 		private readonly moved: () => void,
+		private readonly onBlock = false,
 	) {
 		// The next frame, not in the observer's own callback: moving the buttons and the slider
 		// there set it off again, over and over while a drawing was dragged to size
@@ -83,7 +89,8 @@ export class DrawingCorner {
 	 */
 	hold(held: boolean): void {
 		this.held = held;
-		this.host.toggleClass(DRAGGING_CLS, held);
+		// On the block's corner they don't move while the drawing is sized.
+		if (!this.onBlock) this.host.toggleClass(DRAGGING_CLS, held);
 		if (held) return;
 		this.last = "";
 		this.update();
@@ -107,6 +114,10 @@ export class DrawingCorner {
 		const key = [box.right, box.top, at.right, at.top, at.width, buttons].map(Math.round).join();
 		if (key === this.last) return;
 		this.last = key;
+		if (this.onBlock) {
+			this.moved();
+			return;
+		}
 		const right = `${Math.round(box.right - at.right + INSET)}px`;
 		const top = `${Math.round(at.top - box.top + INSET)}px`;
 		// Only when it changes: setting it is a change the observer of a plugin's passes sees.
@@ -126,7 +137,7 @@ export class DrawingCorner {
 
 /**
  * Place `slider` left of the buttons `actions`, centred on them, in their positioned host, as
- * wide as `drawing` leaves room for. Where the buttons are going, not where they are: they ease
+ * wide as `drawing` leaves room for (no `drawing`: its full width). Where the buttons are going, not where they are: they ease
  * to a corner that moved, and read mid-way, the slider was left somewhere along the way.
  */
 export function placeSlider(slider: HTMLElement, actions: HTMLElement | null, drawing: Element | null): void {

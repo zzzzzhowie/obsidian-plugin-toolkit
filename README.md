@@ -205,9 +205,9 @@ Captions under images, Mermaid diagrams and Excalidraw drawings, in Live Preview
 
 ![The zoom overlay: the caption as title, ←/→ and thumbnails for every diagram of the note](docs/images/mermaid-zoom.png)
 
-- Tall diagrams fit one screen, with a per-diagram size slider saved as `%% fit: … %%`, and are never wider than the note.
+- Tall diagrams fit one screen, and are never wider than the note. A per-diagram size slider sets a share of the note's width (20–100%), saved as `%% fit: … %%`.
 - Captions as `%% caption: … %%`, edited and rendered like image captions.
-- In Live Preview a diagram stays a diagram: the cursor stays out of it unless you press its edit button or type in it. Its action group (caption, zoom in, edit) sits on the diagram's own top-right corner and shows on hovering the diagram, as an image's does.
+- In Live Preview a diagram stays a diagram: the cursor stays out of it unless you press its edit button or type in it. Its action group (caption, zoom in, edit) and the size slider sit at the block's top-right, the note's right edge, and show on hovering the block.
 - Dragging across a label selects it line by line, the way text does; Chromium put the end of a drag in a multi-line label by how far across the pointer was, on whichever line.
 - It zooms as an image does: a click selects it (ring, zoom-in cursor), a second click — or `Cmd/Ctrl`-click, or the zoom-in button — opens a zoomable, pannable overlay that pages through every diagram of the note (thumbnails, ←/→; ones with a syntax error are skipped), with selectable labels and the caption as its title.
 
