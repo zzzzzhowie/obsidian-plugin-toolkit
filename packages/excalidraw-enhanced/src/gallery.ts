@@ -56,10 +56,24 @@ export class DrawingGallery {
 			index,
 			items: drawings.map((drawing, i) => ({
 				label: labelOf(drawing, lines),
-				element: () => (i === index ? Promise.resolve(target) : this.draw(drawing.file)),
+				// The clicked one as the page shows it, unless that's an <img>: drawn afresh like the
+				// others then (see drawFor).
+				element: () => (i === index && !(target instanceof HTMLImageElement) ? Promise.resolve(target) : this.draw(drawing.file)),
 				source: { path: drawing.file.path },
 			})),
 		});
+	};
+
+	/**
+	 * The drawing a clicked one shows, drawn by Excalidraw. For an <img> the page shows: its
+	 * `blob:` URL is let go of when Excalidraw draws the embed again (the drawing edited), while
+	 * the picture already decoded stays on the page — read for the zoom then, it was a broken
+	 * image, in the zoom and its strip.
+	 */
+	readonly drawFor = (target: ZoomTarget): Promise<ZoomTarget | null> => {
+		const note = this.viewOf(target)?.file;
+		const file = note ? this.drawingOf(target, note) : null;
+		return file ? this.draw(file) : Promise.resolve(null);
 	};
 
 	/** The drawing file a drawing on the page shows, for the zoom to say. */

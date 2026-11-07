@@ -49,7 +49,12 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			// a drawing the note shows as an <img> (the SVG-image preview type) is shown as the
 			// SVG behind it, whose labels are <text>.
 			selectableText: "text",
-			inline: inlineSvgOf,
+			// An <img> whose blob: URL is gone (the drawing edited since) reads as nothing: the
+			// drawing is drawn afresh then.
+			inline: (target) =>
+				inlineSvgOf(target)
+					.catch(() => null)
+					.then((svg) => svg ?? (target instanceof HTMLImageElement ? gallery.drawFor(target) : null)),
 			// Its hand-drawn strokes are costly to draw again at every step of a pinch.
 			rasterWhileZooming: true,
 			// Every drawing in the note, to page through from the one clicked.
@@ -238,8 +243,8 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		this.app.workspace.onLayoutReady(addWebButtons);
 		this.register(() => document.querySelectorAll(`.${WEB_BTN_CLS}`).forEach((button) => button.remove()));
 
-		// A drawing in front in the main area gets the window's width: the right sidebar folds
-		// away while one is in front, and is put back as it was after (fitSidebar).
+		// A drawing in front in the main area gets the window's width: both sidebars fold
+		// away while one is in front, and are put back as they were after (fitSidebar).
 		// Looked at a moment after the tabs change, once a tab just opened is what it'll be: as
 		// the event comes, a drawing opening in a new tab is still an empty one.
 		let sidebarTimer: number | null = null;
@@ -307,11 +312,11 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 
 	/** The main area's tab last seen in front, and what it showed; see fitSidebar. */
 	private frontTab: { leaf: WorkspaceLeaf; shows: string } | null = null;
-	/** Whether the right sidebar was folded before a drawing came to the front; null with none in front. */
-	private sidebarBefore: boolean | null = null;
+	/** Whether each sidebar was folded before a drawing came to the front; null with none in front. */
+	private sidebarBefore: { left: boolean; right: boolean } | null = null;
 
 	/**
-	 * The right sidebar folded while a drawing is in front of the main area: as its tab comes to
+	 * Both sidebars folded while a drawing is in front of the main area: as its tab comes to
 	 * the front (switched to, or a drawing opened), and as it was put back once another tab
 	 * comes to the front — open if it was open before the drawing. From one drawing to another
 	 * it stays folded. Nothing else touches it: opened by hand over a drawing, it stays open
@@ -330,22 +335,24 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		if (this.frontTab?.leaf === leaf && this.frontTab.shows === shows) return;
 		this.frontTab = { leaf, shows };
 		if (starting) return;
-		const right = workspace.rightSplit;
+		const { leftSplit: left, rightSplit: right } = workspace;
 		// A drawing's file shown as a note counts as the drawing: a tab put back as Obsidian
 		// started opens it as one on its way to the drawing, the first time it's switched to — so
 		// the sidebar, folded as it came to the front, was put back, and stayed so.
 		if (type === "excalidraw" || (file && isDrawingFile(this.app, file))) {
 			if (!this.settings.foldSidebarForDrawing) return;
-			if (this.sidebarBefore === null) this.sidebarBefore = right.collapsed;
+			if (this.sidebarBefore === null) this.sidebarBefore = { left: left.collapsed, right: right.collapsed };
+			if (!left.collapsed) left.collapse();
 			if (!right.collapsed) right.collapse();
 			return;
 		}
 		if (this.sidebarBefore === null) return;
 		const before = this.sidebarBefore;
 		this.sidebarBefore = null;
-		if (before !== right.collapsed) {
-			if (before) right.collapse();
-			else right.expand();
+		for (const [split, folded] of [[left, before.left], [right, before.right]] as const) {
+			if (folded === split.collapsed) continue;
+			if (folded) split.collapse();
+			else split.expand();
 		}
 	}
 

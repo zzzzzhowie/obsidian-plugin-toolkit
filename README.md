@@ -219,7 +219,7 @@ Captions under images, Mermaid diagrams and Excalidraw drawings, in Live Preview
 - It zooms as Mermaid does: click to select, click again, `Cmd/Ctrl`-click or the zoom-in button to open the same overlay. While zooming, a bitmap stands in for a heavy SVG and the vector comes back once you stop, so large hand-drawn drawings zoom smoothly.
 - Text in a drawing (shown as SVG) can be selected by dragging, line by line, as in a Mermaid label.
 - An edit button (like Mermaid's) opens the drawing in a new tab and goes to it. Single clicks, double clicks and right-clicks no longer open the drawing by accident; right-click shows a menu for the drawing.
-- Switching to a drawing's tab folds the right sidebar away, and going to another tab puts it back as it was. Excalidraw's hints under its toolbar are hidden, and the keys it names take the drawing's colours, not Obsidian's dark ones.
+- Switching to a drawing's tab folds both sidebars away, and going to another tab (or closing it) puts them back as they were. Excalidraw's hints under its toolbar are hidden, and the keys it names take the drawing's colours, not Obsidian's dark ones.
 - Typing ```` ```excalidraw ```` makes a new drawing and embeds it.
 - "Open in Excalidraw web" (command palette, the drawing's menus, a globe in its title bar) uploads an encrypted snapshot, as excalidraw.com's shareable link does, opens it there and copies the link. Edits on the web don't come back; images in the drawing don't go along.
 - Images in Claudian's replies zoom too.

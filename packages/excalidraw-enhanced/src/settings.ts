@@ -69,10 +69,10 @@ export class ExcalidrawEnhancedSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Fold the right sidebar while on a drawing")
+			.setName("Fold the sidebars while on a drawing")
 			.setDesc(
-				"A drawing takes the window's width: the right sidebar folds away as a drawing's tab " +
-					"comes to the front, and is put back as it was when you go to another tab.",
+				"A drawing takes the window's width: both sidebars fold away as a drawing's tab " +
+					"comes to the front, and are put back as they were when you go to another tab or close it.",
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(this.plugin.settings.foldSidebarForDrawing).onChange(async (value) => {
