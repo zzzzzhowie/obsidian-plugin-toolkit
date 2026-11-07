@@ -84,6 +84,11 @@ export interface ZoomOverlayOptions {
 	 * hand-drawn strokes — which stuttered at every step of a pinch.
 	 */
 	rasterWhileZooming?: boolean;
+	/**
+	 * Take what the page lit off the copy the zoom shows, which `cloneNode` carries along — a
+	 * Mermaid diagram's hovered dependencies. The zoom opens on the drawing as it is, every time.
+	 */
+	unlight?: (clone: ZoomTarget) => void;
 	/** What the clicked drawing is drawn from (see ZoomSource); a gallery's others say it themselves. */
 	sourceOf?: (target: ZoomTarget) => ZoomSource | null;
 	/**
@@ -502,6 +507,9 @@ export class ZoomOverlay {
 		// Clone so we never mutate what is in the note, and drop the sizing that came
 		// with it (the host's own max-width, and any note-sizing rule over it).
 		const clone = target.cloneNode(true) as ZoomTarget;
+		// Not selected, nothing lit: the click that opened it selected it, a hover lit parts of it.
+		clone.classList.remove(`${this.options.cssPrefix}-selected`);
+		this.options.unlight?.(clone);
 		const { width, height } = this.naturalSizeOf(target);
 		this.drawingSize = { width, height };
 		// Size the clone in px. `width/height: auto` collapses an SVG that ships

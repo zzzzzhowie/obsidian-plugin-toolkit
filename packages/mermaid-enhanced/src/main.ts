@@ -19,7 +19,7 @@ import { CaptionModal, createCaptionButton, followCaptionLink, renderCaption } f
 import { type Gallery, ZoomOverlay, type ZoomSource, type ZoomTarget } from "../../../shared/zoom-overlay";
 import { DrawingCorner, dragFitSlider, placeSlider } from "../../../shared/drawing-corner";
 import { LabelSelection } from "../../../shared/label-selection";
-import { DiagramDependencies } from "./dependencies";
+import { DiagramDependencies, unlight } from "./dependencies";
 
 /** Attribute stamped on a reading-view block naming the note line its diagram starts on. */
 const LINE_ATTR = "data-mermaid-line";
@@ -113,6 +113,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			// in no time by the double-click.
 			listGalleryAtOnce: true,
 			sourceOf: (target) => this.sourceOf(target),
+			// Opened from a diagram whose dependencies a hover lit: shown with none lit.
+			unlight,
 		});
 		this.zoom.register();
 		this.registerDomEvent(document, "pointerover", (event: PointerEvent) => {

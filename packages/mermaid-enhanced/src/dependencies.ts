@@ -21,6 +21,12 @@ const LIT_CLS = "is-dep";
 /** A wide, unseen copy of an edge's line, so an edge a pixel or two wide can be hovered. */
 const HIT_CLS = "mermaid-deps-hit";
 
+/** Take the lit state off a copy of a diagram (the zoom's), as it was before any hover. */
+export function unlight(svg: Element): void {
+	svg.classList.remove(ON_CLS);
+	for (const element of Array.from(svg.querySelectorAll(`.${LIT_CLS}`))) element.classList.remove(LIT_CLS);
+}
+
 interface Edge {
 	from: string;
 	to: string;
