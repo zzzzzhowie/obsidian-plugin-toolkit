@@ -162,6 +162,11 @@ type Light = { paint: () => Element[] | null; clear: () => void };
 const DRAWN_DIAGRAM = ".mermaid:not(.mermaid-enhanced-hold) svg";
 /** Elements that end one run of a reference's text and start another (linkReferencesIn). */
 const RUN_BREAK = /^(?:P|LI|UL|OL|DIV|TABLE|TR|TD|TH|H[1-6]|PRE|BLOCKQUOTE|BR|HR)$/;
+/**
+ * Lines given without their note, which Obsidian draws as a tag: `#5-453` (expandBareLines).
+ * The tag runs on into CJK text ("#799、" "#1。这几个…"), so only its start is the lines.
+ */
+const BARE_LINES = /^#\d+(?:-\d+)?/;
 /** Where references are looked for: a prompt's text, a reply's text. */
 const REFERENCE_TEXT = `${CLAUDIAN_USER_MESSAGE} ${CLAUDIAN_PROMPT_TEXT}, .claudian-message-assistant .claudian-text-block`;
 /** An image's chip in the composer's context row, and the picture put in it (thumbnailImageChips). */
@@ -285,6 +290,8 @@ interface ClaudianTabState {
  */
 interface ClaudianLinkedContent {
 	getSnapshot?: () => { mode?: string; path?: string | null };
+	/** Draws its chip (and the welcome picker) again from the note at its path now. */
+	publish?: () => void;
 	handleActiveFileChanged?: (file: TFile | null, isActiveOwner: boolean) => void;
 	resetAutoDraft?: () => void;
 	/** A note picked for the draft by hand — null is the chip's ×, no note; following stops. */
@@ -1433,10 +1440,14 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// under a path that no longer exists — and, worse, make the next sync read the new
 		// path as a note change and clear the session. Both trackers move with the file.
 		this.registerEvent(
-			this.app.vault.on("rename", (file, oldPath) =>
-				this.handleNoteRenamed(file.path, oldPath),
-			),
+			this.app.vault.on("rename", (file, oldPath) => {
+				this.handleNoteRenamed(file.path, oldPath);
+				this.scheduleChipRedraw();
+			}),
 		);
+		this.register(() => {
+			if (this.chipRedraw !== null) window.clearTimeout(this.chipRedraw);
+		});
 		this.registerEvent(
 			this.app.vault.on("delete", (file) => this.forgetNote(file.path)),
 		);
@@ -4352,18 +4363,65 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// put back each time — `@path#12-14` turning into `排期 L12–14`, a different width — made
 		// its lines wrap back and forth. It's linked once the turn is over (syncStopButtons).
 		const streaming = this.streamingReplies();
+		const noteShown = new Map<Element, (path: string) => boolean>();
+		const current = this.linkedNotePath() ?? this.activeNotePath();
 		for (const block of Array.from(blocks)) {
-			if (!block.textContent?.includes("@")) continue;
-			const reply = block.closest(".claudian-message-assistant");
+			const reply = block.closest<HTMLElement>(".claudian-message-assistant");
 			if (reply && streaming.has(reply)) continue;
+			if (reply && !noteShown.has(reply)) {
+				this.expandBareLines(reply);
+				noteShown.set(reply, this.noteShownIn(reply, current));
+			}
+			if (!block.textContent?.includes("@")) continue;
 			const walker = block.ownerDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
 			const run: (Text | null)[] = [];
 			for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 				if (node instanceof Text) run.push(node.parentElement?.closest(`.${REFERENCE_CLS}`) ? null : node);
 				else if (node instanceof HTMLElement && RUN_BREAK.test(node.tagName)) run.push(null);
 			}
-			this.linkReferencesIn(run);
+			this.linkReferencesIn(run, (reply && noteShown.get(reply)) || (() => false));
 		}
+	}
+
+	/**
+	 * Whether a reply's references name their note: they read as a section and lines, which
+	 * says nothing of the note once a reply points into more than one, or into a note other
+	 * than the one the conversation is about. All in that one note, the name is left out.
+	 */
+	private noteShownIn(reply: HTMLElement, current: string | null): (path: string) => boolean {
+		const paths = new Set<string>();
+		const sources = [reply.textContent ?? "", ...Array.from(reply.querySelectorAll<HTMLElement>(`.${REFERENCE_CLS}`), (el) => el.dataset.source ?? "")];
+		for (const source of sources) {
+			for (const match of source.matchAll(REFERENCE)) {
+				const { path } = readReference(match);
+				if (this.app.vault.getFileByPath(path)) paths.add(path);
+			}
+		}
+		const cross = paths.size > 1;
+		return (path) => cross || path !== current;
+	}
+
+	/**
+	 * A reply that has named a note (`@a.md#5-12`) often goes on giving more lines of it bare:
+	 * "move #5-453 into its own note". Obsidian draws that `#5-453` as a tag, which goes
+	 * nowhere. Each one becomes the full reference to the note named last before it, so it's
+	 * linked to those lines like the rest; with no note before it, plain text.
+	 */
+	private expandBareLines(reply: HTMLElement): void {
+		let path: string | null = null;
+		const walker = reply.ownerDocument.createTreeWalker(reply, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+		const bare: { tag: Element; path: string | null }[] = [];
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			if (node instanceof Text) {
+				if (node.parentElement?.closest(`.${REFERENCE_CLS}`)) continue;
+				for (const match of node.data.matchAll(REFERENCE)) path = readReference(match).path;
+			} else if (node instanceof HTMLElement) {
+				if (node.classList.contains(REFERENCE_CLS)) for (const match of (node.dataset.source ?? "").matchAll(REFERENCE)) path = readReference(match).path;
+				else if (node.matches("a.tag") && BARE_LINES.test(node.textContent ?? "")) bare.push({ tag: node, path: path && this.app.vault.getFileByPath(path) ? path : null });
+			}
+		}
+		// With no note named before it, it's still lines, not a tag: plain text.
+		for (const { tag, path: note } of bare) tag.replaceWith(`${note ? `@${note}` : ""}${tag.textContent ?? ""}`);
 	}
 
 	/**
@@ -4372,6 +4430,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * section as the one before it (a reply's change list giving several spots in a section)
 	 * reads as its lines alone.
 	 *
+	 * A reply pointing into more than one note, or into another than the conversation's, puts the
+	 * note's name in front: `报告生成 › 排期 L88` (noteShownIn).
+	 *
 	 * In a prompt, the one asking already knows where they selected: there it reads as the lines
 	 * and what's selected in them — columns, text — taken into the link: `L729 · 时间片显示 · 「局」`.
 	 *
@@ -4379,7 +4440,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * starts: markup draws parts of a reference as elements — selected text with `code` or
 	 * **bold** in it, a path with emphasis marks in it — read together they are one again.
 	 */
-	private linkReferencesIn(run: (Text | null)[]): void {
+	private linkReferencesIn(run: (Text | null)[], noteShown: (path: string) => boolean = () => false): void {
 		let text = "";
 		const pieces: { node: Text; from: number }[] = [];
 		for (const node of run) {
@@ -4415,7 +4476,9 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				previous.set(item, before?.dataset.section ?? null);
 			}
 			const section = `${path}#${this.sectionAt(file, start)}`;
-			const name = section.slice(path.length + 1);
+			const heading = section.slice(path.length + 1);
+			// `报告生成 › LibraCM 四层任务 L197–415` when the note has to be named (noteShownIn).
+			const name = !prompt && noteShown(path) && heading !== file.basename ? `${file.basename} › ${heading}` : heading;
 			const sameSection = !!item && section === previous.get(item);
 			const label = (first: number, last: number): string => {
 				const lines = linesLabel(first, last);
@@ -6007,6 +6070,29 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * changed, the pointer over the chat, focus, any key or click, a new conversation, a
 	 * question about to go.
 	 */
+	private chipRedraw: number | null = null;
+
+	/**
+	 * Draw each tab's linked-note chip again once a burst of renames is over. A folder renamed
+	 * moves Claudian's linked path along at the folder's own event, before the vault has its
+	 * notes at their new paths: the chip is drawn then, finds no note, and stays "· Missing
+	 * content" — the notes' own renames that follow no longer match the path it holds.
+	 */
+	private scheduleChipRedraw(): void {
+		if (this.chipRedraw !== null) window.clearTimeout(this.chipRedraw);
+		this.chipRedraw = window.setTimeout(() => {
+			this.chipRedraw = null;
+			for (const leaf of this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW)) {
+				const manager = (leaf.view as unknown as { getTabManager?: () => ClaudianTabManager | null }).getTabManager?.();
+				for (const tab of manager?.getAllTabs?.() ?? []) {
+					const linked = tab.ui?.linkedContentController;
+					const path = linked?.getSnapshot?.().path;
+					if (path && this.app.vault.getAbstractFileByPath(path)) linked?.publish?.();
+				}
+			}
+		}, 100);
+	}
+
 	private unlinkTabChats(): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW)) {
 			if (this.sidebarOf(leaf) !== null) continue;
