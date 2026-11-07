@@ -13,8 +13,9 @@
 
 /* The faint line over an empty draft, as VS Code writes over an untitled file. An empty
    document is a single line holding only a <br>; the text comes from --drafts-hint, which
-   carries the hotkey "Save current file" actually has. */
-.drafts-is-draft .cm-content > .cm-line:only-child:has(> br:only-child)::before {
+   carries the hotkey "Save current file" actually has. Only the note's own editor: a table
+   cell being edited is a nested editor whose empty cell is that same lone line. */
+.drafts-is-draft .cm-content:not(.cm-content .cm-content) > .cm-line:only-child:has(> br:only-child)::before {
 	content: var(--drafts-hint);
 	position: absolute;
 	color: var(--text-faint);
