@@ -93,6 +93,8 @@ export interface ZoomOverlayOptions {
 	within?: string;
 }
 
+/** How much of the drawing (px) always stays inside the overlay as it's moved (keepInView). */
+const KEEP_IN_VIEW_PX = 80;
 /** Zoom range, shared by every way of changing it. */
 const MIN_SCALE = 0.1;
 const MAX_SCALE = 50;
@@ -1227,8 +1229,27 @@ export class ZoomOverlay {
 
 	private updateTransform(disableTransition = false): void {
 		if (!this.frame) return;
+		this.keepInView();
 		this.frame.style.transition = disableTransition ? "none" : "";
 		this.frame.style.transform = `translate(${this.translateX}px, ${this.translateY}px) scale(${this.scale})`;
+	}
+
+	/**
+	 * Keep some of the drawing on screen, however it's moved. Two-finger scrolls and drags add
+	 * up with nothing to stop them: a tall diagram scrolled sideways and pinched down to the
+	 * smallest size ended thousands of pixels off, the overlay an empty dark screen with only
+	 * its toolbar. The frame sits centred in the container, scaled about its own centre, so
+	 * its centre is the container's plus the translation.
+	 */
+	private keepInView(): void {
+		const frame = this.frame;
+		const room = frame?.parentElement;
+		if (!frame || !room) return;
+		const limit = (space: number, size: number): number => Math.max(0, space / 2 + (size * this.scale) / 2 - KEEP_IN_VIEW_PX);
+		const x = limit(room.clientWidth, frame.offsetWidth);
+		const y = limit(room.clientHeight, frame.offsetHeight);
+		this.translateX = Math.max(-x, Math.min(x, this.translateX));
+		this.translateY = Math.max(-y, Math.min(y, this.translateY));
 	}
 
 	private close(): void {
