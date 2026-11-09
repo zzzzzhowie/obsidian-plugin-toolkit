@@ -170,6 +170,8 @@ const RUN_BREAK = /^(?:P|LI|UL|OL|DIV|TABLE|TR|TD|TH|H[1-6]|PRE|BLOCKQUOTE|BR|HR
  * The tag runs on into CJK text ("#799、" "#1。这几个…"), so only its start is the lines.
  */
 const BARE_LINES = /^#\d+(?:-\d+)?/;
+/** The same in a reply's plain text: `#53` with a space after it, which Obsidian leaves as text. */
+const BARE_LINES_TEXT = /(?<![\w@/#&-])#\d+(?:-\d+)?(?![\w-])/g;
 /** Where references are looked for: a prompt's text, a reply's text. */
 const REFERENCE_TEXT = `${CLAUDIAN_USER_MESSAGE} ${CLAUDIAN_PROMPT_TEXT}, .claudian-message-assistant .claudian-text-block`;
 /** An image's chip in the composer's context row, and the picture put in it (thumbnailImageChips). */
@@ -4451,10 +4453,20 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		let path: string | null = null;
 		const walker = reply.ownerDocument.createTreeWalker(reply, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
 		const bare: { tag: Element; path: string | null }[] = [];
+		const inText: { node: Text; at: { index: number; length: number; path: string }[] }[] = [];
 		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 			if (node instanceof Text) {
 				if (node.parentElement?.closest(`.${REFERENCE_CLS}`)) continue;
-				for (const match of node.data.matchAll(REFERENCE)) path = readReference(match).path;
+				// All digits after `#` isn't a tag, so "#53 的说明…" is plain text: the same lines,
+				// in the order they come with the references beside them.
+				const code = node.parentElement?.closest("code, pre, a");
+				const found = [...Array.from(node.data.matchAll(REFERENCE), (match) => ({ index: match.index, ref: match })), ...(code ? [] : Array.from(node.data.matchAll(BARE_LINES_TEXT), (match) => ({ index: match.index, bare: match[0] })))].sort((a, b) => a.index - b.index);
+				const at: { index: number; length: number; path: string }[] = [];
+				for (const hit of found) {
+					if ("ref" in hit && hit.ref) path = readReference(hit.ref).path;
+					else if ("bare" in hit && hit.bare && path && this.app.vault.getFileByPath(path)) at.push({ index: hit.index, length: hit.bare.length, path });
+				}
+				if (at.length) inText.push({ node, at });
 			} else if (node instanceof HTMLElement) {
 				if (node.classList.contains(REFERENCE_CLS)) for (const match of (node.dataset.source ?? "").matchAll(REFERENCE)) path = readReference(match).path;
 				else if (node.matches("a.tag") && BARE_LINES.test(node.textContent ?? "")) bare.push({ tag: node, path: path && this.app.vault.getFileByPath(path) ? path : null });
@@ -4462,6 +4474,11 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		}
 		// With no note named before it, it's still lines, not a tag: plain text.
 		for (const { tag, path: note } of bare) tag.replaceWith(`${note ? `@${note}` : ""}${tag.textContent ?? ""}`);
+		for (const { node, at } of inText) {
+			let data = node.data;
+			for (const { index, length, path: note } of at.reverse()) data = `${data.slice(0, index)}@${note}${data.slice(index, index + length)}${data.slice(index + length)}`;
+			node.data = data;
+		}
 	}
 
 	/**
