@@ -18,7 +18,7 @@ const SLIDER_STEP = 5;
  * A size slider on each drawing in a note, as a Mermaid diagram has: dragged, the drawing is
  * sized to that share of the window's height — never wider than the note — and at the far end
  * fills the note's width. Kept in the drawing's own properties (FIT_KEY), so it's that size in
- * every note it's in; a drawing without one keeps the width in the plugin's settings.
+ * every note it's in; a drawing without one fills the note's width.
  */
 export class DrawingFit {
 	/** A size just chosen, until the drawing's properties say it; see the metadata listener. */
@@ -106,8 +106,7 @@ export class DrawingFit {
 		const drawing = (): HTMLElement | null => embed.querySelector<HTMLElement>(".excalidraw-embedded-img");
 		const actions = (): HTMLElement | null => embed.querySelector<HTMLElement>(":scope > .embed-actions");
 		const read = (): void => {
-			const img = drawing();
-			if (img) slider.value = String(sliderValueOf(img, this.pending.get(file.path) ?? fitOf(this.app, file)));
+			slider.value = String(sliderValueOf(this.pending.get(file.path) ?? fitOf(this.app, file)));
 		};
 		let dragging = false;
 		// Over the thumb, in the box the slider is placed in, which the tip is placed in too.
@@ -219,13 +218,11 @@ function widthFor(img: HTMLElement, fit: string | null): string | null {
 	return `calc(${vh[1]}vh * ${aspect.toFixed(4)})`;
 }
 
-/** Where the slider starts: the drawing's size, or the height it's drawn at now. */
-function sliderValueOf(img: HTMLElement, fit: string | null): number {
+/** Where the slider starts: the drawing's size, or its far end — a drawing fills the note's width by default (styles.css). */
+function sliderValueOf(fit: string | null): number {
 	const clamp = (n: number): number => Math.min(SLIDER_MAX, Math.max(SLIDER_MIN, Math.round(n / SLIDER_STEP) * SLIDER_STEP));
-	if (fit === "full") return SLIDER_MAX;
 	const vh = fit ? /^(\d+(?:\.\d+)?)vh$/.exec(fit) : null;
-	if (vh) return clamp(parseFloat(vh[1] ?? ""));
-	return clamp((img.getBoundingClientRect().height / window.innerHeight) * 100);
+	return vh ? clamp(parseFloat(vh[1] ?? "")) : SLIDER_MAX;
 }
 
 /** A drawing's width over its height: its SVG's viewBox, or the box it's drawn in. */

@@ -16,17 +16,18 @@
  * guessed: `width:auto` → 0×0, `width:900px; max-width:100%` → 700×425 in a 700px
  * column, at the drawing's exact ratio.
  *
- * `max-width: 100%` is what keeps a wide setting from overflowing a narrow note — the
- * percentage is safe here because the element's own width is already a definite length.
- * Height is left alone entirely: it follows from the width and the ratio, and Excalidraw
- * still applies its own max-height as a backstop for very tall drawings.
+ * So a drawing fills the note's width by default — a slider's 100% — as the window's width,
+ * held to the note's by `max-width: 100%` (safe here: the element's own width is a definite
+ * length). A size of its own (fit-slider.ts) takes its place. Height is left alone entirely:
+ * it follows from the width and the ratio, and Excalidraw still applies its own max-height as
+ * a backstop for very tall drawings.
  *
  * Scoped to rendered notes, so the zoom overlay's clone — same class — is left alone.
  */
 body.excalidraw-enhanced-sizing
 	:is(.markdown-rendered, .cm-content)
 	.excalidraw-embedded-img {
-	width: var(--excalidraw-enhanced-width, 900px) !important;
+	width: 100vw !important;
 	max-width: 100% !important;
 }
 

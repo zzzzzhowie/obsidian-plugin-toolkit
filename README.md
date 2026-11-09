@@ -215,7 +215,7 @@ Captions under images, Mermaid diagrams and Excalidraw drawings, in Live Preview
 
 ![An embedded Excalidraw drawing with its caption, and the caption and edit buttons on hover](docs/images/excalidraw.png)
 
-- Embedded drawings render centred at the width in settings, never wider than the note. A size slider by the drawing's buttons, as on a Mermaid diagram, sizes one to a share of the window's height or the note's full width, kept in the drawing's `excalidraw-enhanced-fit` property.
+- Embedded drawings fill the note's width by default. A size slider by the drawing's buttons, as on a Mermaid diagram, sizes one down to a share of the window's height, kept in the drawing's `excalidraw-enhanced-fit` property; it's centred in the note.
 - It zooms as Mermaid does: click to select, click again, `Cmd/Ctrl`-click or the zoom-in button to open the same overlay. While zooming, a bitmap stands in for a heavy SVG and the vector comes back once you stop, so large hand-drawn drawings zoom smoothly.
 - Text in a drawing (shown as SVG) can be selected by dragging, line by line, as in a Mermaid label.
 - An edit button (like Mermaid's) opens the drawing in a new tab and goes to it. Single clicks, double clicks and right-clicks no longer open the drawing by accident; right-click shows a menu for the drawing.
