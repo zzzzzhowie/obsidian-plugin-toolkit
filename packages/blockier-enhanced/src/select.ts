@@ -2,9 +2,9 @@
  * Cmd/Ctrl-A behaviour.
  *
  * - Cursor inside a fenced code block -> select only that code block's contents.
- * - Contents already fully selected    -> select the whole document (escape hatch,
+ * - Contents already fully selected    -> Obsidian's own select-all (escape hatch,
  *                                          so you're never trapped inside a block).
- * - Anywhere else                       -> select the whole document.
+ * - Anywhere else (a table cell too)    -> Obsidian's own select-all, untouched.
  */
 
 import { Editor, EditorPosition } from "obsidian";
@@ -20,28 +20,24 @@ type CodeBlock = { openLine: number; closeLine: number };
 type Selection = { anchor: EditorPosition; head: EditorPosition };
 
 /**
- * Entry point for both the "Select block" command and the Cmd/Ctrl-A keybinding.
+ * Entry point for both the "Select block" command and the Cmd/Ctrl-A keybinding. Whether it
+ * did anything: outside a code block, and in one already fully selected, it leaves the key to
+ * Obsidian's own select-all.
  */
-export function runSelectBlock(editor: Editor | undefined): void {
-	if (!editor) return;
+export function runSelectBlock(editor: Editor | undefined): boolean {
+	if (!editor) return false;
 
 	const block = enclosingCodeBlock(editor);
 	const contents = block && codeBlockContents(editor, block);
-
-	if (contents && !isSelectionEqual(editor, contents)) {
-		editor.setSelection(contents.anchor, contents.head);
-	} else {
-		selectAll(editor);
-	}
+	if (!contents || isSelectionEqual(editor, contents)) return false;
+	editor.setSelection(contents.anchor, contents.head);
+	return true;
 }
 
 /** Selects the entire document. */
-function selectAll(editor: Editor): void {
+export function selectAll(editor: Editor): void {
 	const lastLine = editor.lastLine();
-	editor.setSelection(
-		{ line: 0, ch: 0 },
-		{ line: lastLine, ch: editor.getLine(lastLine).length }
-	);
+	editor.setSelection({ line: 0, ch: 0 }, { line: lastLine, ch: editor.getLine(lastLine).length });
 }
 
 /**

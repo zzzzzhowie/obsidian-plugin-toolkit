@@ -1,7 +1,7 @@
 import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
 import { keymap } from "@codemirror/view";
 import { tryReplace as tryReplaceBlock } from "replace";
-import { runSelectBlock } from "select";
+import { runSelectBlock, selectAll } from "select";
 import { CalloutSuggest, CheckboxSuggest } from "suggest";
 import { FenceSuggest } from "fence-suggest";
 import { codeIndentExtension } from "code-indent";
@@ -67,8 +67,9 @@ export default class BlockierPlugin extends Plugin {
 		this.addCommand({
 			id: "select-block",
 			name: "Select block",
+			// Run on its own, outside a code block it still selects the whole note.
 			editorCallback: (editor: Editor) => {
-				runSelectBlock(editor);
+				if (!runSelectBlock(editor)) selectAll(editor);
 			},
 		});
 
@@ -93,13 +94,15 @@ export default class BlockierPlugin extends Plugin {
 					{
 						key: "c-a", // ctrl a
 						mac: "m-a", // cmd a
-						run: () => {
+						run: (view) => {
 							const editor = this.app.workspace.activeEditor?.editor;
 							if (!editor) return false;
-							runSelectBlock(editor);
-							// we always handle it (select code block or select all),
-							// so stop other bindings from also firing.
-							return true;
+							// A table cell being edited is an editor of its own, inside the note's:
+							// nothing of a code block there, so Obsidian's own select-all for it.
+							const note = (editor as unknown as { cm?: unknown }).cm;
+							if (note && view !== note) return false;
+							// Only a code block's contents; anything else is Obsidian's select-all.
+							return runSelectBlock(editor);
 						},
 					},
 				])
@@ -186,7 +189,7 @@ class SettingsTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Use ctrl/cmd-A for Select block")
 			.setDesc(
-				"Override ctrl/cmd-A: when the cursor is inside a fenced code block, select only that code block; otherwise select all. Press again inside a fully-selected block to select all. Disable this and bind the \"Select block\" command to a different hotkey if you prefer. Reload required."
+				"Override ctrl/cmd-A: when the cursor is inside a fenced code block, select only that code block; anywhere else (tables included) Cmd/Ctrl-A is left to Obsidian. Press again inside a fully-selected block to select all. Disable this and bind the \"Select block\" command to a different hotkey if you prefer. Reload required."
 			)
 			.addToggle((toggle) =>
 				toggle
