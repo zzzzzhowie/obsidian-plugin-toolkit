@@ -1,4 +1,5 @@
 import {
+	EditorSelection,
 	type EditorState,
 	type Extension,
 	type Range,
@@ -10,7 +11,10 @@ import {
 	Decoration,
 	type DecorationSet,
 	EditorView,
+	layer,
+	type LayerMarker,
 	type PluginValue,
+	RectangleMarker,
 	ViewPlugin,
 	type ViewUpdate,
 } from "@codemirror/view";
@@ -354,6 +358,14 @@ function buildField(host: EditorHost): StateField<CommentsValue> {
 
 		provide: (f) => [
 			EditorView.decorations.from(f, (value) => value.decos),
+			// The tint and underline are drawn as a layer under the text, as the selection is: one
+			// shape over the whole passage. On the marks themselves they broke at every `code` in
+			// it — the mark is cut into pieces there, the piece inside set smaller, and the code's
+			// padding either side left out. The marks stay, for what's clicked.
+			// The tint under the text; the underline over it, a code word's own background
+			// covering it otherwise.
+			highlightLayer(f, false, "nc-highlight-tint"),
+			highlightLayer(f, true, "nc-highlight-line"),
 			// Focus moving to the draft in the panel always takes the native selection with
 			// it, so the text being commented on is painted by us for as long as the draft is open.
 			EditorView.decorations.from(f, (value) =>
@@ -364,6 +376,29 @@ function buildField(host: EditorHost): StateField<CommentsValue> {
 		],
 	});
 	return field;
+}
+
+/** One rectangle per line of each commented passage in view, `cls` on each; see buildField. */
+function highlightLayer(field: StateField<CommentsValue>, above: boolean, cls: string): Extension {
+	return layer({
+		above,
+		class: `${cls}-layer`,
+		update: (update) =>
+			update.docChanged ||
+			update.viewportChanged ||
+			update.geometryChanged ||
+			update.startState.field(field, false)?.decos !== update.state.field(field, false)?.decos,
+		markers: (view) => {
+			const value = view.state.field(field, false);
+			if (!value) return [];
+			const markers: LayerMarker[] = [];
+			const { from, to } = view.viewport;
+			value.decos.between(from, to, (start, end) => {
+				markers.push(...RectangleMarker.forRange(view, cls, EditorSelection.range(start, end)));
+			});
+			return markers;
+		},
+	});
 }
 
 /**

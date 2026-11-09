@@ -356,9 +356,12 @@ export default class NoteCommentsPlugin extends Plugin implements PanelHost {
 			this.dockOf(leaf)?.collapse();
 		} else {
 			// Only a tab still in the panel's group — it may have been closed or dragged away,
-			// and a closed leaf can keep a stale reference to the group it left.
+			// and a closed leaf can keep a stale reference to the group it left. Nothing recorded
+			// (the panel opened by hand, or the plugin reloaded since), the tab of the group used
+			// last; none at all, the panel stays — the group's first tab instead was All
+			// properties, say, a tab nobody had been on.
 			const group = siblingsOf(leaf);
-			const back = [state?.previous, this.lastOtherTab, firstSibling(leaf)].find(
+			const back = [state?.previous, this.lastOtherTab, lastUsedSibling(leaf)].find(
 				(candidate): candidate is WorkspaceLeaf => !!candidate && group.includes(candidate),
 			);
 			if (back) await this.app.workspace.revealLeaf(back);
@@ -486,7 +489,10 @@ function visibleSibling(leaf: WorkspaceLeaf): WorkspaceLeaf | null {
 	return siblingsOf(leaf).find(isShown) ?? null;
 }
 
-/** Any other tab in the group — the last resort when nothing was recorded. */
-function firstSibling(leaf: WorkspaceLeaf): WorkspaceLeaf | null {
-	return siblingsOf(leaf)[0] ?? null;
+/** The other tab of the group used last, by Obsidian's own record of when each was active. */
+function lastUsedSibling(leaf: WorkspaceLeaf): WorkspaceLeaf | null {
+	const used = (tab: WorkspaceLeaf): number => (tab as unknown as { activeTime?: number }).activeTime ?? 0;
+	const others = siblingsOf(leaf).filter((tab) => tab !== leaf && used(tab) > 0);
+	return others.reduce<WorkspaceLeaf | null>((best, tab) => (!best || used(tab) > used(best) ? tab : best), null);
 }
+

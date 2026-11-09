@@ -1,10 +1,33 @@
 /* A commented passage. Deliberately quieter than Obsidian's own ==highlight==, which the
    notes already use for emphasis: a tint plus an underline reads as "there's a note here"
-   rather than "this is important". A click on it opens the comment in the panel. */
+   rather than "this is important". A click on it opens the comment in the panel.
+
+   Drawn as layers (editor.ts), one rectangle per line of the passage, as the selection is: on the marks themselves the tint and underline broke at every `code` word —
+   the mark is cut into pieces there, the piece inside set smaller, the code's padding left
+   out. The marks only take the click. */
 .nc-highlight {
-	background-color: rgba(var(--color-yellow-rgb), 0.14);
-	border-bottom: 2px solid rgba(var(--color-yellow-rgb), 0.55);
 	cursor: pointer;
+}
+
+/* Clicks go through to the text and its marks. */
+.nc-highlight-tint-layer,
+.nc-highlight-line-layer {
+	pointer-events: none;
+}
+
+.nc-highlight-tint-layer .nc-highlight-tint {
+	background-color: rgba(var(--color-yellow-rgb), 0.14);
+}
+
+/* Over the text, so a `code` word's background doesn't cover it. */
+.nc-highlight-line-layer .nc-highlight-line {
+	border-bottom: 2px solid rgba(var(--color-yellow-rgb), 0.55);
+}
+
+/* A `code` word in it covers the layer with its own background: the tint laid over that too.
+   Important: themes set code's whole `background` (Primary: `body … span.cm-inline-code`). */
+.cm-inline-code:has(> .nc-highlight) {
+	background-image: linear-gradient(rgba(var(--color-yellow-rgb), 0.14), rgba(var(--color-yellow-rgb), 0.14)) !important;
 }
 
 /* A commented passage in a table (table-marks.ts): painted with the Highlight API, so the same
