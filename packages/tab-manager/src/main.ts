@@ -2,6 +2,8 @@ import { type OpenViewState, type PaneType, parseLinktext, Plugin, type Workspac
 
 import { activateTab, tabShowing } from "../../../shared/open-tab";
 
+import { type Place, RememberPlace } from "./remember-place";
+
 /**
  * Follow a link to a note that's already open by going to its tab, instead of opening it again.
  *
@@ -24,7 +26,8 @@ import { activateTab, tabShowing } from "../../../shared/open-tab";
  * - a note open only in a sidebar or in another window — see `tabShowing`.
  *
  * And, as Chrome does, closing a tab you just opened takes you back to the tab you opened it
- * from — see `followActiveTab`.
+ * from — see `followActiveTab`. A note opens where it was left, across closing its tab and
+ * restarting — see `RememberPlace`.
  */
 export default class TabManagerPlugin extends Plugin {
 	/** Tabs that were on show before, so a tab's first showing can be told apart. */
@@ -33,8 +36,21 @@ export default class TabManagerPlugin extends Plugin {
 	private lastTab: WorkspaceLeaf | null = null;
 	/** A tab just opened and the tab it was opened from, until the reader moves on. */
 	private openedFrom: { tab: WorkspaceLeaf; opener: WorkspaceLeaf } | null = null;
+	/** Where each note was left; see RememberPlace. */
+	private remember: RememberPlace | null = null;
 
-	onload(): void {
+	async onload(): Promise<void> {
+		const data = ((await this.loadData()) ?? {}) as { places?: Record<string, Place> };
+		this.remember = new RememberPlace(
+			this,
+			() => data.places ?? {},
+			async (places) => {
+				data.places = places;
+				await this.saveData(data);
+			},
+		);
+		this.remember.start();
+
 		this.app.workspace.onLayoutReady(() => {
 			this.app.workspace.iterateAllLeaves((leaf) => {
 				this.shown.add(leaf);

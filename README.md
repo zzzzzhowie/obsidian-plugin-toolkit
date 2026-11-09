@@ -37,7 +37,7 @@ flowchart LR
 | Navigation | [Quick Open](#quick-open) | `Cmd+P` Go to File |
 | | [Nav History](#nav-history) | Global Go Back / Go Forward |
 | | [Sticky Heading](#sticky-heading) | The section in view, after the title in the tab header |
-| | [Tab Manager](#tab-manager) | A link to an open note goes to its tab |
+| | [Tab Manager](#tab-manager) | A link to an open note goes to its tab; a note reopens where you left it |
 | | [Sidebar Guard](#sidebar-guard) | `Cmd+W` never closes a sidebar panel |
 | | [File Explorer (Enhanced)](#file-explorer-enhanced) | Pins, folder notes, hidden files |
 | | [Hide UI Elements](#hide-ui-elements) | Hide sidebar tabs and status bar items |
@@ -276,9 +276,10 @@ flowchart LR
     Q -->|yes| G["Go to that tab<br/>(#heading carried over)"]
     Q -->|no| O["Open as usual"]
     N["Close a tab you just opened"] --> BK["Back to the tab<br/>you opened it from"]
+    R["Reopen a note,<br/>or restart Obsidian"] --> P["Scrolled to where<br/>you left it"]
 ```
 
-Following a link to a note that's already open goes to its tab instead of opening it again, as the Chrome extension of the same name does for web pages. That applies to a plain click, `Cmd/Ctrl`-click and middle click alike. A link's `#heading` or `#^block` is carried over to the tab it lands on. Closing a tab you just opened goes back to the tab you opened it from. File Explorer (Enhanced) applies the same rule to the file tree through `shared/open-tab.ts`.
+Following a link to a note that's already open goes to its tab instead of opening it again, as the Chrome extension of the same name does for web pages. That applies to a plain click, `Cmd/Ctrl`-click and middle click alike. A link's `#heading` or `#^block` is carried over to the tab it lands on. Closing a tab you just opened goes back to the tab you opened it from. A note opens where you left it, scroll and cursor, after its tab was closed or Obsidian restarted; an open that asks for a spot (a link to a heading or block, a search result, back and forward) goes there instead. File Explorer (Enhanced) applies the same rule to the file tree through `shared/open-tab.ts`.
 
 ### Sidebar Guard
 
