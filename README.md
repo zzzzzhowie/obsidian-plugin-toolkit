@@ -165,7 +165,9 @@ stateDiagram-v2
 VS Code's untitled files. "New draft" opens a blank note that isn't anywhere in the vault yet, so jotting something down no longer leaves an `Untitled.md` behind.
 
 - `Cmd/Ctrl+S` in a draft asks for a name (its first line, to start with) and a folder, and moves it there with its links and attachments.
-- Closing a draft with text in it asks Save / Don't save / Cancel. A blank one is just discarded, and one left behind any other way is reopened with "Open draft…".
+- Closing a draft with text in it asks Save / Don't save / Cancel. A blank one is just discarded, and one left behind any other way is reopened with "New draft" or "Open draft…".
+- There's mostly one draft: "New draft" goes to the draft already open, or the one left behind last; pressed in a draft it makes a second. A link followed from a draft opens in a new tab, so the draft stays in its own.
+- A draft no tab shows goes to the trash 3 days after its last change (a setting), with the attachments in `_drafts/` only it used. Checked at startup and every hour.
 - Drafts are real notes in a hidden `_drafts/` folder, so every editor plugin works in them. The folder is hidden from the file explorer, search and graph, and left out of Vault Backup.
 - On mobile a draft's header has a save button instead of `Cmd/Ctrl+S`.
 

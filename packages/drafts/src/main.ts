@@ -1,7 +1,8 @@
-import { type App, FuzzySuggestModal, MarkdownView, Notice, Platform, Plugin, setIcon, type TFile, WorkspaceLeaf } from "obsidian";
+import { type App, FuzzySuggestModal, MarkdownView, Notice, type OpenViewState, Platform, Plugin, setIcon, TFile, TFolder, Vault, WorkspaceLeaf } from "obsidian";
 
 import { askToSave, saveDraftDialog } from "./dialogs";
 import { allDrafts, createDraft, DRAFTS_FOLDER, isDraft, suggestName } from "./drafts";
+import { DEFAULT_SETTINGS, type DraftsSettings, DraftsSettingTab } from "./settings";
 
 /** Obsidian's own "Save current file", ⌘S by default. In a draft it saves it into the vault. */
 const SAVE_COMMAND = "editor:save-file";
@@ -18,6 +19,9 @@ const NEW_DRAFT_BUTTON_CLS = "drafts-new-draft";
 const DRAFT_TAB_CLS = "drafts-tab-status";
 /** What every draft's tab says, whatever its file is called; see nameDraftsAlike. */
 const DRAFT_TITLE = "Draft";
+/** How often drafts left behind are looked over; see sweep. */
+const SWEEP_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Commands, which the public typings leave out of `App`. */
 interface AppInternals {
@@ -40,6 +44,11 @@ interface RightDrawer {
  * name and a folder and puts it there. Closing a draft with something in it asks first: Save,
  * Don't save, or Cancel. One left open when Obsidian quits is still there next time, as VS
  * Code keeps its untitled editors.
+ *
+ * A draft is a scratch pad, so there's mostly one: "New draft" goes to the draft already open,
+ * or the one left behind last, and only makes another when pressed in a draft. Following a
+ * link from a draft opens it in a new tab, the draft staying in its own. One no tab shows any
+ * more goes to the trash a few days after its last change (sweep).
  */
 export default class DraftsPlugin extends Plugin {
 	/** Drafts some tab showed at the last look, to notice one no tab shows any more. */
@@ -55,13 +64,17 @@ export default class DraftsPlugin extends Plugin {
 	/** The save button in a draft's header on a phone or tablet, by view; see markSaveAction. */
 	private readonly saveActions = new Map<MarkdownView, HTMLElement>();
 	private refreshFrame: number | null = null;
+	settings: DraftsSettings = { ...DEFAULT_SETTINGS };
 
-	onload(): void {
+	async onload(): Promise<void> {
+		this.settings = { ...DEFAULT_SETTINGS, ...((await this.loadData()) as Partial<DraftsSettings> | null) };
+		this.addSettingTab(new DraftsSettingTab(this.app, this));
 		this.addCommand({
 			id: "new-draft",
 			name: "New draft",
 			icon: "file-pen",
-			callback: () => void this.newDraft(),
+			// In a draft, a second one: the way to have two side by side.
+			callback: () => void this.newDraft(undefined, this.activeDraft() !== null),
 		});
 		this.addCommand({
 			id: "save-draft",
@@ -85,12 +98,14 @@ export default class DraftsPlugin extends Plugin {
 		});
 
 		this.guardClosing();
+		this.keepDraftsInPlace();
 		this.nameDraftsAlike();
 		this.app.workspace.onLayoutReady(() => {
 			this.guardSaveCommand();
 			this.excludeFromSearch();
 			this.refresh();
-			void this.discardBlankLeftovers();
+			void this.discardBlankLeftovers().then(() => this.sweep());
+			this.registerInterval(window.setInterval(() => void this.sweep(), SWEEP_MS));
 		});
 		this.registerEvent(this.app.workspace.on("layout-change", () => this.scheduleRefresh()));
 		this.registerEvent(
@@ -128,15 +143,109 @@ export default class DraftsPlugin extends Plugin {
 	}
 
 	/**
-	 * Open a new draft, ready to type into: in a new tab of the main area — Obsidian's own
-	 * "tab" fills an empty one there rather than adding another — or in the given one.
+	 * Open a draft, ready to type into: the one a tab already shows, else the one left behind
+	 * last, else a new one — `fresh` makes a new one regardless. A new or reopened one opens in
+	 * a new tab of the main area — Obsidian's own "tab" fills an empty one there rather than
+	 * adding another — or in the given one.
 	 */
-	async newDraft(into?: WorkspaceLeaf): Promise<void> {
-		const file = await createDraft(this.app);
+	async newDraft(into?: WorkspaceLeaf, fresh = false): Promise<void> {
+		if (!fresh) {
+			const shown = this.leafShowingDraft();
+			if (shown) {
+				await this.app.workspace.revealLeaf(shown);
+				this.app.workspace.setActiveLeaf(shown, { focus: true });
+				if (shown.view instanceof MarkdownView) shown.view.editor.focus();
+				return;
+			}
+		}
+		const file = (!fresh && allDrafts(this.app)[0]) || (await createDraft(this.app));
 		const leaf = into ?? this.app.workspace.getLeaf("tab");
 		await leaf.openFile(file, { active: true, state: { mode: "source" } });
 		const view = leaf.view;
 		if (view instanceof MarkdownView) view.editor.focus();
+	}
+
+	/** A tab of this window showing a draft, the one used last first. */
+	private leafShowingDraft(): WorkspaceLeaf | null {
+		const recent = this.app.workspace.getMostRecentLeaf();
+		if (recent?.view instanceof MarkdownView && isDraft(recent.view.file) && recent.view.containerEl.doc === document) return recent;
+		let found: WorkspaceLeaf | null = null;
+		this.app.workspace.iterateRootLeaves((leaf) => {
+			if (!found && leaf.view instanceof MarkdownView && isDraft(leaf.view.file)) found = leaf;
+		});
+		return found;
+	}
+
+	/** Paths of the drafts some tab has — loaded or not yet (a tab not shown since startup). */
+	private draftsInTabs(): Set<string> {
+		const paths = new Set<string>();
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			const state = leaf.getViewState();
+			const file = (state.state as { file?: unknown } | undefined)?.file;
+			if (state.type === "markdown" && typeof file === "string") paths.add(file);
+		});
+		return paths;
+	}
+
+	/**
+	 * Drafts no tab shows, unchanged for `keepDays`, go to the trash (Obsidian's "Deleted files"
+	 * setting: the system trash or the vault's .trash, either way still there to take back).
+	 * So do files in the drafts folder no remaining draft links to — pasted images, mostly —
+	 * once as old, and the folders they leave empty. Run at startup and every hour.
+	 */
+	private async sweep(): Promise<void> {
+		if (this.unloaded) return;
+		const folder = this.app.vault.getFolderByPath(DRAFTS_FOLDER);
+		if (!folder) return;
+		const cutoff = Date.now() - this.settings.keepDays * DAY_MS;
+		const inTabs = this.draftsInTabs();
+		const kept: TFile[] = [];
+		for (const file of allDrafts(this.app)) {
+			if (inTabs.has(file.path) || this.settling.has(file.path) || file.stat.mtime > cutoff) kept.push(file);
+			else await this.app.fileManager.trashFile(file);
+		}
+		const linked = new Set<string>();
+		const resolved = this.app.metadataCache.resolvedLinks;
+		for (const draft of kept) for (const target of Object.keys(resolved[draft.path] ?? {})) linked.add(target);
+		const others: TFile[] = [];
+		Vault.recurseChildren(folder, (child) => {
+			if (child instanceof TFile && !isDraft(child)) others.push(child);
+		});
+		for (const file of others) {
+			if (!linked.has(file.path) && file.stat.mtime <= cutoff) await this.app.fileManager.trashFile(file);
+		}
+		// Folders the attachments were in, left empty, deepest first.
+		const folders: TFolder[] = [];
+		Vault.recurseChildren(folder, (child) => {
+			if (child instanceof TFolder && child !== folder) folders.push(child);
+		});
+		for (const empty of folders.reverse()) if (empty.children.length === 0) await this.app.fileManager.trashFile(empty);
+	}
+
+	/**
+	 * A link followed, or a note picked, in a draft's tab opens in a new tab: in the draft's
+	 * own it would push the draft out of sight, left behind until the sweep. A blank draft is
+	 * let go, as when it's closed.
+	 */
+	private keepDraftsInPlace(): void {
+		const proto = WorkspaceLeaf.prototype;
+		// eslint-disable-next-line @typescript-eslint/unbound-method -- called with the leaf below
+		const original = proto.openFile;
+		const elsewhere = (leaf: WorkspaceLeaf, file: TFile): WorkspaceLeaf | null => {
+			if (this.unloaded) return null;
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView) || !view.file || !isDraft(view.file) || view.file === file) return null;
+			if (!view.getViewData().trim()) return null;
+			return this.app.workspace.getLeaf("tab");
+		};
+		const openFile = function (this: WorkspaceLeaf, file: TFile, openState?: OpenViewState): Promise<void> {
+			const leaf = elsewhere(this, file);
+			return original.call(leaf ?? this, file, leaf ? { active: true, ...openState } : openState);
+		};
+		proto.openFile = openFile;
+		this.register(() => {
+			if (proto.openFile === openFile) proto.openFile = original;
+		});
 	}
 
 	private activeDraft(): TFile | null {
@@ -362,7 +471,8 @@ export default class DraftsPlugin extends Plugin {
 			await this.app.fileManager.trashFile(file);
 			return;
 		}
-		new Notice(`Draft “${file.basename}” is kept. “Open draft…” brings it back.`);
+		const days = this.settings.keepDays;
+		new Notice(`Draft “${file.basename}” is kept for ${days} day${days === 1 ? "" : "s"}. “New draft” brings it back.`);
 	}
 
 	/** Blank drafts no tab shows, left over from an earlier session. */
