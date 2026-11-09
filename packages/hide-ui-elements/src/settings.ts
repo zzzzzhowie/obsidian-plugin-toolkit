@@ -15,6 +15,8 @@ export interface HideUIElementsSettings {
 	hideCharacterCount: boolean;
 	hideFilePropertiesTab: boolean;
 	hideVaultName: boolean;
+	// Editor
+	plainTags: boolean;
 }
 
 export const DEFAULT_SETTINGS: HideUIElementsSettings = {
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: HideUIElementsSettings = {
 	hideCharacterCount: true,
 	hideFilePropertiesTab: true,
 	hideVaultName: true,
+	plainTags: true,
 };
 
 export class HideUIElementsSettingTab extends PluginSettingTab {
@@ -160,6 +163,22 @@ export class HideUIElementsSettingTab extends PluginSettingTab {
 					this.plugin.settings.hideVaultName = value;
 					await this.plugin.saveSettings();
 					this.plugin.applyStyles();
+				})
+			);
+		containerEl.createEl('h2', { text: 'Editor' });
+
+		new Setting(containerEl)
+			.setName('Inline tags as plain text')
+			.setDesc('A #word in a note reads as text, not a tag pill, and typing # no longer offers tags. Tags in properties are unchanged.')
+			.addToggle((toggle) =>
+				toggle.setValue(this.plugin.settings.plainTags).onChange(async (value) => {
+					this.plugin.settings.plainTags = value;
+					await this.plugin.saveSettings();
+					this.plugin.applyStyles();
+					this.app.workspace.getLeavesOfType('markdown').forEach((leaf) => {
+						const view = leaf.view as { previewMode?: { rerender(full: boolean): void } };
+						view.previewMode?.rerender(true);
+					});
 				})
 			);
 	}

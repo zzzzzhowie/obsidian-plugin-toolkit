@@ -1,4 +1,4 @@
-import { Plugin } from 'obsidian';
+import { EditorSuggest, Plugin } from 'obsidian';
 import { DEFAULT_SETTINGS, HideUIElementsSettings, HideUIElementsSettingTab } from './settings';
 
 const BODY_CLASSES: Record<keyof HideUIElementsSettings, string> = {
@@ -13,6 +13,7 @@ const BODY_CLASSES: Record<keyof HideUIElementsSettings, string> = {
 	hideCharacterCount: 'hue-hide-character-count',
 	hideFilePropertiesTab: 'hue-hide-file-properties-tab',
 	hideVaultName: 'hue-hide-vault-name',
+	plainTags: 'hue-plain-tags',
 };
 
 export default class HideUIElementsPlugin extends Plugin {
@@ -22,9 +23,32 @@ export default class HideUIElementsPlugin extends Plugin {
 		await this.loadSettings();
 		this.applyStyles();
 		this.addSettingTab(new HideUIElementsSettingTab(this.app, this));
+		// Reading view: a #word is drawn as a link to a tag search; it reads as the text it is.
+		this.registerMarkdownPostProcessor((el) => {
+			if (!this.settings.plainTags) return;
+			el.querySelectorAll('a.tag').forEach((tag) => tag.replaceWith(tag.textContent ?? ''));
+		});
+		this.app.workspace.onLayoutReady(() => this.quietTagSuggest());
+	}
+
+	/**
+	 * Obsidian's own tag suggester, the list that opens on `#` while typing (a heading's `#` before
+	 * its space too). It's known by its trigger, the last `#` before the cursor: Obsidian doesn't
+	 * export it and its class name is minified.
+	 */
+	private tagSuggest: EditorSuggest<unknown> | null = null;
+
+	private quietTagSuggest() {
+		const suggests = (this.app.workspace as unknown as { editorSuggest?: { suggests?: EditorSuggest<unknown>[] } }).editorSuggest?.suggests ?? [];
+		const tags = suggests.find((suggest) => String(Object.getPrototypeOf(suggest).onTrigger).includes('lastIndexOf("#")'));
+		if (!tags) return;
+		this.tagSuggest = tags;
+		const own = Object.getPrototypeOf(tags).onTrigger as EditorSuggest<unknown>['onTrigger'];
+		tags.onTrigger = (...args) => (this.settings.plainTags ? null : own.apply(tags, args));
 	}
 
 	onunload() {
+		if (this.tagSuggest) delete (this.tagSuggest as Partial<EditorSuggest<unknown>>).onTrigger;
 		for (const cls of Object.values(BODY_CLASSES)) {
 			document.body.classList.remove(cls);
 		}

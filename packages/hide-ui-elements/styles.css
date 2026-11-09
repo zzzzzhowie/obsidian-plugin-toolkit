@@ -11,6 +11,24 @@ body.hue-hide-character-count .status-bar-item.plugin-word-count .status-bar-ite
 body.hue-hide-file-properties-tab .workspace-tab-header[data-type="file-properties"] { display: none !important; }
 body.hue-hide-vault-name .workspace-sidedock-vault-profile { display: none !important; }
 
+/* Live Preview draws a #word as a pill from these variables (Obsidian's own .cm-hashtag rule);
+   with "Inline tags as plain text" they make it read as the text around it. Reading view gets
+   plain text instead (main.ts). */
+body.hue-plain-tags .markdown-source-view .cm-hashtag {
+	--tag-background: transparent;
+	--tag-background-hover: transparent;
+	--tag-border-width: 0;
+	--tag-padding-x: 0;
+	--tag-padding-y: 0;
+	--tag-radius: 0;
+	--tag-decoration: none;
+	--tag-decoration-hover: none;
+	color: inherit;
+	font-size: inherit;
+	font-weight: inherit;
+	cursor: text;
+}
+
 /* ==========================================================================
    Primary 主题下弹窗右上角关闭按钮的尺寸（原 fix-modal-close-button.css snippet）。
    原先还修过它的背景图重复；现在主题给的是纯色背景，那几行已不起作用，去掉了。
