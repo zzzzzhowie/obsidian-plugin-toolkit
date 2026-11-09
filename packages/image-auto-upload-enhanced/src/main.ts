@@ -27,6 +27,7 @@ import { t } from "./lang/helpers";
 import { SettingTab, PluginSettings, DEFAULT_SETTINGS } from "./setting";
 
 import type { Image } from "./types";
+import { undoWholePaste } from "./undo-paste";
 
 /**
  * How long to wait before checking whether a write actually landed. Only has to outlast
@@ -64,6 +65,11 @@ export default class imageAutoUploadPlugin extends Plugin {
     );
 
     this.addSettingTab(new SettingTab(this.app, this));
+    this.registerEditorExtension(
+      undoWholePaste(() =>
+        Array.from(this.settledPastes, (id) => imageAutoUploadPlugin.progressTextFor(id))
+      )
+    );
 
     this.addCommand({
       id: "Upload all images",
@@ -544,6 +550,9 @@ export default class imageAutoUploadPlugin extends Plugin {
     }
   }
 
+  /** Pastes whose upload is over, image in or failed; see undoWholePaste. */
+  private readonly settledPastes = new Set<string>();
+
   async uploadFileAndEmbedImgurImage(
     editor: Editor,
     callback: Function,
@@ -615,6 +624,7 @@ export default class imageAutoUploadPlugin extends Plugin {
     name: string = "",
     size: ImageSize | null = null
   ) {
+    this.settledPastes.add(pasteId);
     let progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
     const at = imageAutoUploadPlugin.findText(editor, progressText);
     if (at === null) {
@@ -725,6 +735,7 @@ export default class imageAutoUploadPlugin extends Plugin {
   handleFailedUpload(editor: Editor, pasteId: string, reason: any) {
     new Notice(reason?.message ?? String(reason));
     console.error("Failed request: ", reason);
+    this.settledPastes.add(pasteId);
     let progressText = imageAutoUploadPlugin.progressTextFor(pasteId);
     this.replaceText(editor, progressText, "⚠️upload failed, check dev console");
   }
