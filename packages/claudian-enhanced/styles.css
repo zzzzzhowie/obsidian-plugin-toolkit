@@ -281,6 +281,14 @@ button.claudian-text-copy-btn.claudian-text-copy-btn:is(:hover, :focus-visible, 
 	display: none;
 }
 
+/* Hide Claudian's own message navigation, the column of buttons over the conversation's right
+   edge (to the top, previous, outline, next, to the end): this plugin's outline (prompt-nav.ts)
+   and jump-to-latest button cover it, and Claudian's w/s keys still step through it. Doubled,
+   as above: Claudian shows it with `.claudian-nav-sidebar.visible`. */
+.claudian-nav-sidebar.claudian-nav-sidebar {
+	display: none;
+}
+
 /* Signal that the pinned prompt is the way back to the start of its turn (the click is
    handled in interceptPinnedPromptClicks). Scoped to the pinned state on purpose: an
    unpinned prompt already sits at its own position, so there is nothing to go to. Text
