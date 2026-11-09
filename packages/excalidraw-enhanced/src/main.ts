@@ -7,6 +7,7 @@ import {
 import { type Gallery, type ZoomTarget, ZoomOverlay } from "../../../shared/zoom-overlay";
 import { LabelSelection } from "../../../shared/label-selection";
 import { holdFolded, releaseFolded } from "../../../shared/sidebar-fold";
+import { CliBackground } from "./cli-background";
 import { createDrawingFromFence } from "./fence-drawing";
 import { DrawingFit } from "./fit-slider";
 import { DrawingGallery } from "./gallery";
@@ -264,6 +265,9 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			if (sidebarTimer !== null) window.clearTimeout(sidebarTimer);
 		});
 		this.app.workspace.onLayoutReady(() => this.fitSidebar(true));
+		// A drawing Claude opens through Excalidraw's CLI, to draw in, stays behind the tab in
+		// front (cli-background.ts).
+		new CliBackground(this).register();
 
 		this.applySizing();
 		// Leave the DOM as we found it.
