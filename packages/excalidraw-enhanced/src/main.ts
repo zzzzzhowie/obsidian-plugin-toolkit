@@ -39,8 +39,8 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new ExcalidrawEnhancedSettingTab(this.app, this));
 
-		// Double-click a drawing — or its zoom-in button — to open a zoomable/pannable overlay, as
-		// an image's own zoom opens; plain tap on mobile. The overlay itself is shared with
+		// Cmd/Ctrl-click a drawing — or its zoom-in button — to open a zoomable/pannable
+		// overlay; plain tap on mobile. The overlay itself is shared with
 		// Mermaid (Enhanced); only the options below are ours. `excalidraw-embedded-img` is the
 		// class Excalidraw stamps on whatever it rendered, so it covers all three preview types.
 		const gallery = new DrawingGallery(this.app);
@@ -113,7 +113,7 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		// leave be (its embeds' click handler, when the click's default isn't prevented) —
 		// Live Preview then shows it as source; a right-click's default puts the caret there
 		// too. Neither press is the editor's here: their defaults are kept from it, while the
-		// events go on as before — a double-click to zoom, and the menu (the `contextmenu`
+		// events go on as before — a Cmd/Ctrl-click to zoom, and the menu (the `contextmenu`
 		// event) still work.
 		const onDrawing = (event: MouseEvent): boolean => {
 			if (!(event.target instanceof Element)) return false;
@@ -152,8 +152,8 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 			},
 			{ capture: true },
 		);
-		// A double-click on a drawing in a note doesn't open it — Excalidraw's own does; it zooms
-		// it (ZoomOverlay), and its edit button and menu are the way in. Kept from the drawing
+		// A double-click on a drawing in a note doesn't open it — Excalidraw's own does; its
+		// edit button and menu are the way in. Kept from the drawing
 		// before it gets there.
 		this.registerDomEvent(
 			document,
@@ -371,7 +371,7 @@ export default class ExcalidrawEnhancedPlugin extends Plugin {
 		menu.addItem((item) =>
 			item.setSection("open").setTitle("Open to the right").setIcon("separator-vertical").onClick(() => open("split")),
 		);
-		// The zoom a double-click or its zoom-in button opens.
+		// The zoom a Cmd/Ctrl-click or its zoom-in button opens.
 		menu.addItem((item) =>
 			item.setSection("action-primary").setTitle("Zoom").setIcon("zoom-in").onClick(() => {
 				this.zoom?.open(img as unknown as ZoomTarget);

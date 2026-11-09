@@ -119,8 +119,8 @@ const NOTE_CONTAINER = '.workspace-leaf-content[data-type="markdown"]';
 
 /**
  * Zoom for a diagram or drawing in a note (originally the SVG half of the retired
- * image-zoom plugin), opened as an image's own is: a click selects it, a click on it selected
- * opens it — or Cmd/Ctrl-click, or the zoom-in button (zoomButton); a plain tap on mobile. A
+ * image-zoom plugin), opened by Cmd/Ctrl-click or the zoom-in button (zoomButton); a plain tap
+ * on mobile. A plain click, or a double-click, leaves it in the note. A
  * full-screen overlay holding a clone that can be zoomed (buttons / wheel-pinch / two-finger
  * pinch) and panned (drag / two-finger).
  *
@@ -182,10 +182,9 @@ export class ZoomOverlay {
 	register(): void {
 		this.createOverlay();
 
-		// Opened as an image's own zoom is (Obsidian 1.15): a click selects the drawing — a ring
-		// round it, the zoom-in cursor over it, its buttons kept showing — and a click on the
-		// selected one opens it; Cmd/Ctrl-click opens it at once. The zoom-in button a plugin
-		// gives its drawings (zoomButton) opens it too. A plain tap on mobile.
+		// Opened by Cmd/Ctrl-click, or the zoom-in button a plugin gives its drawings
+		// (zoomButton); a plain tap on mobile. Not by plain clicks: an image's way — a click
+		// selects it, a click on it selected opens it — opened it on every double-click too.
 		if (this.isMobile) {
 			this.plugin.registerDomEvent(
 				document,
@@ -202,8 +201,7 @@ export class ZoomOverlay {
 			);
 			return;
 		}
-		// Where the press went down: a click that ends a drag (text selected in a label) neither
-		// selects nor opens.
+		// Where the press went down: a click that ends a drag (text selected in a label) doesn't open.
 		let downX = 0;
 		let downY = 0;
 		this.plugin.registerDomEvent(
@@ -220,39 +218,30 @@ export class ZoomOverlay {
 					event.preventDefault();
 					event.stopPropagation();
 					event.stopImmediatePropagation();
-					return;
 				}
-				// The second press of a double-click selected the word under it — a label's — in
-				// the moment before the zoom opened. Kept from the browser.
-				if (event.detail >= 2) event.preventDefault();
 			},
 			{ capture: true },
 		);
-		// Capture phase, and stopped there when it opens the zoom: that click is the zoom's
-		// alone. The one that selects goes on, as a click on an image does.
+		// Capture phase, and stopped there: that click is the zoom's alone.
 		this.plugin.registerDomEvent(
 			document,
 			"click",
 			(event: MouseEvent) => {
-				if (event.button !== 0) return;
+				if (event.button !== 0 || !(event.metaKey || event.ctrlKey)) return;
 				const target = this.zoomTargetFor(event.target as HTMLElement);
 				if (!target) return;
 				const selection = target.ownerDocument.getSelection();
 				const dragged = Math.abs(event.clientX - downX) > 4 || Math.abs(event.clientY - downY) > 4;
 				if (dragged || (selection && !selection.isCollapsed && target.contains(selection.anchorNode))) return;
-				if (event.metaKey || event.ctrlKey || this.selected === target) {
-					event.preventDefault();
-					event.stopPropagation();
-					event.stopImmediatePropagation();
-					this.open(target);
-					return;
-				}
-				this.select(target);
+				event.preventDefault();
+				event.stopPropagation();
+				event.stopImmediatePropagation();
+				this.open(target);
 			},
 			{ capture: true },
 		);
-		// A double-click is a click that selects and one that opens. Its own event goes no
-		// further: Excalidraw opens a drawing on it, and Obsidian's in-place diagram zoom zooms.
+		// A double-click selects a word in a label, and goes no further: Excalidraw opens a
+		// drawing on it, and Obsidian's in-place diagram zoom zooms.
 		this.plugin.registerDomEvent(
 			document,
 			"dblclick",
@@ -261,24 +250,7 @@ export class ZoomOverlay {
 			},
 			{ capture: true },
 		);
-		// Unselected by a press anywhere else — but the drawing's own buttons and slider — or Esc.
-		this.plugin.registerDomEvent(
-			document,
-			"pointerdown",
-			(event: PointerEvent) => {
-				const at = event.target instanceof Element ? event.target : null;
-				if (!this.selected || (at && (this.selected.contains(at) || at.closest(".embed-actions, input[type=range]")))) return;
-				this.select(null);
-			},
-			{ capture: true },
-		);
-		this.plugin.registerDomEvent(document, "keydown", (event: KeyboardEvent) => {
-			if (event.key === "Escape" && this.selected && !this.overlay?.isShown()) this.select(null);
-		});
-		this.plugin.register(() => this.select(null));
-
-		// The zoom-in cursor over a drawing while Cmd/Ctrl is held, as over a selected one:
-		// that click opens it too. Followed as the key goes down and up, not only as the
+		// The zoom-in cursor over a drawing while Cmd/Ctrl is held: that click opens it. Followed as the key goes down and up, not only as the
 		// pointer moves (`<prefix>-zoomable`, styled by the plugin).
 		const zoomable = `${this.options.cssPrefix}-zoomable`;
 		let hovered: ZoomTarget | null = null;
@@ -297,17 +269,6 @@ export class ZoomOverlay {
 		this.plugin.registerDomEvent(document, "keyup", (event: KeyboardEvent) => hint(event.metaKey || event.ctrlKey));
 		this.plugin.registerDomEvent(window, "blur", () => hint(false));
 		this.plugin.register(() => hovered?.classList.remove(zoomable));
-	}
-
-	/** The drawing selected by a click, which the next click on it opens; see register. */
-	private selected: ZoomTarget | null = null;
-
-	/** Select `target` (styled by the plugin as `<prefix>-selected`), or nothing. */
-	private select(target: ZoomTarget | null): void {
-		const cls = `${this.options.cssPrefix}-selected`;
-		this.selected?.classList.remove(cls);
-		this.selected = target;
-		target?.classList.add(cls);
 	}
 
 	/** Open the zoom on `target`: the drawing as `inline` gives it, when it can do better. */
@@ -507,8 +468,8 @@ export class ZoomOverlay {
 		// Clone so we never mutate what is in the note, and drop the sizing that came
 		// with it (the host's own max-width, and any note-sizing rule over it).
 		const clone = target.cloneNode(true) as ZoomTarget;
-		// Not selected, nothing lit: the click that opened it selected it, a hover lit parts of it.
-		clone.classList.remove(`${this.options.cssPrefix}-selected`);
+		// Nothing lit: the Cmd/Ctrl that opened it gave it the zoom-in cursor, a hover lit parts of it.
+		clone.classList.remove(`${this.options.cssPrefix}-zoomable`);
 		this.options.unlight?.(clone);
 		const { width, height } = this.naturalSizeOf(target);
 		this.drawingSize = { width, height };

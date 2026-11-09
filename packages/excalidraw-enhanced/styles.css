@@ -88,40 +88,9 @@ body.excalidraw-enhanced-sizing
 		inset-inline-end 0.15s ease-out;
 }
 
-/*
- * Selected by a click, as an image is (a click on it selected opens the zoom; ZoomOverlay): an
- * image's own selected look, rule for rule (Obsidian's `.image-embed.is-selected .image-wrapper`
- * and its `:after`) — the corners rounded, the ring drawn inside the edge over the drawing — on
- * the box the drawing is in, which is the drawing's size. Obsidian's own class can't be borrowed:
- * it's set and taken off as the editor's selection goes.
- */
-.internal-embed > :has(> .excalidraw-embedded-img.excalidraw-zoom-selected) {
-	position: relative;
-	border-radius: 8px;
-}
-
-.excalidraw-embedded-img.excalidraw-zoom-selected {
-	border-radius: 8px;
-	overflow: hidden;
-}
-
-.internal-embed > :has(> .excalidraw-embedded-img.excalidraw-zoom-selected)::after {
-	pointer-events: none;
-	content: "";
-	position: absolute;
-	top: 0;
-	inset-inline-start: 0;
-	width: 100%;
-	height: 100%;
-	border-radius: 8px;
-	box-shadow:
-		inset 0 0 0 2px var(--text-muted),
-		inset 0 0 0 4px var(--background-primary);
-}
-
-/* The same cursor while Cmd/Ctrl is held over it, which opens it at a click. */
-.excalidraw-embedded-img:is(.excalidraw-zoom-selected, .excalidraw-zoom-zoomable),
-.excalidraw-embedded-img:is(.excalidraw-zoom-selected, .excalidraw-zoom-zoomable) * {
+/* The zoom-in cursor while Cmd/Ctrl is held over it: a click opens the zoom (ZoomOverlay). */
+.excalidraw-embedded-img.excalidraw-zoom-zoomable,
+.excalidraw-embedded-img.excalidraw-zoom-zoomable * {
 	cursor: zoom-in !important;
 }
 
@@ -131,21 +100,16 @@ body.excalidraw-enhanced-sizing
 	opacity: 0 !important;
 }
 
-.internal-embed:has(.excalidraw-zoom-selected) > .embed-actions {
-	opacity: 1;
-	pointer-events: auto;
-}
-
 /*
  * The buttons (and the slider, below) show while the pointer is on the drawing, as an image's
  * do on the image — not anywhere along the embed, which is as wide as the note: Obsidian shows
- * them on hovering that. On them, on the slider, or with the drawing selected, they stay.
+ * them on hovering that. On them, or on the slider, they stay.
  */
 .cm-content
 	.internal-embed.image-embed:has(.excalidraw-embedded-img):not(
 		.is-selected,
 		.is-resizing,
-		:has(.excalidraw-embedded-img:hover, > .embed-actions:hover, > .excalidraw-fit-slider:hover, .excalidraw-zoom-selected)
+		:has(.excalidraw-embedded-img:hover, > .embed-actions:hover, > .excalidraw-fit-slider:hover)
 	)
 	> .embed-actions {
 	opacity: 0;

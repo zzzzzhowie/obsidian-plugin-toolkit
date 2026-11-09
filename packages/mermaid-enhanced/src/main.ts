@@ -97,8 +97,8 @@ export default class MermaidEnhancedPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new MermaidEnhancedSettingTab(this.app, this));
 
-		// Double-click a diagram — or its zoom-in button — to open a zoomable/pannable overlay,
-		// as an image's own zoom opens; plain tap on mobile. The overlay itself is shared with
+		// Cmd/Ctrl-click a diagram — or its zoom-in button — to open a zoomable/pannable
+		// overlay; plain tap on mobile. The overlay itself is shared with
 		// Excalidraw (Enhanced); only the options below are ours.
 		this.zoom = new ZoomOverlay(this, {
 			target: DIAGRAM_SVG,
@@ -110,7 +110,7 @@ export default class MermaidEnhancedPlugin extends Plugin {
 			// Listed as the zoom opens, its strip there in the first frame — listed after, the
 			// diagram shrank under the strip a frame later. Listing parses the note's diagrams;
 			// they're parsed ahead, as the pointer comes onto one (prepareGallery), so it's done
-			// in no time by the double-click.
+			// in no time by the click.
 			listGalleryAtOnce: true,
 			sourceOf: (target) => this.sourceOf(target),
 			// Opened from a diagram whose dependencies a hover lit: shown with none lit.

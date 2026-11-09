@@ -209,14 +209,14 @@ Captions under images, Mermaid diagrams and Excalidraw drawings, in Live Preview
 - Captions as `%% caption: … %%`, edited and rendered like image captions.
 - In Live Preview a diagram stays a diagram: the cursor stays out of it unless you press its edit button or type in it. Its action group (caption, zoom in, edit) and the size slider sit at the block's top-right, the note's right edge, and show on hovering the block.
 - Dragging across a label selects it line by line, the way text does; Chromium put the end of a drag in a multi-line label by how far across the pointer was, on whichever line.
-- It zooms as an image does: a click selects it (ring, zoom-in cursor), a second click — or `Cmd/Ctrl`-click, or the zoom-in button — opens a zoomable, pannable overlay that pages through every diagram of the note (thumbnails, ←/→; ones with a syntax error are skipped), with selectable labels and the caption as its title.
+- `Cmd/Ctrl`-click (the zoom-in cursor shows while the key is held) or the zoom-in button opens a zoomable, pannable overlay that pages through every diagram of the note (thumbnails, ←/→; ones with a syntax error are skipped), with selectable labels and the caption as its title.
 
 ### Excalidraw (Enhanced)
 
 ![An embedded Excalidraw drawing with its caption, and the caption and edit buttons on hover](docs/images/excalidraw.png)
 
 - Embedded drawings fill the note's width by default. A size slider by the drawing's buttons, as on a Mermaid diagram, sizes one down to a share of the window's height, kept in the drawing's `excalidraw-enhanced-fit` property; it's centred in the note.
-- It zooms as Mermaid does: click to select, click again, `Cmd/Ctrl`-click or the zoom-in button to open the same overlay. While zooming, a bitmap stands in for a heavy SVG and the vector comes back once you stop, so large hand-drawn drawings zoom smoothly.
+- It zooms as Mermaid does: `Cmd/Ctrl`-click or the zoom-in button opens the same overlay; a plain click or double-click doesn't. While zooming, a bitmap stands in for a heavy SVG and the vector comes back once you stop, so large hand-drawn drawings zoom smoothly.
 - Text in a drawing (shown as SVG) can be selected by dragging, line by line, as in a Mermaid label.
 - An edit button (like Mermaid's) opens the drawing in a new tab and goes to it. Single clicks, double clicks and right-clicks no longer open the drawing by accident; right-click shows a menu for the drawing.
 - Switching to a drawing's tab folds both sidebars away, and going to another tab (or closing it) puts them back as they were. Excalidraw's hints under its toolbar are hidden, and the keys it names take the drawing's colours, not Obsidian's dark ones.
