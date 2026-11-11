@@ -8,6 +8,8 @@ interface Span {
 	after: boolean;
 	/** The note changed in a way this span couldn't follow (outside any editor): its lines may be off. */
 	stale: boolean;
+	/** Once stale, the lines it was on then: the note's text it stood on is gone. */
+	last?: { start: number; end: number };
 }
 
 /** One note's text as the spans following it stand on it, and those spans. */
@@ -85,9 +87,15 @@ export class LineTracker {
 		const version = this.versions.get(path);
 		if (!span || !version?.doc) return null;
 		const stale = span.stale || (!!doc && version.doc !== doc && !version.doc.eq(doc));
+		if (span.last) return { ...span.last, stale };
 		const text = version.doc;
-		if (span.after && span.from >= text.length) return { start: text.lines + 1, end: text.lines + 1, stale };
-		return { start: text.lineAt(Math.min(span.from, text.length)).number, end: text.lineAt(Math.min(span.to, text.length)).number, stale };
+		return { ...this.place(span, text), stale };
+	}
+
+	/** The lines `span` covers on `text`, the text it stands on. */
+	private place(span: Span, text: Text): { start: number; end: number } {
+		if (span.after && span.from >= text.length) return { start: text.lines + 1, end: text.lines + 1 };
+		return { start: text.lineAt(Math.min(span.from, text.length)).number, end: text.lineAt(Math.min(span.to, text.length)).number };
 	}
 
 	/**
@@ -113,7 +121,10 @@ export class LineTracker {
 		}
 		const caughtUp = (text: Text): boolean => text === after || text.eq(after);
 		if (caughtUp(version.doc) || version.past.some(caughtUp)) return;
-		for (const span of version.spans) span.stale = true;
+		for (const span of version.spans) {
+			span.last = this.place(span, version.doc);
+			span.stale = true;
+		}
 		// Lines followed from now on stand on the note as it is.
 		this.versions.set(path, { doc: after, past: [], spans: new Set() });
 	}

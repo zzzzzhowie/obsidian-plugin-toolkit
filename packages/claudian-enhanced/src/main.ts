@@ -1223,8 +1223,13 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// Every edit of a note, for the references following its lines.
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
-				const path = update.docChanged ? update.state.field(editorInfoField, false)?.file?.path : undefined;
+				const info = update.docChanged ? update.state.field(editorInfoField, false) : undefined;
+				const path = info?.file?.path;
 				if (!path) return;
+				// A table cell being edited is an editor of its own, carrying the note's info but
+				// only the cell's text: its edits come again as the note's, from the note's editor.
+				const note = (info.editor as unknown as { cm?: EditorView } | undefined)?.cm;
+				if (note && note !== update.view) return;
 				this.lineTracker.edited(path, update.startState.doc, update.state.doc, update.changes);
 				this.relabelTimer ??= window.setTimeout(() => {
 					this.relabelTimer = null;
