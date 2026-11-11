@@ -2734,16 +2734,22 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const open = this.openNoteKeys();
 		// The conversation each open note (or empty tab) comes back to.
 		const needed = new Set<string>();
+		const withConversation = new Set<string>();
 		for (const key of open) {
 			const id = key.startsWith(`${EMPTY_TAB}:`)
 				? this.emptyTabConversations.get(key.slice(EMPTY_TAB.length + 1))
 				: this.conversationFor(key);
-			if (id) needed.add(id);
+			if (!id) continue;
+			needed.add(id);
+			withConversation.add(key);
 		}
+		// One tab a note: a draft is kept only for a note with no conversation to come back to —
+		// a note's conversation opened beside its draft (from history, from the desktop app)
+		// takes its place, as if it had been opened in it.
 		const neededFor = (tab: ClaudianTab): boolean => {
 			if (tab.conversationId) return needed.has(tab.conversationId);
 			const key = tab.id ? this.draftTabs.get(tab.id) : undefined;
-			return key !== undefined && open.has(key);
+			return key !== undefined && open.has(key) && !withConversation.has(key);
 		};
 		const kept: ClaudianTab[] = [];
 		for (const tab of manager.getAllTabs()) {
