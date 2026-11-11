@@ -8,6 +8,7 @@ import { ConversationFind } from "./conversation-find";
 import { type ClaudianStatusSource, NoteTabStatus } from "./tab-status";
 import { type PeekSelection, SelectionPeek } from "./selection-peek";
 import { PromptNav } from "./prompt-nav";
+import { copyDesktopSession, type DesktopSession, listDesktopSessions, renderDesktopSessions } from "./desktop-sessions";
 import {
 	columnAt,
 	columnsOf,
@@ -181,6 +182,7 @@ const IMAGE_THUMB_CLS = "claudian-enhanced-image-thumb";
 const SESSION_ID_CLS = "claudian-enhanced-session-id";
 /** The button after it that forks the conversation into the Claude desktop app; see forkToDesktop. */
 const SESSION_FORK_CLS = "claudian-enhanced-session-fork";
+const DESKTOP_BTN_CLS = "claudian-enhanced-desktop-sessions";
 /** How long a copied session id says so before showing the id again (ms). */
 const COPIED_MS = 1200;
 /** The stop button at the end of the composer's toolbar, while Claudian works; see syncStopButtons. */
@@ -434,6 +436,9 @@ interface ClaudianPluginApi {
 	getConversationList?: () => ClaudianConversationSummary[];
 	/** Loads the whole conversation from disk; its summary's messageCount is right only after. */
 	getConversationById?: (id: string) => Promise<unknown>;
+	/** A new conversation; given a `sessionId`, one on that Claude Code session, read from its transcript when opened. */
+	createConversation?: (options: { providerId: string; sessionId?: string; linkedContentPath?: string }) => Promise<{ id: string }>;
+	updateConversation?: (id: string, changes: Record<string, unknown>) => Promise<void>;
 }
 
 interface ClaudianConversationSummary {
@@ -1557,6 +1562,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerInterval(
 			window.setInterval(() => {
 				this.syncSessionIds();
+				this.syncDesktopButtons();
 				this.quietEmptyMenus();
 				this.noticeNewSessions();
 				// The sidebar's draft for a chat in front is swapped in without an event of its own.
@@ -3967,6 +3973,128 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		new Notice(`Forked into Claude: ${title}`);
 	}
 
+	/**
+	 * A button beside Claudian's history, on the desktop, listing the Claude desktop app's Code
+	 * sessions: the way back from forkToDesktop. One picked is copied in and opened here.
+	 */
+	private desktopButtonsCleared = false;
+
+	private syncDesktopButtons(): void {
+		if (!Platform.isDesktopApp) return;
+		if (!this.desktopButtonsCleared) {
+			this.desktopButtonsCleared = true;
+			// Read ahead, so the first open has them already.
+			void this.readDesktopSessions().catch(() => undefined);
+			this.register(() => {
+				for (const leaf of this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW)) leaf.view.containerEl.querySelectorAll(`.${DESKTOP_BTN_CLS}`).forEach((el) => el.remove());
+			});
+		}
+		for (const leaf of this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW)) {
+			const actions = leaf.view.containerEl.querySelector<HTMLElement>(".claudian-input-nav-actions");
+			if (!actions || actions.querySelector(`:scope > .${DESKTOP_BTN_CLS}`)) continue;
+			// Built as Claudian builds its history: a drop-up container, its button, its menu.
+			const container = actions.createDiv({ cls: `claudian-history-container claudian-nav-dropup-container ${DESKTOP_BTN_CLS}` });
+			const button = container.createEl("button", { cls: "claudian-input-nav-btn", attr: { type: "button", "aria-label": "Claude desktop sessions" } });
+			setIcon(button, "monitor");
+			const menu = container.createDiv({ cls: "claudian-history-menu claudian-nav-dropup-menu" });
+			// Not off the composer: the carried selection is dropped once focus leaves it.
+			button.addEventListener("mousedown", (e) => e.preventDefault());
+			button.addEventListener("click", (e) => {
+				// Kept from the document, whose click closes it; Claudian's history closed by hand.
+				e.stopPropagation();
+				actions.querySelectorAll(".claudian-history-menu.visible").forEach((open) => open !== menu && open.removeClass("visible"));
+				if (menu.hasClass("visible")) menu.removeClass("visible");
+				else void this.showDesktopSessions(menu);
+			});
+			menu.addEventListener("click", (e) => e.stopPropagation());
+			actions.insertBefore(container, actions.querySelector(`:scope > .claudian-history-container:not(.${DESKTOP_BTN_CLS})`));
+			// Closed as Claudian closes its own: a click anywhere else, Escape.
+			const doc = actions.ownerDocument;
+			this.registerDomEvent(doc, "click", (e) => {
+				if (!container.contains(e.target as Node)) menu.removeClass("visible");
+			}, { capture: true });
+			this.registerDomEvent(doc, "keydown", (e) => {
+				if (e.key === "Escape" && menu.hasClass("visible")) menu.removeClass("visible");
+			});
+		}
+	}
+
+	/** The desktop sessions as last read: shown at once, read again behind them. */
+	private desktopSessions: DesktopSession[] | null = null;
+	private desktopSessionsRead: Promise<DesktopSession[]> | null = null;
+
+	private readDesktopSessions(): Promise<DesktopSession[]> {
+		this.desktopSessionsRead ??= listDesktopSessions().then(
+			(sessions) => {
+				this.desktopSessionsRead = null;
+				this.desktopSessions = sessions;
+				return sessions;
+			},
+			(error: unknown) => {
+				this.desktopSessionsRead = null;
+				throw error;
+			},
+		);
+		return this.desktopSessionsRead;
+	}
+
+	private async showDesktopSessions(menu: HTMLElement): Promise<void> {
+		const pick = (session: DesktopSession): void => {
+			menu.removeClass("visible");
+			void this.attachDesktopSession(session);
+		};
+		const shown = this.desktopSessions;
+		renderDesktopSessions(menu, shown, pick);
+		menu.addClass("visible");
+		try {
+			const sessions = await this.readDesktopSessions();
+			const same = shown && shown.length === sessions.length && shown.every((s, i) => s.cliSessionId === sessions[i]?.cliSessionId && s.title === sessions[i]?.title && s.lastActivityAt === sessions[i]?.lastActivityAt);
+			// Redrawn only when it changed, and kept where it was scrolled to.
+			if (same || !menu.hasClass("visible")) return;
+			const list = menu.querySelector(".claudian-history-list");
+			const top = list?.scrollTop ?? 0;
+			renderDesktopSessions(menu, sessions, pick);
+			const redrawn = menu.querySelector(".claudian-history-list");
+			if (redrawn) redrawn.scrollTop = top;
+		} catch (error) {
+			if (shown) return;
+			menu.removeClass("visible");
+			new Notice("Couldn't read the desktop app's sessions");
+			console.warn("Claudian (Enhanced): couldn't list the desktop sessions", error);
+		}
+	}
+
+	/**
+	 * Carry a desktop session on here: its transcript copied into the vault's under a new id
+	 * (the desktop one goes on as it was), made a Claudian conversation on the note in front, and
+	 * opened in its tab. Claudian reads the history from that transcript; the next prompt resumes it,
+	 * now in the vault's folder — the session's own folder is in its history for paths relative to it.
+	 */
+	private async attachDesktopSession(session: DesktopSession): Promise<void> {
+		const adapter = this.app.vault.adapter;
+		const api = (this.getClaudianLeaf()?.view as unknown as { plugin?: ClaudianPluginApi } | undefined)?.plugin;
+		const manager = this.getTabManager();
+		if (!(adapter instanceof FileSystemAdapter) || typeof api?.createConversation !== "function" || !manager?.openConversation) {
+			new Notice("Couldn't open it here: no chat view, or it has changed");
+			return;
+		}
+		let id: string;
+		try {
+			id = await copyDesktopSession(session, sessionDir(adapter));
+		} catch (error) {
+			new Notice("Couldn't copy the desktop session");
+			console.warn("Claudian (Enhanced): couldn't copy the desktop session", error);
+			return;
+		}
+		const note = this.linkedNotePath() ?? this.activeNotePath();
+		const path = note && note !== EMPTY_TAB ? note : null;
+		const conversation = await api.createConversation({ providerId: "claude", sessionId: id, ...(path ? { linkedContentPath: path } : {}) });
+		await api.updateConversation?.(conversation.id, { title: session.title, providerState: { providerSessionId: id } });
+		if (path) this.showConversation(manager, path, conversation.id);
+		else await manager.openConversation(conversation.id, { preferNewTab: true });
+		new Notice(`Opened from Claude desktop: ${session.title}`);
+	}
+
 	private copySessionId(label: HTMLElement): void {
 		const id = label.dataset.sessionId;
 		if (!id) return;
@@ -4154,6 +4282,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.scheduleFold(container);
 		this.scheduleSelectionTags();
 		this.syncSessionIds();
+		this.syncDesktopButtons();
 		this.syncStopButtons();
 		this.quietEmptyMenus();
 	}

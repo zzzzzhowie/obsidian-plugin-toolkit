@@ -61,6 +61,13 @@
 	box-shadow: none;
 }
 
+/* A highlight under the one hovered, as Obsidian's own icon buttons have, and under the one
+   whose list is open. Same specificity as the reset above, and after it, so it wins there. */
+.claudian-input-nav-btn.claudian-input-nav-btn.claudian-input-nav-btn:is(:hover, :focus-visible),
+.claudian-nav-dropup-container:has(> .claudian-nav-dropup-menu.visible) > .claudian-input-nav-btn.claudian-input-nav-btn.claudian-input-nav-btn {
+	background: var(--background-modifier-hover);
+}
+
 /* The same theme rule on the icon buttons under every prompt and reply (copy / fork /
    rewind — replies use the prompts' `.claudian-user-msg-actions` toolbar too) and on the
    copy button inside a reply's text. Claudian's resting rule for them (0,1,1) loses to the
