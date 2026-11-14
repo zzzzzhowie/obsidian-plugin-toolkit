@@ -628,37 +628,14 @@ th.claudian-enhanced-lit-cell {
 	--icon-size: var(--icon-xs);
 }
 
-/* The conversation's session id, at the far end of the row under the composer from the note
-   chip (syncSessionIds in main.ts); a click copies it. Gives way to the chip when the panel is
-   narrow, cut off at the end like the chip's own label. */
-.claudian-enhanced-session-id {
-	flex: 0 10 auto;
-	min-width: 0;
-	margin-left: auto;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	font-family: var(--font-monospace);
-	font-size: 11px;
-	color: var(--text-faint);
-	cursor: pointer;
-}
-
-.claudian-enhanced-session-id:hover {
-	color: var(--text-normal);
-}
-
-/* The fork button after it (forkToDesktop in main.ts), in the id's colour. The icon is drawn as
-   tall as the id's digits and centred on them, not on its line box: the digits sit above the
-   middle of that, so a centred icon hung low. */
+/* The fork button at the far end of the row under the composer from the note chip
+   (syncForkButtons, forkToDesktop in main.ts), faint until hovered, as the chip's text. */
 .claudian-enhanced-session-fork {
 	flex: none;
 	display: flex;
-	/* Most of the row's 12px gap: it belongs with the id, but isn't part of it. */
-	margin-left: -4px;
+	margin-left: auto;
 	color: var(--text-faint);
 	cursor: pointer;
-	transform: translateY(-0.75px);
 }
 
 .claudian-enhanced-session-fork svg {

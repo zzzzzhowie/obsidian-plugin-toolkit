@@ -172,19 +172,15 @@ const RUN_BREAK = /^(?:P|LI|UL|OL|DIV|TABLE|TR|TD|TH|H[1-6]|PRE|BLOCKQUOTE|BR|HR
  */
 const BARE_LINES = /^#\d+(?:-\d+)?/;
 /** The same in a reply's plain text: `#53` with a space after it, which Obsidian leaves as text. */
-const BARE_LINES_TEXT = /(?<![\w@/#&-])#\d+(?:-\d+)?(?![\w-])/g;
+const BARE_LINES_TEXT = /(?<![\w@/#&-])#\d+(?:-\d+)?(?![\w-]|[:.]\d)/g;
 /** Where references are looked for: a prompt's text, a reply's text. */
 const REFERENCE_TEXT = `${CLAUDIAN_USER_MESSAGE} ${CLAUDIAN_PROMPT_TEXT}, .claudian-message-assistant .claudian-text-block`;
 /** An image's chip in the composer's context row, and the picture put in it (thumbnailImageChips). */
 const IMAGE_CHIP = '.claudian-context-chip--image[data-context-slot="images"]';
 const IMAGE_THUMB_CLS = "claudian-enhanced-image-thumb";
-/** The conversation's session id at the end of the row under the composer; see syncSessionIds. */
-const SESSION_ID_CLS = "claudian-enhanced-session-id";
-/** The button after it that forks the conversation into the Claude desktop app; see forkToDesktop. */
+/** The button at the end of the row under the composer that forks the conversation into the Claude desktop app; see forkToDesktop. */
 const SESSION_FORK_CLS = "claudian-enhanced-session-fork";
 const DESKTOP_BTN_CLS = "claudian-enhanced-desktop-sessions";
-/** How long a copied session id says so before showing the id again (ms). */
-const COPIED_MS = 1200;
 /** The stop button at the end of the composer's toolbar, while Claudian works; see syncStopButtons. */
 const STOP_BTN_CLS = "claudian-enhanced-stop";
 /** On it while only background work is left (isBackgroundOnly): drawn faint. */
@@ -196,8 +192,8 @@ const STOP_POLL_MS = 300;
  * conversation of none (see leaveForEmptyTab). Falsy, and never a note's path.
  */
 const EMPTY_TAB = "";
-/** How often session ids are looked at again outside the view's mutations (ms). */
-const SESSION_ID_POLL_MS = 2000;
+/** How often the tabs' session-bound UI is looked at again outside the view's mutations (ms). */
+const SESSION_POLL_MS = 2000;
 /**
  * Most Claudian tabs kept at once, one per open note; see trimTabCache. Each keeps its
  * conversation drawn, which is what makes going back to it instant, and what it costs.
@@ -281,6 +277,42 @@ interface AppWithCommands {
 interface ClaudianTabState {
 	isStreaming?: boolean;
 	messages?: unknown[];
+}
+
+/**
+ * Files besides notes that a tab's draft links: ones Obsidian opens itself, the conversation
+ * about them as about a note. Claudian follows Markdown alone, so these are picked for it.
+ */
+const PICKED_EXTENSIONS = new Set(["base", "canvas"]);
+
+function isPickedFile(path: string): boolean {
+	return PICKED_EXTENSIONS.has(path.slice(path.lastIndexOf(".") + 1));
+}
+
+/**
+ * What a line of a Mermaid diagram (`block`, the lines between its fences) shows: its nodes'
+ * text — `LANE["PPE 分流<br/>lane-abtest-ppe"]` reads `PPE 分流 lane-abtest-ppe`, and an edge
+ * `REQ --> LANE` the text of both ends, `→` between — else the diagram's caption.
+ */
+function mermaidGist(line: string, block: string[]): string | undefined {
+	const label = (text: string): string => text.replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+	const NODE = /\b([\w-]+)\s*(?:\[\[|\[\(|\(\(|\[\/|\[\\|\{\{|[[({>])\s*"([^"]*)"/g;
+	const names = new Map<string, string>();
+	for (const text of block) for (const [, id = "", name = ""] of text.matchAll(NODE)) names.set(id, label(name));
+	const subgraph = /^\s*subgraph\s+[\w-]+\s*\[\s*"([^"]*)"/.exec(line);
+	if (subgraph?.[1]) return label(subgraph[1]);
+	// Each node the line names, in order: its text where it's given, else the text given it elsewhere.
+	const shown: string[] = [];
+	for (const [, id = "", name] of line.replace(/%%.*$/, "").matchAll(/\b([\w-]+)\b(?:\s*(?:\[\[|\[\(|\(\(|\[\/|\[\\|\{\{|[[({>])\s*"([^"]*)"[^-]*)?/g)) {
+		const text = name !== undefined ? label(name) : names.get(id);
+		if (text) shown.push(text);
+	}
+	if (shown.length) return shown.join(/--|==|-\.|~~/.test(line) ? " → " : " ");
+	for (const text of block) {
+		const caption = /^\s*%%\s*caption:\s*(.*?)\s*%%\s*$/.exec(text)?.[1];
+		if (caption) return caption;
+	}
+	return undefined;
 }
 
 /**
@@ -1557,17 +1589,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			void this.followSharedPrompt(true);
 			this.registerInterval(window.setInterval(() => void this.followSharedPrompt(false), SETTINGS_POLL_MS));
 		});
-		// The view observer shows a session id as the conversation changes, but the id can land
-		// after the reply's last mutation; see syncSessionIds.
+		// The view observer shows the fork button as the conversation changes, but its session can land
+		// after the reply's last mutation; see syncForkButtons.
 		this.registerInterval(
 			window.setInterval(() => {
-				this.syncSessionIds();
+				this.syncForkButtons();
 				this.syncDesktopButtons();
 				this.quietEmptyMenus();
 				this.noticeNewSessions();
 				// The sidebar's draft for a chat in front is swapped in without an event of its own.
 				this.unlinkTabChats();
-			}, SESSION_ID_POLL_MS),
+			}, SESSION_POLL_MS),
 		);
 		// Note tabs show how their conversations are doing. A turn starting, waiting or ending
 		// changes nothing in the workspace, so a slow look covers those; tabs coming and going
@@ -1611,7 +1643,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.shownJumps.clear();
 		// Composers of background tabs sit outside the view, so their labels go tab by tab.
 		for (const tab of this.allClaudianTabs()) {
-			for (const cls of [SESSION_ID_CLS, SESSION_FORK_CLS]) tab.dom?.infoRowEl?.querySelector(`:scope > .${cls}`)?.remove();
+			tab.dom?.infoRowEl?.querySelector(`:scope > .${SESSION_FORK_CLS}`)?.remove();
 			tab.dom?.inputWrapper?.querySelector(`.${STOP_BTN_CLS}`)?.remove();
 			const menu = tab.ui?.composerDropdown?.controller?.view;
 			const render = menu && this.quietedMenus.get(menu);
@@ -3464,7 +3496,8 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	 * Point an unsent draft's Linked content at `path`, for a note switch that Claudian's own
 	 * file-open hook missed. Goes through that same hook, so it inherits its rules: only a
 	 * draft that is still following the active note moves (a locked or hand-picked one stays
-	 * put), and an excluded or non-Markdown note links nothing. Idempotent; missing internals
+	 * put), and an excluded note links nothing; a base or a canvas is picked for it (see below),
+	 * any other file links nothing. Idempotent; missing internals
 	 * → no-op.
 	 */
 	private followNoteInDraft(path: string): void {
@@ -3478,9 +3511,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// every note opened since showed "Linked content: None". Arriving at a note is a fresh
 		// start here (a conversation with messages is replaced outright), so an empty draft
 		// follows the note again. A note picked by hand is still left where it was put.
-		if (snapshot?.mode === "explicit-draft" && snapshot.path === null) linked.resetAutoDraft?.();
+		//
+		// A base or a canvas Claudian won't follow by itself — its hook links Markdown alone, so a
+		// base's tab read "Linked content: None". It's picked for the draft instead; picked, the
+		// draft would stay on it, so leaving for another file puts it back to following first.
+		if (snapshot?.mode === "explicit-draft" && (!snapshot.path || isPickedFile(snapshot.path))) linked.resetAutoDraft?.();
 		const file = this.app.vault.getFileByPath(path);
-		if (file) linked.handleActiveFileChanged(file, true);
+		if (!file) return;
+		if (!PICKED_EXTENSIONS.has(file.extension)) linked.handleActiveFileChanged(file, true);
+		else if (linked.getSnapshot?.().mode === "auto-draft") linked.selectExplicit?.(file.path);
 	}
 
 	/**
@@ -3827,39 +3866,26 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * Show each tab's session id at the end of the row under its composer, across from the
-	 * note chip; a click copies it. Claudian empties only the chip's own slot when the note
-	 * changes, so the label stays put in the row once added. Written only when the id
-	 * changes: the view observer calls this on every mutation, its own write included.
+	 * A fork button at the end of each tab's row under its composer, across from the note chip,
+	 * once its conversation has a session to fork (forkToDesktop). Claudian empties only the
+	 * chip's own slot when the note changes, so the button stays put in the row once added.
 	 */
-	private syncSessionIds(): void {
+	private syncForkButtons(): void {
+		if (!Platform.isDesktopApp) return;
 		for (const tab of this.allClaudianTabs()) {
 			const row = tab.dom?.infoRowEl;
 			if (!(row instanceof HTMLElement)) continue;
-			const id = this.sessionIdOf(tab);
-			let label = row.querySelector<HTMLElement>(`:scope > .${SESSION_ID_CLS}`);
-			if (!id) {
-				label?.remove();
-				row.querySelector(`:scope > .${SESSION_FORK_CLS}`)?.remove();
+			const fork = row.querySelector<HTMLElement>(`:scope > .${SESSION_FORK_CLS}`);
+			if (!this.sessionIdOf(tab)) {
+				fork?.remove();
 				continue;
 			}
-			if (!label) {
-				const created = row.createDiv({ cls: SESSION_ID_CLS, attr: { role: "button", "aria-label": "Copy session ID" } });
-				// Not off the composer: a click is no reason to stop typing.
-				created.addEventListener("mousedown", (e) => e.preventDefault());
-				created.addEventListener("click", () => this.copySessionId(created));
-				label = created;
-				if (Platform.isDesktopApp) {
-					const fork = row.createDiv({ cls: SESSION_FORK_CLS, attr: { role: "button", "aria-label": "Fork into Claude desktop" } });
-					setIcon(fork, "git-fork");
-					fork.addEventListener("mousedown", (e) => e.preventDefault());
-					fork.addEventListener("click", () => void this.forkToDesktop(tab));
-				}
-			}
-			if (label.dataset.sessionId !== id) {
-				label.dataset.sessionId = id;
-				label.setText(id);
-			}
+			if (fork) continue;
+			const created = row.createDiv({ cls: SESSION_FORK_CLS, attr: { role: "button", "aria-label": "Fork into Claude desktop" } });
+			setIcon(created, "git-fork");
+			// Not off the composer: a click is no reason to stop typing.
+			created.addEventListener("mousedown", (e) => e.preventDefault());
+			created.addEventListener("click", () => void this.forkToDesktop(tab));
 		}
 	}
 
@@ -4095,15 +4121,6 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		new Notice(`Opened from Claude desktop: ${session.title}`);
 	}
 
-	private copySessionId(label: HTMLElement): void {
-		const id = label.dataset.sessionId;
-		if (!id) return;
-		void navigator.clipboard.writeText(id).then(() => {
-			label.setText("Copied");
-			window.setTimeout(() => label.setText(label.dataset.sessionId ?? ""), COPIED_MS);
-		});
-	}
-
 	private renderSelectionTag(bubble: HTMLElement, selection: SentSelection | null): void {
 		const content = bubble.querySelector<HTMLElement>(".claudian-message-content");
 		if (!content) return;
@@ -4255,7 +4272,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				this.syncJumpButton(streamed);
 			}
 			if (queued) this.handleQueueChange();
-			this.syncSessionIds();
+			this.syncForkButtons();
 			this.syncStopButtons();
 			this.quietEmptyMenus();
 			this.noticeNewSessions();
@@ -4281,7 +4298,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		// Prompts already on screen when we bind never produce a mutation of their own.
 		this.scheduleFold(container);
 		this.scheduleSelectionTags();
-		this.syncSessionIds();
+		this.syncForkButtons();
 		this.syncDesktopButtons();
 		this.syncStopButtons();
 		this.quietEmptyMenus();
@@ -4547,12 +4564,20 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		const streaming = this.streamingReplies();
 		const noteShown = new Map<Element, (path: string) => boolean>();
 		const current = this.linkedNotePath() ?? this.activeNotePath();
+		// Each reply is about its own tab's note — a tab kept for another open note included, which
+		// the active tab's says nothing of.
+		const tabs = this.allClaudianTabs();
+		const noteOf = (reply: HTMLElement): string | null => {
+			const tab = tabs.find((t) => t.dom?.messagesEl?.contains(reply));
+			return tab ? (tab.ui?.linkedContentController?.getSnapshot?.().path ?? null) : current;
+		};
 		for (const block of Array.from(blocks)) {
 			const reply = block.closest<HTMLElement>(".claudian-message-assistant");
 			if (reply && streaming.has(reply)) continue;
 			if (reply && !noteShown.has(reply)) {
-				this.expandBareLines(reply);
-				noteShown.set(reply, this.noteShownIn(reply, current));
+				const note = noteOf(reply);
+				this.expandBareLines(reply, note);
+				noteShown.set(reply, this.noteShownIn(reply, note));
 			}
 			if (!block.textContent?.includes("@")) continue;
 			const walker = block.ownerDocument.createTreeWalker(block, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
@@ -4576,7 +4601,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		for (const source of sources) {
 			for (const match of source.matchAll(REFERENCE)) {
 				const { path } = readReference(match);
-				if (this.app.vault.getFileByPath(path)) paths.add(path);
+				if (this.linkableFile(path)) paths.add(path);
 			}
 		}
 		const cross = paths.size > 1;
@@ -4584,13 +4609,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/**
-	 * A reply that has named a note (`@a.md#5-12`) often goes on giving more lines of it bare:
-	 * "move #5-453 into its own note". Obsidian draws that `#5-453` as a tag, which goes
-	 * nowhere. Each one becomes the full reference to the note named last before it, so it's
-	 * linked to those lines like the rest; with no note before it, plain text.
+	 * Lines of the conversation's own note go bare in a reply — `#5-453`, as the system prompt
+	 * asks — and only another note's carry its path (`@a.md#5-12`). Obsidian draws a bare one
+	 * as a tag, which goes nowhere. Each becomes the full reference to `note`, the
+	 * conversation's, so it's linked to those lines like the rest. With no note of its own, the
+	 * note named last before it (older replies wrote bare lines after naming one); else text.
 	 */
-	private expandBareLines(reply: HTMLElement): void {
-		let path: string | null = null;
+	private expandBareLines(reply: HTMLElement, note: string | null): void {
+		const own = note && this.app.vault.getFileByPath(note) ? note : null;
+		let path: string | null = own;
 		const walker = reply.ownerDocument.createTreeWalker(reply, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
 		const bare: { tag: Element; path: string | null }[] = [];
 		const inText: { node: Text; at: { index: number; length: number; path: string }[] }[] = [];
@@ -4603,12 +4630,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				const found = [...Array.from(node.data.matchAll(REFERENCE), (match) => ({ index: match.index, ref: match })), ...(code ? [] : Array.from(node.data.matchAll(BARE_LINES_TEXT), (match) => ({ index: match.index, bare: match[0] })))].sort((a, b) => a.index - b.index);
 				const at: { index: number; length: number; path: string }[] = [];
 				for (const hit of found) {
-					if ("ref" in hit && hit.ref) path = readReference(hit.ref).path;
+					if ("ref" in hit && hit.ref) path = own ?? readReference(hit.ref).path;
 					else if ("bare" in hit && hit.bare && path && this.app.vault.getFileByPath(path)) at.push({ index: hit.index, length: hit.bare.length, path });
 				}
 				if (at.length) inText.push({ node, at });
 			} else if (node instanceof HTMLElement) {
-				if (node.classList.contains(REFERENCE_CLS)) for (const match of (node.dataset.source ?? "").matchAll(REFERENCE)) path = readReference(match).path;
+				if (node.classList.contains(REFERENCE_CLS)) for (const match of (node.dataset.source ?? "").matchAll(REFERENCE)) path = own ?? readReference(match).path;
 				else if (node.matches("a.tag") && BARE_LINES.test(node.textContent ?? "")) bare.push({ tag: node, path: path && this.app.vault.getFileByPath(path) ? path : null });
 			}
 		}
@@ -4656,7 +4683,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		for (const match of text.matchAll(REFERENCE)) {
 			const reference = readReference(match);
 			const { path, start, end } = reference;
-			const file = this.app.vault.getFileByPath(path);
+			const file = this.linkableFile(path);
 			const from = spot(match.index, false);
 			if (!file || !from || from.node.parentElement?.closest("a, code")) continue;
 			const prompt = !!from.node.parentElement?.closest(CLAUDIAN_USER_MESSAGE);
@@ -4674,15 +4701,27 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			}
 			// A drawing reads as its name alone: its file's lines are Excalidraw's data, nothing the
 			// reader can look for, and its headings ("Text Elements") are Excalidraw's too.
+			// Any other file — a preview image — reads as its name, extension and all.
 			const drawing = /\.excalidraw(?:\.md)?$/.test(path);
-			const section = `${path}#${drawing ? file.basename.replace(/\.excalidraw$/, "") : this.sectionAt(file, start)}`;
+			const other = !drawing && file.extension !== "md" && file.extension !== "canvas";
+			const section = `${path}#${drawing ? file.basename.replace(/\.excalidraw$/, "") : other ? file.name : this.sectionAt(file, start)}`;
 			const heading = section.slice(path.length + 1);
 			// `报告生成 › LibraCM 四层任务 L197–415` when the note has to be named (noteShownIn).
-			const name = !prompt && !drawing && noteShown(path) && heading !== file.basename ? `${file.basename} › ${heading}` : heading;
+			const shown = !prompt && !drawing && !other && noteShown(path);
+			// Lines above the note's first heading are in no section: in the note the conversation is
+			// about, they read as what they say — `「time_slice_log 和线上同一个 channel」` — not `Draft L10`.
+			const untitled = !drawing && !other && !shown && heading === file.basename;
+			const name = shown && heading !== file.basename ? `${file.basename} › ${heading}` : heading;
 			const sameSection = !!item && section === previous.get(item);
 			const label = (first: number, last: number): string => {
-				const lines = drawing ? "" : linesLabel(first, last);
-				if (prompt && lines) return referenceLabel({ ...reference, start: first, end: last });
+				const lines = drawing || other ? "" : linesLabel(first, last);
+				// Whole lines picked carry no text of their own: what the first of them says, as in a reply.
+				if (prompt && lines) return referenceLabel({ ...reference, start: first, end: last, quote: reference.quote ?? (reference.columns?.length ? undefined : this.lineGist(path, first)) });
+				// In no section, the lines alone say nothing: what the first of them says, in their place.
+				if (untitled && lines) {
+					const gist = this.lineGist(path, first);
+					return gist ? referenceLabel({ path, start: 0, end: 0, quote: gist }) : lines;
+				}
 				return sameSection && lines ? lines : [name, lines].filter(Boolean).join(" ");
 			};
 			const link = from.node.ownerDocument.createElement("span");
@@ -4718,6 +4757,17 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 			range.deleteContents();
 			range.insertNode(link);
 		}
+	}
+
+	/**
+	 * The vault's file at `path`, if a reference to it is linked: a note, a canvas, a drawing, or
+	 * another file Obsidian opens itself (an image, a PDF). One it can't (JSON) stays text.
+	 */
+	private linkableFile(path: string): TFile | null {
+		const file = this.app.vault.getFileByPath(path);
+		if (!file || file.extension === "md" || file.extension === "canvas") return file;
+		const registry = (this.app as unknown as { viewRegistry?: { isExtensionRegistered(extension: string): boolean } }).viewRegistry;
+		return registry?.isExtensionRegistered(file.extension) ? file : null;
 	}
 
 	/** Link the references in Claudian's view again shortly, once for a burst of reasons. */
@@ -4834,6 +4884,39 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		return this.app.vault.cachedRead(file).then((data) => DocText.of(data.split(/\r?\n/)));
 	}
 
+	/**
+	 * What line `line` (1-based) of the note at `path` says, its Markdown marks taken out — from
+	 * a tab it's open in, else nothing: a label is drawn there and then, with no time to read.
+	 * A line of a Mermaid diagram says what the diagram shows there (mermaidGist).
+	 */
+	private lineGist(path: string, line: number): string | undefined {
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			if (!(leaf.view instanceof MarkdownView) || leaf.view.file?.path !== path) continue;
+			const doc = this.cmOf(leaf)?.state.doc;
+			const lines = doc ? doc.toString().split("\n") : leaf.view.data.split("\n");
+			const text = lines[line - 1] ?? "";
+			// The fence the line is in, if any: the line it opens on.
+			let fence: number | null = null;
+			for (let i = 0; i < line - 1 && i < lines.length; i++) if (/^\s*(?:```|~~~)/.test(lines[i] ?? "")) fence = fence === null ? i : null;
+			if (fence !== null) {
+				if (!/^\s*(?:```|~~~)\s*mermaid\b/.test(lines[fence] ?? "")) return text.trim() || undefined;
+				let close = fence + 1;
+				while (close < lines.length && !/^\s*(?:```|~~~)/.test(lines[close] ?? "")) close++;
+				return mermaidGist(text, lines.slice(fence + 1, close));
+			}
+			const gist = text
+				.replace(/!?\[\[([^\]|]*)\|?([^\]]*)\]\]/g, (_, target: string, alias: string) => alias || target)
+				.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+				.replace(/<[^>]+>/g, "")
+				.replace(/^\s*(?:[-*+]|\d+[.)]|>|#+)\s+(?:\[.\]\s+)?/, "")
+				// Not `_`: names like time_slice_log are full of them.
+				.replace(/\*+|`|~~|==/g, "")
+				.trim();
+			return gist || undefined;
+		}
+		return undefined;
+	}
+
 	/** The deepest heading above line `line` (1-based) of `file`, else the note's own name. */
 	private sectionAt(file: TFile, line: number): string {
 		let section: string | null = null;
@@ -4847,7 +4930,7 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	/**
 	 * Open the note a reference names at its first line — or, when the reference quotes text
 	 * that's no longer on its lines (the note has moved since), the line that text is on now.
-	 * A drawing or a reference without lines just opens. In a table, what it names is lit:
+	 * A drawing, an image or a reference without lines just opens. In a table, what it names is lit:
 	 * the columns of those rows it gives, or the text it quotes (lightTable).
 	 */
 	private async revealReference(reference: NoteReference, removed = false, key: string | null = null): Promise<void> {

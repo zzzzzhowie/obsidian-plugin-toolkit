@@ -9,9 +9,11 @@
 
 /**
  * A reference as insertReference writes it: `@path`, its lines (`#12` or `#12-14`), then
- * which columns and what text, if it says.
+ * which columns and what text, if it says. A reply's change list names other files the same
+ * way (`@Excalidraw/_requests/a.preview.png`): any extension, whole — `.preview` in that one
+ * is part of the name, not where it ends. Whether it's a file to link is for the caller.
  */
-export const REFERENCE = /@([^\s@][^@\n]*?\.(?:md|canvas|excalidraw(?:\.md)?))(?:#(\d+)(?:-(\d+))?)?(?: \((?:column|columns) ([^)\n]*)\))?(?: "([^"\n]*)")?/g;
+export const REFERENCE = /@([^\s@][^@\n]*?\.(?:md|canvas|excalidraw(?:\.md)?|[A-Za-z0-9]{1,10}(?![\w.-])))(?:#(\d+)(?:-(\d+))?)?(?: \((?:column|columns) ([^)\n]*)\))?(?: "([^"\n]*)")?/g;
 
 /** Lines of a note, 1-based and inclusive. */
 export interface NoteLines {
@@ -181,11 +183,14 @@ export function linesLabel(start: number, end: number): string {
 	return !start ? "" : start === end ? `L${start}` : `L${start}–${end}`;
 }
 
-/** A reference as a prompt shows it: its lines and what's selected in them — `L729 · 时间片显示 · 「局」`. */
+/** A reference as a prompt shows it: what's selected — `时间片显示 · 「局」` — else its lines, `L729`. */
 export function referenceLabel(reference: NoteReference): string {
 	const flat = reference.quote?.replace(/\s+/g, " ").trim() ?? "";
-	const short = flat.length > 20 ? `${flat.slice(0, 18)}…` : flat;
-	return [linesLabel(reference.start, reference.end), reference.columns?.join(" / "), short && `「${short}」`].filter(Boolean).join(" · ");
+	// Up to 50 characters as they are; longer, cut there.
+	const short = flat.length > 50 ? `${flat.slice(0, 50)}…` : flat;
+	// What's selected says where it is; the line numbers only when nothing else does.
+	const said = [reference.columns?.join(" / "), short && `「${short}」`].filter(Boolean).join(" · ");
+	return said || linesLabel(reference.start, reference.end);
 }
 
 /**
