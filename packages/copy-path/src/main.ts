@@ -1,4 +1,4 @@
-import { Editor, MarkdownView, Notice, Plugin, TAbstractFile } from 'obsidian';
+import { Editor, FileView, MarkdownView, Notice, Plugin, TAbstractFile } from 'obsidian';
 
 export default class CopyPathPlugin extends Plugin {
 	/**
@@ -132,8 +132,9 @@ export default class CopyPathPlugin extends Plugin {
 			}
 
 			// ── FALLBACK ──────────────────────────────────────────────────────
-			// Editor not active, no explorer selection — try whatever is open.
-			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			// Editor not active, no explorer selection — try whatever is open: a note, or any
+			// other file in a tab of its own (a base, a canvas, a PDF).
+			const activeView = this.app.workspace.getActiveViewOfType(FileView);
 			if (activeView?.file) {
 				// @ts-ignore
 				const absolutePath: string = vault.adapter.getFullPath(activeView.file.path);
