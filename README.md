@@ -116,6 +116,8 @@ sequenceDiagram
 
 Uploads images from the clipboard through PicGo and writes the hosted link into the note.
 
+- **Save image as…** in an image's right-click menu: the image is written where you choose, as the file it is — read from the vault or disk, or fetched from its hosted URL.
+
 ### Blockier (Enhanced)
 
 ```mermaid

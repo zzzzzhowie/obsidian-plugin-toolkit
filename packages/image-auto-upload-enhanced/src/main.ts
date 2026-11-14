@@ -28,6 +28,7 @@ import { SettingTab, PluginSettings, DEFAULT_SETTINGS } from "./setting";
 
 import type { Image } from "./types";
 import { undoWholePaste } from "./undo-paste";
+import { registerSaveImageAs } from "./save-image";
 
 /**
  * How long to wait before checking whether a write actually landed. Only has to outlast
@@ -56,6 +57,8 @@ export default class imageAutoUploadPlugin extends Plugin {
 
     this.helper = new Helper(this.app);
     this.picGoDeleter = new PicGoDeleter(this);
+    // "Save image as…" in Obsidian's own menu on an image in a note.
+    registerSaveImageAs(this);
 
     addIcon(
       "upload",
