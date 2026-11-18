@@ -710,12 +710,18 @@ export default class imageAutoUploadPlugin extends Plugin {
   }
 
   /**
-   * Whether `line` is a Markdown table row. The image markdown itself carries a
-   * pipe (its size suffix), so strip that occurrence first; a remaining pipe
-   * means real cell separators are present.
+   * Whether `line` is a Markdown table row: a pipe left once what can carry one
+   * without being a cell separator is taken out — the image markdown about to be
+   * replaced, every image or link already on the line (a size suffix, an alias:
+   * `![a.jpg|500x888](url)`, `![[a.png|500]]`), and escaped pipes. Only the
+   * placeholder used to be taken out, so a second image pasted after one with a
+   * size read as a table cell: glued on with `<br>`, its pipe escaped.
    */
   lineIsTableRow(line: string, imageMarkup: string): boolean {
-    const rest = imageMarkup ? line.replace(imageMarkup, "") : line;
+    const rest = (imageMarkup ? line.replace(imageMarkup, "") : line)
+      .replace(/!?\[\[[^\]]*\]\]/g, "")
+      .replace(/!?\[(?:\\.|[^\]\\])*\]\([^)]*\)/g, "")
+      .replace(/\\\|/g, "");
     return rest.includes("|");
   }
 
