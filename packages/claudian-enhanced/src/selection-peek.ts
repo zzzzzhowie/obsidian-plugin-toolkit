@@ -10,8 +10,8 @@ export interface PeekSelection {
 	label?: string;
 }
 
-/** Claudian's chip for the editor 划词 in the composer's context row. */
-const CHIP = '.claudian-context-chip[data-context-slot="editor-selection"]';
+/** Claudian's chip for the editor 划词 in the composer's context row, or the quote standing in for it (selection-quote.ts). */
+const CHIP = '.claudian-context-chip[data-context-slot="editor-selection"], .claudian-enhanced-quote';
 /** The tag under a sent prompt naming the lines it went with (main.ts, tagSentSelections). */
 const TAG = ".claudian-enhanced-selection-tag";
 const PEEK_CLS = "claudian-enhanced-peek";

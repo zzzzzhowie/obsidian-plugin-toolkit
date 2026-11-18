@@ -1029,3 +1029,34 @@ th.claudian-enhanced-lit-cell {
 	background: var(--claudian-enhanced-head-surface);
 	pointer-events: none;
 }
+
+/* ── The 划词's text as a quote in place of its chip (selection-quote.ts) ── */
+
+/* Its "N lines selected" chip is kept, hidden; a row with nothing else in it goes too. */
+.claudian-context-row.claudian-enhanced-quoted .claudian-context-chip[data-context-slot="editor-selection"],
+.claudian-context-row.claudian-enhanced-quoted[data-context-slots="editor-selection"] {
+	display: none;
+}
+
+/* In quotes behind a dotted bar, on one line: its start gives way to an ellipsis, its end stays. */
+.claudian-enhanced-quote {
+	display: flex;
+	min-width: 0;
+	margin: var(--size-4-2) var(--size-4-3) 0;
+	padding-inline-start: var(--size-4-2);
+	border-inline-start: 2px dotted var(--text-faint);
+	font-size: var(--font-ui-small);
+	font-style: italic;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.claudian-enhanced-quote-start {
+	min-width: min(50%, max-content);
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.claudian-enhanced-quote-end {
+	flex: none;
+}

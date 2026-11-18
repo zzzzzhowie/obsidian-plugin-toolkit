@@ -7,6 +7,7 @@ import { CommentSelection, type CommentSelectionTab } from "./comment-selection"
 import { ConversationFind } from "./conversation-find";
 import { type ClaudianStatusSource, NoteTabStatus } from "./tab-status";
 import { type PeekSelection, SelectionPeek } from "./selection-peek";
+import { type QuoteTab, SelectionQuote } from "./selection-quote";
 import { PromptNav } from "./prompt-nav";
 import { copyDesktopSession, type DesktopSession, listDesktopSessions, renderDesktopSessions } from "./desktop-sessions";
 import {
@@ -1243,6 +1244,10 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.app,
 		() => (this.getClaudianLeaf()?.view as unknown as ClaudianStatusSource | undefined) ?? null,
 	);
+	/** The 划词 in the composer shown as a quote of what it says; see selection-quote.ts. */
+	private readonly selectionQuote = new SelectionQuote();
+	/** Each Claudian view watched for its composers' context rows being drawn again (watchSelectionQuotes). */
+	private readonly quoteObservers = new Map<HTMLElement, MutationObserver>();
 	/** The card a hovered selection chip shows its text in; see selection-peek.ts. */
 	private readonly selectionPeek = new SelectionPeek(
 		() => this.getClaudianLeaf()?.view.containerEl ?? null,
@@ -1397,6 +1402,12 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 		this.registerDomEvent(document, "mousedown", (e) => this.selectionPeek.onMouseDown(e), { capture: true });
 		this.registerDomEvent(document, "click", (e) => this.selectionPeek.onClick(e), { capture: true });
 		this.register(() => this.selectionPeek.hide());
+		this.register(() => {
+			for (const observer of this.quoteObservers.values()) observer.disconnect();
+			this.quoteObservers.clear();
+			this.selectionQuote.clear();
+		});
+		this.app.workspace.onLayoutReady(() => this.watchSelectionQuotes());
 		// Escape cancels a live 划词 (see onEscapeCapture). Listened for on window in
 		// the capture phase so it runs regardless of where focus currently sits.
 		this.registerDomEvent(window, "keydown", this.onEscapeCapture, {
@@ -1440,9 +1451,15 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 				// containerEl) when revealed — re-bind the submit-scroll observer to it.
 				this.ensureSubmitScrollObserver();
 				this.watchTabbedClaudians();
+				this.watchSelectionQuotes();
 			}),
 		);
-		this.registerEvent(this.app.workspace.on("layout-change", () => this.watchTabbedClaudians()));
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => {
+				this.watchTabbedClaudians();
+				this.watchSelectionQuotes();
+			}),
+		);
 		this.registerDomEvent(document, "copy", (event) => this.copyReferences(event));
 		this.app.workspace.onLayoutReady(() => this.watchTabbedClaudians());
 		// Opening a note fires this immediately and exactly once, so it needs none of the
@@ -4151,6 +4168,33 @@ export default class ClaudianEnhancedPlugin extends Plugin {
 	}
 
 	/** The selection the composer carries, as the peek card shows it. */
+	/**
+	 * Each conversation tab's 划词 as a quote over its prompt (selection-quote.ts), in every
+	 * Claudian view — the sidebar's or one in a tab — redone whenever one of its composers'
+	 * context rows is drawn again.
+	 */
+	private watchSelectionQuotes(): void {
+		const sync = (): void => {
+			const tabs = this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW).flatMap((leaf) => (leaf.view as unknown as { getTabManager?: () => ClaudianTabManager | null }).getTabManager?.()?.getAllTabs?.() ?? []);
+			this.selectionQuote.sync(tabs as unknown as QuoteTab[]);
+		};
+		const containers = new Set(this.app.workspace.getLeavesOfType(CLAUDIAN_VIEW).map((leaf) => leaf.view.containerEl));
+		for (const [container, observer] of this.quoteObservers) {
+			if (containers.has(container) && container.isConnected) continue;
+			observer.disconnect();
+			this.quoteObservers.delete(container);
+		}
+		for (const container of containers) {
+			if (this.quoteObservers.has(container)) continue;
+			const observer = new MutationObserver((records) => {
+				if (records.some((record) => record.target instanceof HTMLElement && record.target.classList.contains("claudian-context-row"))) sync();
+			});
+			observer.observe(container, { childList: true, subtree: true });
+			this.quoteObservers.set(container, observer);
+		}
+		sync();
+	}
+
 	private peekForComposer(): PeekSelection | null {
 		const selection = this.getSelectionController()?.storedSelection;
 		return selection ? this.labelled(selection) : null;
